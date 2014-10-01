@@ -2,33 +2,41 @@ package metafora
 
 import (
 	"log"
+	"sort"
 	"sync"
 )
 
+type ConsumerState interface {
+	Tasks() []string
+}
+
 type Consumer struct {
+	// Func to create new handlers
 	handler HandlerFunc
+
+	// Map of task:Handler
 	running map[string]Handler
-	runL    sync.Mutex
-	hwg     sync.WaitGroup
+
+	// Mutex to protect access to running
+	runL sync.Mutex
+
+	// WaitGroup for running handlers
+	hwg sync.WaitGroup
+
+	bal   Balancer
+	coord Coordinator
 }
 
-type Handler interface {
-	// Run should block until a task is complete. If it returns nil, the task is
-	// considered complete. If error is non-nil, ...well... log it? FIXME
-	Run(taskID string) error
-
-	// Stop should signal to the handler to shutdown gracefully. Stop
-	// implementations should not block until Run exits.
-	Stop()
-}
-
-type HandlerFunc func() Handler
-
-func NewConsumer(etcdAddr string, h HandlerFunc) *Consumer {
-	return &Consumer{
+// NewConsumer returns a new consumer and calls Init on the balancer.
+func NewConsumer(coord Coordinator, h HandlerFunc, b Balancer) *Consumer {
+	c := &Consumer{
 		running: make(map[string]Handler),
 		handler: h,
+		bal:     b,
+		coord:   coord,
 	}
+	b.Init(c)
+	return c
 }
 
 func (c *Consumer) Start() {
@@ -56,7 +64,27 @@ func (c *Consumer) Shutdown() {
 	c.hwg.Wait()
 }
 
+// Tasks returns a sorted list of running Task IDs.
+func (c *Consumer) Tasks() []string {
+	c.runL.Lock()
+	defer c.runL.Unlock()
+	t := make([]string, len(c.running))
+	i := 0
+	for id, _ := range c.running {
+		t[i] = id
+		i++
+	}
+	sort.Strings(t)
+	return t
+}
+
+//TODO This needs to be split into the coord.Watch/bal.CanClaim call and the
+//     coord.Claim/h.Run call.
 func (c *Consumer) claimed(taskID string) {
+
+	if !c.bal.CanClaim(taskID) {
+		return
+	}
 
 	// Create handler
 	h := c.handler()
