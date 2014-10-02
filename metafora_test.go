@@ -13,6 +13,7 @@ func (*testCoord) Init(CoordinatorContext)  {}
 func (*testCoord) Watch() (string, error)   { return "", nil }
 func (*testCoord) Claim(string) bool        { return true }
 func (*testCoord) Command() (string, error) { return "", nil }
+func (*testCoord) Close() error             { return nil }
 
 type testHandler struct {
 	stop chan int
