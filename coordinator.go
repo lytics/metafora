@@ -1,9 +1,15 @@
 package metafora
 
+// CoordinatorContext is the context passed to coordinators by the core
+// consumer.
+type CoordinatorContext interface {
+	Logger
+}
+
 type Coordinator interface {
 	// Init is called once by the consumer to provide a Logger to Coordinator
 	// implementations.
-	Init(Logger)
+	Init(CoordinatorContext)
 
 	// Watch should do a blocking watch on the broker and return a task ID that
 	// can be claimed.

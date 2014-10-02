@@ -7,22 +7,6 @@ import (
 	"sync"
 )
 
-// ConsumerState is a limited interface exposed to Balancers for inspecting
-// Consumer state.
-type ConsumerState interface {
-	// Tasks returns a sorted list of task IDs run by this Consumer. The Consumer
-	// stops task manipulations during claiming and balancing, so the list will
-	// be accurate unless a task naturally completes.
-	Tasks() []string
-
-	Logger
-}
-
-type consumerState struct {
-	*Consumer
-	Logger
-}
-
 // Consumer is the core Metafora task runner.
 type Consumer struct {
 	// Func to create new handlers
@@ -51,7 +35,14 @@ func NewConsumer(coord Coordinator, h HandlerFunc, b Balancer) *Consumer {
 		coord:   coord,
 		logger:  &logger{l: log.New(os.Stderr, "", log.Flags()), lvl: LogLevelInfo},
 	}
-	b.Init(&consumerState{Consumer: c, Logger: newPrefixLogger(c.logger, "balancer:")})
+
+	// initialize balancer with the consumer and a prefixed logger
+	b.Init(&struct {
+		*Consumer
+		Logger
+	}{Consumer: c, Logger: newPrefixLogger(c.logger, "balancer:")})
+
+	// initialize coordinator with a logger
 	coord.Init(newPrefixLogger(c.logger, "coordinator:"))
 	return c
 }

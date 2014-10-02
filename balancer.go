@@ -1,9 +1,20 @@
 package metafora
 
+// BalancerContext is a limited interface exposed to Balancers from the
+// Consumer for access to logging and limited Consumer state.
+type BalancerContext interface {
+	// Tasks returns a sorted list of task IDs run by this Consumer. The Consumer
+	// stops task manipulations during claiming and balancing, so the list will
+	// be accurate unless a task naturally completes.
+	Tasks() []string
+
+	Logger
+}
+
 type Balancer interface {
 	// Init is called once and only once with an interface for use by CanClaim
 	// and Balance to use the state of the Consumer.
-	Init(ConsumerState)
+	Init(BalancerContext)
 
 	// CanClaim should return true if the consumer should accept a task. No new
 	// tasks will be claimed while CanClaim is called.
@@ -20,7 +31,7 @@ type Balancer interface {
 type DumbBalancer struct{}
 
 // Init does nothing.
-func (*DumbBalancer) Init(ConsumerState) {}
+func (*DumbBalancer) Init(BalancerContext) {}
 
 // CanClaim always returns true.
 func (*DumbBalancer) CanClaim(string) bool { return true }

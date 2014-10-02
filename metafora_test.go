@@ -9,10 +9,10 @@ import (
 
 type testCoord struct{}
 
-func (*testCoord) Init(Logger)       {}
-func (*testCoord) Watch() string     { return "" }
-func (*testCoord) Claim(string) bool { return true }
-func (*testCoord) Command() string   { return "" }
+func (*testCoord) Init(CoordinatorContext) {}
+func (*testCoord) Watch() string           { return "" }
+func (*testCoord) Claim(string) bool       { return true }
+func (*testCoord) Command() string         { return "" }
 
 type testHandler struct {
 	stop chan int
@@ -62,11 +62,11 @@ func TestConsumer(t *testing.T) {
 // Balancer/ConsumerState test
 
 type testBalancer struct {
-	c ConsumerState
+	c BalancerContext
 	t *testing.T
 }
 
-func (b *testBalancer) Init(c ConsumerState) { b.c = c }
+func (b *testBalancer) Init(c BalancerContext) { b.c = c }
 func (b *testBalancer) CanClaim(taskID string) bool {
 	return taskID == "ok-task"
 }
