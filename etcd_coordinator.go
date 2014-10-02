@@ -23,12 +23,19 @@ type EtcdCoordinator struct {
 	taskWatcherResponses chan *etcd.Response
 	taskWatcherErrs      chan error
 	taskWatcherStopper   chan bool
+	TaskWatcher          *Watcher
 
 	NodeId                  string
 	CommandPath             string
 	commandWatcherResponses chan *etcd.Response
 	commandWatcherErrs      chan error
 	commandWatcherStopper   chan bool
+}
+
+type Watcher func()
+type EtcdWatcher struct {
+	Watcher    Watcher
+	HasStarted bool
 }
 
 /*
@@ -119,11 +126,13 @@ func (etcd *EtcdCoordinator) Watch() (taskID string, err error) {
 // ID can be claimed. Claim returns false if another consumer has already
 // claimed the ID.
 func (etcd *EtcdCoordinator) Claim(taskID string) (bool, error) {
-	key := fmt.Sprintf("%s/%s/owner", TaskPath, taskID)
+	key := fmt.Sprintf("%s/%s/owner", etcd.TaskPath, taskID)
 	res, err := etcd.Client.CreateDir(key, uint64(CLAIM_TTL))
 	if err != nil {
+		log.Printf("Claim failed: err %v", err)
 		return false, err
 	}
+	log.Printf("Claim successful: resp %v", res)
 	return true, nil
 }
 
