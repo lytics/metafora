@@ -1,8 +1,19 @@
 package metafora
 
 import (
+	"math/rand"
 	"sort"
 	"sync"
+	"time"
+)
+
+const balanceJitterMax = 10 * int64(time.Second)
+
+var (
+	random = rand.New(rand.NewSource(time.Now().UnixNano()))
+
+	//FIXME should probably be improved, see usage in Run()
+	consumerRetryDelay = 10 * time.Second
 )
 
 // Consumer is the core Metafora task runner.
@@ -19,19 +30,23 @@ type Consumer struct {
 	// WaitGroup for running handlers
 	hwg sync.WaitGroup
 
-	bal    Balancer
-	coord  Coordinator
-	logger Logger
+	bal      Balancer
+	balEvery time.Duration
+	coord    Coordinator
+	logger   Logger
+	stop     chan struct{} // closed by Shutdown to cause Run to exit
 }
 
 // NewConsumer returns a new consumer and calls Init on the Balancer and Coordinator.
 func NewConsumer(coord Coordinator, h HandlerFunc, b Balancer) *Consumer {
 	c := &Consumer{
-		running: make(map[string]Handler),
-		handler: h,
-		bal:     b,
-		coord:   coord,
-		logger:  NewBasicLogger(),
+		running:  make(map[string]Handler),
+		handler:  h,
+		bal:      b,
+		balEvery: 15 * time.Minute, //TODO make balance wait configurable
+		coord:    coord,
+		logger:   NewBasicLogger(),
+		stop:     make(chan struct{}),
 	}
 
 	// initialize balancer with the consumer and a prefixed logger
@@ -56,11 +71,111 @@ func (c *Consumer) SetLogger(l logOutputter, lvl LogLevel) {
 	c.logger = &logger{l: l, lvl: lvl}
 }
 
-func (c *Consumer) Start() {
-	//TODO start etcd watches and call claimed for each one
+// Run is the core run loop of Metafora. It is responsible for calling into the
+// Coordinator to claim work and Balancer to rebalance work.
+//
+// Run blocks until Shutdown is called.
+func (c *Consumer) Run() {
+	// Call Balance in a goroutine
+	go func() {
+		for {
+			select {
+			case <-c.stop:
+				// Shutdown has been called.
+				return
+			case <-time.After(c.balEvery + time.Duration(random.Int63n(balanceJitterMax))):
+				c.logger.Log(LogLevelDebug, "Balancing")
+				c.bal.Balance()
+			}
+		}
+	}()
+
+	watch := make(chan string)
+	cmdChan := make(chan string)
+	cont := make(chan struct{})
+
+	go func() {
+		for {
+			task, err := c.coord.Watch()
+			if err != nil {
+				//FIXME add more sophisticated error handling
+				c.logger.Log(LogLevelError, "Coordinator returned an error during watch, waiting and retrying. %v", err)
+				select {
+				case <-c.stop:
+					return
+				case <-time.After(consumerRetryDelay):
+				}
+				continue
+			}
+			// Send task to watcher (or shutdown)
+			select {
+			case <-c.stop:
+				return
+			case watch <- task:
+			}
+			// Wait for watcher to acknowledge task before continuing (or shutdown)
+			select {
+			case <-c.stop:
+				return
+			case <-cont:
+			}
+		}
+	}()
+
+	go func() {
+		for {
+			cmd, err := c.coord.Command()
+			if err != nil {
+				//FIXME add more sophisticated error handling
+				c.logger.Log(LogLevelError, "Coordinator returned an error during command, waiting and retrying. %v", err)
+				select {
+				case <-c.stop:
+					return
+				case <-time.After(consumerRetryDelay):
+				}
+				continue
+			}
+			// Send command to watcher (or shutdown)
+			select {
+			case <-c.stop:
+				return
+			case cmdChan <- cmd:
+			}
+			// Wait for watcher to acknowledge command before continuing (or shutdown)
+			select {
+			case <-c.stop:
+				return
+			case <-cont:
+			}
+		}
+	}()
+
+	for {
+		select {
+		case <-c.stop:
+			// Shutdown has been called.
+			return
+		case task := <-watch:
+			if !c.bal.CanClaim(task) {
+				c.logger.Log(LogLevelInfo, "Balancer rejected task %s", task)
+			}
+			if !c.coord.Claim(task) {
+				c.logger.Log(LogLevelInfo, "Coordinator unable to claim task %s", task)
+			}
+			c.claimed(task)
+			cont <- struct{}{} // signal watch to continue
+		case cmd := <-cmdChan:
+			//FIXME Handle commands
+			c.logger.Log(LogLevelWarning, "Received command: %s", cmd)
+		}
+	}
 }
 
+// Shutdown stops the main Run loop, stops all handlers, and releases their
+// tasks.
 func (c *Consumer) Shutdown() {
+	c.logger.Log(LogLevelDebug, "Signalling shutdown")
+	close(c.stop)
 	c.logger.Log(LogLevelInfo, "Sending stop signal to handlers")
 	// Concurrently shutdown handles
 	wg := sync.WaitGroup{}
