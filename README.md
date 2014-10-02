@@ -1,7 +1,7 @@
 metafora
 ========
 
-[![Build Status](https://travis-ci.org/lytics/metafora.svg)](https://travis-ci.org/lytics/metafora)
+[![Build Status](https://travis-ci.org/lytics/metafora.svg)](https://travis-ci.org/lytics/metafora) [![GoDoc](https://godoc.org/github.com/lytics/metafora?status.svg)](https://godoc.org/github.com/lytics/metafora)
 
 Ordasity inspired distributed task runner.
 
