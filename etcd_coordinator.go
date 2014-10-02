@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/coreos/go-etcd/etcd"
 )
@@ -49,11 +50,14 @@ Etcd paths:
 TODO do we need a EtcdCoordinatorConfig?
 
 */
-func NewEtcdCoordinator(nodeId, namespace string, client *etcd.Client) {
+func NewEtcdCoordinator(nodeId, namespace string, client *etcd.Client) *EtcdCoordinator {
+	namespace = strings.Trim(namespace, "/ ")
 
 	if nodeId == "" {
 		os.Hostname() //TODO add a guid as a postfix, so we can run more than one node per host.
 	}
+
+	nodeId = strings.Trim(nodeId, "/ ")
 
 	etcd := &EtcdCoordinator{
 		Client:    client,
@@ -94,6 +98,8 @@ func NewEtcdCoordinator(nodeId, namespace string, client *etcd.Client) {
 			etcd.commandWatcherStopper)
 		etcd.commandWatcherErrs <- err
 	}()
+
+	return etcd
 }
 
 // Init is called once by the consumer to provide a Logger to Coordinator
@@ -115,10 +121,9 @@ func (etcd *EtcdCoordinator) Watch() (taskID string, err error) {
 			}
 
 			if resp.Node.Dir {
+				log.Println("TaskID node shouldn't be a dir but a key.")
 				taskId = resp.Node.Key
 			} else {
-				//TODO: log an error that they taskID node needs to be a dir, not a key.
-				log.Println("TaskID node needs to be a dir, not a key.")
 				taskId = resp.Node.Key
 			}
 			return taskId, nil
