@@ -85,6 +85,9 @@ func NewEtcdCoordinator(nodeId, namespace string, client *etcd.Client) *EtcdCoor
 
 	if nodeId == "" {
 		hn, _ := os.Hostname()
+		//Adding the UUID incase we run two nodes on the same box.
+		// TODO lets move this to the Readme as part of the example of calling NewEtcdCoordinator.
+		// Then just remove the Autocreated nodeId.
 		nodeId = hn + string(uuid.NewRandom())
 	}
 
@@ -108,9 +111,6 @@ func NewEtcdCoordinator(nodeId, namespace string, client *etcd.Client) *EtcdCoor
 // Init is called once by the consumer to provide a Logger to Coordinator
 // implementations.
 func (ec *EtcdCoordinator) Init(cordCtx CoordinatorContext) {
-	if cordCtx == nil || cordCtx.Log == nil {
-		panic("CoordinatorContext can't be nil.")
-	}
 
 	ec.cordCtx = cordCtx
 	ec.taskWatcher = &EtcdWatcher{

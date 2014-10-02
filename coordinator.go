@@ -23,4 +23,6 @@ type Coordinator interface {
 	// Command blocks until a command for this node is received from the broker
 	// by the coordinator.
 	Command() (cmd string, err error)
+
+	Close() error
 }
