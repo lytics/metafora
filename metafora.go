@@ -1,7 +1,9 @@
 package metafora
 
 import (
+	"fmt"
 	"log"
+	"os"
 	"sort"
 	"sync"
 )
@@ -29,8 +31,10 @@ type Consumer struct {
 	// WaitGroup for running handlers
 	hwg sync.WaitGroup
 
-	bal   Balancer
-	coord Coordinator
+	bal    Balancer
+	coord  Coordinator
+	logger logger
+	logLvl LogLevel
 }
 
 // NewConsumer returns a new consumer and calls Init on the balancer.
@@ -40,9 +44,23 @@ func NewConsumer(coord Coordinator, h HandlerFunc, b Balancer) *Consumer {
 		handler: h,
 		bal:     b,
 		coord:   coord,
+		logger:  log.New(os.Stderr, "", log.Flags()),
+		logLvl:  LogLevelInfo,
 	}
 	b.Init(c)
 	return c
+}
+
+// SetLogger assigns the logger to use as well as a level
+//
+// The logger parameter is an interface that requires the following
+// method to be implemented (such as the the stdlib log.Logger):
+//
+//    Output(calldepth int, s string)
+//
+func (c *Consumer) SetLogger(l logger, lvl LogLevel) {
+	c.logger = l
+	c.logLvl = lvl
 }
 
 func (c *Consumer) Start() {
@@ -50,7 +68,7 @@ func (c *Consumer) Start() {
 }
 
 func (c *Consumer) Shutdown() {
-	log.Println("Sending stop signal to handlers")
+	c.log(LogLevelInfo, "Sending stop signal to handlers")
 	// Concurrently shutdown handles
 	wg := sync.WaitGroup{}
 	wg.Add(len(c.running))
@@ -66,7 +84,7 @@ func (c *Consumer) Shutdown() {
 	//TODO timeout?
 	wg.Wait()
 
-	log.Println("Waiting for handlers to exit")
+	c.log(LogLevelInfo, "Waiting for handlers to exit")
 	c.hwg.Wait()
 }
 
@@ -105,7 +123,7 @@ func (c *Consumer) claimed(taskID string) {
 	go func() {
 		defer func() {
 			if err := recover(); err != nil {
-				log.Printf("Handler %s panic()'d: %v", taskID, err)
+				c.log(LogLevelError, "Handler %s panic()'d: %v", taskID, err)
 			}
 			c.runL.Lock()
 			delete(c.running, taskID)
@@ -114,11 +132,23 @@ func (c *Consumer) claimed(taskID string) {
 		}()
 
 		if err := h.Run(taskID); err != nil {
-			log.Printf("Handler for %s exited with error: %v", taskID, err)
+			c.log(LogLevelError, "Handler for %s exited with error: %v", taskID, err)
 		}
 	}()
 }
 
 func (c *Consumer) release(taskID string) {
 	//TODO release task ID
+}
+
+func (c *Consumer) log(lvl LogLevel, msg string, args ...interface{}) {
+	if c.logger == nil {
+		return
+	}
+
+	if c.logLvl > lvl {
+		return
+	}
+
+	c.logger.Output(2, fmt.Sprintf("[%s] %s", logPrefix(lvl), fmt.Sprintf(msg, args...)))
 }
