@@ -94,6 +94,7 @@ func (c *Consumer) Run() {
 	cmdChan := make(chan string)
 	cont := make(chan struct{})
 
+	// Watch for new tasks in a goroutine
 	go func() {
 		for {
 			task, err := c.coord.Watch()
@@ -122,6 +123,7 @@ func (c *Consumer) Run() {
 		}
 	}()
 
+	// Watch for new commands in a goroutine
 	go func() {
 		for {
 			cmd, err := c.coord.Command()
@@ -150,6 +152,7 @@ func (c *Consumer) Run() {
 		}
 	}()
 
+	// Main Loop
 	for {
 		select {
 		case <-c.stop:
