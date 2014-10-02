@@ -1,8 +1,6 @@
 package metafora
 
 import (
-	"log"
-	"os"
 	"sort"
 	"sync"
 )
@@ -33,7 +31,7 @@ func NewConsumer(coord Coordinator, h HandlerFunc, b Balancer) *Consumer {
 		handler: h,
 		bal:     b,
 		coord:   coord,
-		logger:  &logger{l: log.New(os.Stderr, "", log.Flags()), lvl: LogLevelInfo},
+		logger:  newBasicLogger(),
 	}
 
 	// initialize balancer with the consumer and a prefixed logger

@@ -49,30 +49,32 @@ func TestTaskWatcherEtcdCoordinatorIntegration(t *testing.T) {
 		t.Fatalf("TestFailed: TaskPath should be \"/testcluster/tasks\" but we got \"%s\"", coordinator1.TaskPath)
 	}
 
-	coordinator1.Init(nil)
+	coordinator1.Init(newBasicLogger())
 
 	watchRes := make(chan string)
+	task001 := "test-task0001"
+	fullTask001Path := coordinator1.TaskPath + "/" + task001
+	client.Delete(coordinator1.TaskPath+task001, true)
 	go func() {
 		//Watch blocks, so we need to test it in its own go routine.
 		taskId, err := coordinator1.Watch()
 		if err != nil {
 			t.Fatalf("coordinator1.Watch() returned an err: %v", err)
 		}
+		t.Logf("We got a task id from the coordinator1.Watch() res:%s", taskId)
 		watchRes <- taskId
 	}()
 
-	task001 := "test-task0001"
-	client.CreateDir(coordinator1.TaskPath+task001, 1)
+	client.CreateDir(fullTask001Path, 1)
 
 	select {
 	case taskId := <-watchRes:
 		if taskId != task001 {
 			t.Fatalf("coordinator1.Watch() test failed: We received the incorrect taskId.  Got [%s] Expected[%s]", taskId, task001)
 		}
-	case <-time.After(time.Second * 5):
+	case <-time.After(time.Second * 15):
 		t.Fatalf("coordinator1.Watch() test failed: The testcase timedout after 5 seconds.")
 	}
-
 }
 
 func isEtcdUp(client *etcd.Client, t *testing.T) bool {

@@ -1,6 +1,10 @@
 package metafora
 
-import "fmt"
+import (
+	"fmt"
+	"log"
+	"os"
+)
 
 // logging constants
 const (
@@ -52,6 +56,10 @@ func logPrefix(lvl LogLevel) string {
 type logger struct {
 	l   logOutputter
 	lvl LogLevel
+}
+
+func newBasicLogger() Logger {
+	return &logger{l: log.New(os.Stdout, "", log.Flags()), lvl: LogLevelInfo}
 }
 
 func (l *logger) Log(lvl LogLevel, msg string, args ...interface{}) {
