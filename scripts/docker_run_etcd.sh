@@ -1,3 +1,4 @@
+#!/bin/bash
 export PUBLIC_IP=`hostname --ip-address`
 
 echo You may need to run this once:
