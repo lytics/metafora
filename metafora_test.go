@@ -9,10 +9,10 @@ import (
 
 type testCoord struct{}
 
-func (*testCoord) Init(CoordinatorContext) {}
-func (*testCoord) Watch() string           { return "" }
-func (*testCoord) Claim(string) bool       { return true }
-func (*testCoord) Command() string         { return "" }
+func (*testCoord) Init(CoordinatorContext)    {}
+func (*testCoord) Watch() (string, error)     { return "", nil }
+func (*testCoord) Claim(string) (bool, error) { return true, nil }
+func (*testCoord) Command() (string, error)   { return "", nil }
 
 type testHandler struct {
 	stop chan int
