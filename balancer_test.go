@@ -1,14 +1,12 @@
-package etcd
+package metafora
 
 import (
-	"github.com/lytics/metafora"
-	"log"
 	"testing"
 )
 
 var (
-	_ metafora.BalancerContext = (*TestConsumerState)(nil)
-	_ ClusterState             = (*TestClusterState)(nil)
+	_ BalancerContext = (*TestConsumerState)(nil)
+	_ ClusterState    = (*TestClusterState)(nil)
 )
 
 func TestFairBalancerOneNode(t *testing.T) {
@@ -17,7 +15,10 @@ func TestFairBalancerOneNode(t *testing.T) {
 		Current: map[string]int{"node1": 5},
 	}
 
-	consumerstate := &TestConsumerState{[]string{"1", "2", "3", "4", "5"}, &TestLogger{}}
+	consumerstate := &TestConsumerState{
+		[]string{"1", "2", "3", "4", "5"},
+		&logger{},
+	}
 
 	fb := NewDefaultFairBalancer("node1", clusterstate)
 	fb.Init(consumerstate)
@@ -40,7 +41,10 @@ func TestFairBalanceOver(t *testing.T) {
 		},
 	}
 
-	consumerstate := &TestConsumerState{[]string{"1", "2", "3", "4", "5"}, &TestLogger{}}
+	consumerstate := &TestConsumerState{
+		[]string{"1", "2", "3", "4", "5"},
+		&logger{},
+	}
 
 	fb := NewDefaultFairBalancer("node1", clusterstate)
 	fb.Init(consumerstate)
@@ -64,7 +68,10 @@ func TestFairBalanceNothing(t *testing.T) {
 		},
 	}
 
-	consumerstate := &TestConsumerState{[]string{"1", "2", "3", "4", "5"}, &TestLogger{}}
+	consumerstate := &TestConsumerState{
+		[]string{"1", "2", "3", "4", "5"},
+		&logger{},
+	}
 
 	fb := NewDefaultFairBalancer("node1", clusterstate)
 	fb.Init(consumerstate)
@@ -96,16 +103,9 @@ func (ts *TestClusterState) NodeTaskCount() (map[string]int, error) {
 
 type TestConsumerState struct {
 	Current []string
-	metafora.Logger
+	Logger
 }
 
 func (tc *TestConsumerState) Tasks() []string {
 	return tc.Current
 }
-
-type TestLogger struct{}
-
-func (tl *TestLogger) Log(l metafora.LogLevel, s string, stuff ...interface{}) {
-	log.Printf(s, stuff...)
-}
-func (tl *TestLogger) Level() metafora.LogLevel { return metafora.LogLevelDebug }
