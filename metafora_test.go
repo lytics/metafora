@@ -7,6 +7,13 @@ import (
 
 // Handler/Consumer test
 
+type testCoord struct{}
+
+func (*testCoord) Init(Logger)       {}
+func (*testCoord) Watch() string     { return "" }
+func (*testCoord) Claim(string) bool { return true }
+func (*testCoord) Command() string   { return "" }
+
 type testHandler struct {
 	stop chan int
 	t    *testing.T
@@ -36,7 +43,7 @@ func newTestHandlerFunc(t *testing.T) HandlerFunc {
 }
 
 func TestConsumer(t *testing.T) {
-	c := NewConsumer(nil, newTestHandlerFunc(t), &DumbBalancer{})
+	c := NewConsumer(&testCoord{}, newTestHandlerFunc(t), &DumbBalancer{})
 	c.claimed("test1")
 	c.claimed("test2")
 
@@ -76,7 +83,7 @@ func (b *testBalancer) Balance() []string {
 }
 
 func TestBalancer(t *testing.T) {
-	c := NewConsumer(nil, newTestHandlerFunc(t), &testBalancer{})
+	c := NewConsumer(&testCoord{}, newTestHandlerFunc(t), &testBalancer{})
 	c.claimed("test1")
 	c.claimed("ok-task")
 	c.claimed("test2")
