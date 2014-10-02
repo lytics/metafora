@@ -1,21 +1,11 @@
 package metafora
 
 import (
-	"fmt"
 	"log"
 	"os"
 	"sort"
 	"sync"
 )
-
-// ConsumerState is a limited interface exposed to Balancers for inspecting
-// Consumer state.
-type ConsumerState interface {
-	// Tasks returns a sorted list of task IDs run by this Consumer. The Consumer
-	// stops task manipulations during claiming and balancing, so the list will
-	// be accurate unless a task naturally completes.
-	Tasks() []string
-}
 
 // Consumer is the core Metafora task runner.
 type Consumer struct {
@@ -33,21 +23,27 @@ type Consumer struct {
 
 	bal    Balancer
 	coord  Coordinator
-	logger logger
-	logLvl LogLevel
+	logger Logger
 }
 
-// NewConsumer returns a new consumer and calls Init on the balancer.
+// NewConsumer returns a new consumer and calls Init on the Balancer and Coordinator.
 func NewConsumer(coord Coordinator, h HandlerFunc, b Balancer) *Consumer {
 	c := &Consumer{
 		running: make(map[string]Handler),
 		handler: h,
 		bal:     b,
 		coord:   coord,
-		logger:  log.New(os.Stderr, "", log.Flags()),
-		logLvl:  LogLevelInfo,
+		logger:  &logger{l: log.New(os.Stderr, "", log.Flags()), lvl: LogLevelInfo},
 	}
-	b.Init(c)
+
+	// initialize balancer with the consumer and a prefixed logger
+	b.Init(&struct {
+		*Consumer
+		Logger
+	}{Consumer: c, Logger: newPrefixLogger(c.logger, "balancer:")})
+
+	// initialize coordinator with a logger
+	coord.Init(newPrefixLogger(c.logger, "coordinator:"))
 	return c
 }
 
@@ -58,9 +54,8 @@ func NewConsumer(coord Coordinator, h HandlerFunc, b Balancer) *Consumer {
 //
 //    Output(calldepth int, s string)
 //
-func (c *Consumer) SetLogger(l logger, lvl LogLevel) {
-	c.logger = l
-	c.logLvl = lvl
+func (c *Consumer) SetLogger(l logOutputter, lvl LogLevel) {
+	c.logger = &logger{l: l, lvl: lvl}
 }
 
 func (c *Consumer) Start() {
@@ -68,7 +63,7 @@ func (c *Consumer) Start() {
 }
 
 func (c *Consumer) Shutdown() {
-	c.log(LogLevelInfo, "Sending stop signal to handlers")
+	c.logger.Log(LogLevelInfo, "Sending stop signal to handlers")
 	// Concurrently shutdown handles
 	wg := sync.WaitGroup{}
 	wg.Add(len(c.running))
@@ -84,7 +79,7 @@ func (c *Consumer) Shutdown() {
 	//TODO timeout?
 	wg.Wait()
 
-	c.log(LogLevelInfo, "Waiting for handlers to exit")
+	c.logger.Log(LogLevelInfo, "Waiting for handlers to exit")
 	c.hwg.Wait()
 }
 
@@ -123,7 +118,7 @@ func (c *Consumer) claimed(taskID string) {
 	go func() {
 		defer func() {
 			if err := recover(); err != nil {
-				c.log(LogLevelError, "Handler %s panic()'d: %v", taskID, err)
+				c.logger.Log(LogLevelError, "Handler %s panic()'d: %v", taskID, err)
 			}
 			c.runL.Lock()
 			delete(c.running, taskID)
@@ -132,23 +127,11 @@ func (c *Consumer) claimed(taskID string) {
 		}()
 
 		if err := h.Run(taskID); err != nil {
-			c.log(LogLevelError, "Handler for %s exited with error: %v", taskID, err)
+			c.logger.Log(LogLevelError, "Handler for %s exited with error: %v", taskID, err)
 		}
 	}()
 }
 
 func (c *Consumer) release(taskID string) {
 	//TODO release task ID
-}
-
-func (c *Consumer) log(lvl LogLevel, msg string, args ...interface{}) {
-	if c.logger == nil {
-		return
-	}
-
-	if c.logLvl > lvl {
-		return
-	}
-
-	c.logger.Output(2, fmt.Sprintf("[%s] %s", logPrefix(lvl), fmt.Sprintf(msg, args...)))
 }
