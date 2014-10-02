@@ -46,8 +46,8 @@ No. Check back soon.
 **Q. Where is the metaforad daemon?**
 
 It doesn't exist. Metafora is library for you to import and use in a service
-you write. Metafora is handles task management, but leaves implementation
-details such as task implementation and daemonization up to the user.
+you write. Metafora handles task management but leaves implementation details
+such as task implementation and daemonization up to the user.
 
 **Q. Why not use [Ordasity](https://github.com/boundary/ordasity)?**
 
