@@ -79,7 +79,7 @@ You can use a cluster management framework to run Metafora, but you *can't* use
 Metafora as a cluster management framework.
 
 While our tasks are long lived, they're often not large or resource intensive.
-Cluster management frameworks smallest unit of work tends to be an operating
+Cluster management frameworks' smallest unit of work tends to be an operating
 system process. We wanted to run many tasks per process.
 
 Cluster management frameworks are quite large in terms of code and operational
