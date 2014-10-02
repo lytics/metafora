@@ -31,11 +31,18 @@ func TestEtcdCoordinator(t *testing.T) {
 		return
 	}
 
+	insureEtcdIsUp(client, peers, t)
+
+}
+
+func insureEtcdIsUp(client *etcd.Client, peers []string, t *testing.T) bool {
+	client.Create("/foo", "test", 1)
 	res, err := client.Get("/foo", false, false)
 	if err != nil {
 		t.Errorf("Cannot sync with the cluster using peers %s error:%v", strings.Join(peers, ", "), err)
-		return
+		return false
 	} else {
-		fmt.Println(fmt.Sprintf("%v", res))
+		t.Log(fmt.Sprintf("Res:[Action:%s Key:%s Value:%s tll:%d]", res.Action, res.Node.Key, res.Node.Value, res.Node.TTL))
+		return true
 	}
 }

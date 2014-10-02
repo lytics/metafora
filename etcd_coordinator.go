@@ -96,6 +96,12 @@ func NewEtcdCoordinator(nodeId, namespace string, client *etcd.Client) {
 	}()
 }
 
+// Init is called once by the consumer to provide a Logger to Coordinator
+// implementations.
+func (etcd *EtcdCoordinator) Init(CoordinatorContext) {
+
+}
+
 // Watch should do a blocking watch on the broker and return a task ID that
 // can be claimed.
 func (etcd *EtcdCoordinator) Watch() (taskID string, err error) {
