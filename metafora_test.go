@@ -1,27 +1,51 @@
 package metafora
 
 import (
+	"errors"
 	"testing"
 	"time"
 )
 
 // Handler/Consumer test
 
-type testCoord struct{}
+type testCoord struct {
+	tasks    chan string // will be returned in order, "" indicates return an error
+	commands chan string
+}
 
-func (*testCoord) Init(CoordinatorContext)  {}
-func (*testCoord) Watch() (string, error)   { return "", nil }
-func (*testCoord) Claim(string) bool        { return true }
-func (*testCoord) Command() (string, error) { return "", nil }
-func (*testCoord) Close() error             { return nil }
+func newTestCoord() *testCoord {
+	return &testCoord{tasks: make(chan string, 10), commands: make(chan string, 10)}
+}
+
+func (*testCoord) Init(CoordinatorContext) {}
+func (*testCoord) Claim(string) bool       { return true }
+func (*testCoord) Close() error            { return nil }
+
+func (c *testCoord) Watch() (string, error) {
+	task := <-c.tasks
+	if task == "" {
+		return "", errors.New("test error")
+	}
+	return task, nil
+}
+
+func (c *testCoord) Command() (string, error) {
+	cmd := <-c.commands
+	if cmd == "" {
+		return "", errors.New("test error")
+	}
+	return cmd, nil
+}
 
 type testHandler struct {
-	stop chan int
-	t    *testing.T
-	id   string
+	stop     chan int
+	t        *testing.T
+	id       string
+	tasksRun chan string
 }
 
 func (h *testHandler) Run(id string) error {
+	h.tasksRun <- id
 	h.id = id
 	h.t.Logf("Run(%s)", id)
 	<-h.stop
@@ -34,29 +58,77 @@ func (h *testHandler) Stop() {
 	close(h.stop)
 }
 
-func newTestHandlerFunc(t *testing.T) HandlerFunc {
+func newTestHandlerFunc(t *testing.T) (HandlerFunc, chan string) {
+	tasksRun := make(chan string, 10)
 	return func() Handler {
 		return &testHandler{
-			stop: make(chan int),
-			t:    t,
+			stop:     make(chan int),
+			t:        t,
+			tasksRun: tasksRun,
 		}
-	}
+	}, tasksRun
 }
 
+// TestConsumer ensures the consumers main loop properly handles tasks as well
+// as errors and Shutdown.
 func TestConsumer(t *testing.T) {
-	c := NewConsumer(&testCoord{}, newTestHandlerFunc(t), &DumbBalancer{})
-	c.claimed("test1")
-	c.claimed("test2")
+	//FIXME hack retry delay for quicker error testing
+	origCRD := consumerRetryDelay
+	consumerRetryDelay = 10 * time.Millisecond
+	defer func() { consumerRetryDelay = origCRD }()
 
+	// Setup some tasks to run in a fake coordinator
+	tc := newTestCoord()
+	tc.tasks <- "test1"
+	tc.tasks <- "" // cause an error which should be a noop
+	tc.tasks <- "test2"
+
+	// Setup a handler func that lets us know what tasks are running
+	hf, tasksRun := newTestHandlerFunc(t)
+
+	// Create the consumer and run it
+	c := NewConsumer(tc, hf, &DumbBalancer{})
 	s := make(chan int)
+	start := time.Now()
+	go func() {
+		c.Run()
+		s <- 1
+	}()
+
+	for i := 0; i < 2; i++ {
+		select {
+		case <-s:
+			t.Fatalf("Run exited early")
+		case tr := <-tasksRun:
+			if tr != "test1" && tr != "test2" {
+				t.Errorf("Expected `test1` or `test2` but received: %s", tr)
+			}
+		case <-time.After(100 * time.Millisecond):
+			t.Errorf("First task didn't execute in a timely fashion")
+		}
+	}
+
+	//FIXME ensure we waited the retry delay as a way to test for error handling
+	if time.Now().Sub(start) < consumerRetryDelay {
+		t.Error("Consumer didn't pause before retrying after an error")
+	}
+
+	// Ensure Tasks() is accurate
+	tasks := c.Tasks()
+	if len(tasks) != 2 {
+		t.Errorf("Expected 2 tasks to be running but found: %v", tasks)
+	}
+
 	go func() {
 		c.Shutdown()
-		close(s)
+		s <- 1
 	}()
-	select {
-	case <-s:
-	case <-time.After(100 * time.Millisecond):
-		t.Errorf("Shutdown didn't finish in a timely fashion")
+	for i := 0; i < 2; i++ {
+		select {
+		case <-s:
+		case <-time.After(100 * time.Millisecond):
+			t.Errorf("Run and Shutdown didn't finish in a timely fashion")
+		}
 	}
 }
 
@@ -84,7 +156,8 @@ func (b *testBalancer) Balance() []string {
 }
 
 func TestBalancer(t *testing.T) {
-	c := NewConsumer(&testCoord{}, newTestHandlerFunc(t), &testBalancer{})
+	hf, _ := newTestHandlerFunc(t)
+	c := NewConsumer(newTestCoord(), hf, &testBalancer{})
 	c.claimed("test1")
 	c.claimed("ok-task")
 	c.claimed("test2")
