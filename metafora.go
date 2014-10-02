@@ -6,10 +6,16 @@ import (
 	"sync"
 )
 
+// ConsumerState is a limited interface exposed to Balancers for inspecting
+// Consumer state.
 type ConsumerState interface {
+	// Tasks returns a sorted list of task IDs run by this Consumer. The Consumer
+	// stops task manipulations during claiming and balancing, so the list will
+	// be accurate unless a task naturally completes.
 	Tasks() []string
 }
 
+// Consumer is the core Metafora task runner.
 type Consumer struct {
 	// Func to create new handlers
 	handler HandlerFunc

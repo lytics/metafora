@@ -10,12 +10,20 @@ type Balancer interface {
 	CanClaim(taskID string) bool
 
 	// Balance should return the list of Task IDs that should be released. No new
-	// tasks will be claimed during balancing.
+	// tasks will be claimed during balancing. The criteria used to determine
+	// which tasks should be released is left up to the implementation.
 	Balance() (release []string)
 }
 
+// DumbBalancer is the simplest possible balancer implementation which simply
+// accepts all tasks.
 type DumbBalancer struct{}
 
-func (*DumbBalancer) Init(ConsumerState)   {}
+// Init does nothing.
+func (*DumbBalancer) Init(ConsumerState) {}
+
+// CanClaim always returns true.
 func (*DumbBalancer) CanClaim(string) bool { return true }
-func (*DumbBalancer) Balance() []string    { return nil }
+
+// Balance never returns any tasks to balance.
+func (*DumbBalancer) Balance() []string { return nil }
