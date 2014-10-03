@@ -1,4 +1,4 @@
-package metafora
+package m_etcd
 
 import (
 	"fmt"
@@ -8,6 +8,7 @@ import (
 	"code.google.com/p/go-uuid/uuid"
 
 	"github.com/coreos/go-etcd/etcd"
+	"github.com/lytics/metafora"
 )
 
 const (
@@ -19,7 +20,7 @@ const (
 
 type EtcdCoordinator struct {
 	Client    *etcd.Client
-	cordCtx   CoordinatorContext
+	cordCtx   metafora.CoordinatorContext
 	Namespace string
 	TaskPath  string
 
@@ -30,9 +31,9 @@ type EtcdCoordinator struct {
 	commandWatcher *EtcdWatcher
 }
 
-type Watcher func(cordCtx CoordinatorContext)
+type Watcher func(cordCtx metafora.CoordinatorContext)
 type EtcdWatcher struct {
-	cordCtx      CoordinatorContext
+	cordCtx      metafora.CoordinatorContext
 	path         string
 	responseChan chan *etcd.Response
 	stopChan     chan bool
@@ -110,7 +111,7 @@ func NewEtcdCoordinator(nodeId, namespace string, client *etcd.Client) *EtcdCoor
 
 // Init is called once by the consumer to provide a Logger to Coordinator
 // implementations.
-func (ec *EtcdCoordinator) Init(cordCtx CoordinatorContext) {
+func (ec *EtcdCoordinator) Init(cordCtx metafora.CoordinatorContext) {
 
 	ec.cordCtx = cordCtx
 	ec.taskWatcher = &EtcdWatcher{
@@ -143,7 +144,7 @@ func (ec *EtcdCoordinator) Watch() (taskID string, err error) {
 		select {
 		case resp := <-ec.taskWatcher.responseChan:
 			taskId := ""
-			ec.cordCtx.Log(LogLevelDebug, "New response from %s, res %v", ec.TaskPath, resp)
+			ec.cordCtx.Log(metafora.LogLevelDebug, "New response from %s, res %v", ec.TaskPath, resp)
 			if resp.Action != "create" {
 				continue
 			}
@@ -157,7 +158,7 @@ func (ec *EtcdCoordinator) Watch() (taskID string, err error) {
 				continue
 			}
 			if !resp.Node.Dir {
-				ec.cordCtx.Log(LogLevelWarning, "TaskID node shouldn't be a directory but a key.")
+				ec.cordCtx.Log(metafora.LogLevelWarning, "TaskID node shouldn't be a directory but a key.")
 			}
 			taskId = taskpath[len(taskpath)-1]
 
@@ -175,10 +176,10 @@ func (ec *EtcdCoordinator) Claim(taskID string) bool {
 	key := fmt.Sprintf("%s/%s/owner", ec.TaskPath, taskID)
 	res, err := ec.Client.CreateDir(key, CLAIM_TTL)
 	if err != nil {
-		ec.cordCtx.Log(LogLevelDebug, "Claim failed: err %v", err)
+		ec.cordCtx.Log(metafora.LogLevelDebug, "Claim failed: err %v", err)
 		return false
 	}
-	ec.cordCtx.Log(LogLevelDebug, "Claim successful: resp %v", res)
+	ec.cordCtx.Log(metafora.LogLevelDebug, "Claim successful: resp %v", res)
 	return true
 }
 

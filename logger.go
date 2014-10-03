@@ -58,7 +58,7 @@ type logger struct {
 	lvl LogLevel
 }
 
-func newBasicLogger() Logger {
+func NewBasicLogger() Logger {
 	return &logger{l: log.New(os.Stdout, "", log.Flags()), lvl: LogLevelInfo}
 }
 
@@ -84,7 +84,7 @@ type prefixLogger struct {
 	p string
 }
 
-func newPrefixLogger(l Logger, p string) Logger {
+func NewPrefixLogger(l Logger, p string) Logger {
 	return &prefixLogger{Logger: l, p: p}
 }
 

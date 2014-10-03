@@ -1,15 +1,14 @@
-package etcd
+package m_etcd
 
 import (
 	"fmt"
+
 	"github.com/coreos/go-etcd/etcd"
 	"github.com/lytics/metafora"
-	"math"
-	"math/rand"
 )
 
-func NewEtcdFairBalancer(nodeid, namespace string, client *etcd.Client) *FairBalancer {
-	return NewDefaultFairBalancer(nodeid, &EtcdClusterState{client, namespace})
+func NewEtcdFairBalancer(nodeid, namespace string, client *etcd.Client) *metafora.FairBalancer {
+	return metafora.NewDefaultFairBalancer(nodeid, &EtcdClusterState{client, namespace})
 }
 
 // Checks the current state of an Etcd cluster
