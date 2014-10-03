@@ -2,8 +2,10 @@ package metafora
 
 import (
 	"fmt"
-	"log"
 	"os"
+	"strings"
+
+	"code.google.com/p/go-uuid/uuid"
 
 	"github.com/coreos/go-etcd/etcd"
 )
@@ -12,30 +14,59 @@ const (
 	TASKS_PATH   = "tasks"
 	COMMAND_PATH = "commands"
 	NODES_PATH   = "nodes"
-	CLAIM_TTL    = 120 //seconds
+	CLAIM_TTL    = uint64(120) //seconds
 )
 
 type EtcdCoordinator struct {
 	Client    *etcd.Client
+	cordCtx   CoordinatorContext
 	Namespace string
 	TaskPath  string
 
-	taskWatcherResponses chan *etcd.Response
-	taskWatcherErrs      chan error
-	taskWatcherStopper   chan bool
-	TaskWatcher          *Watcher
+	taskWatcher *EtcdWatcher
 
-	NodeId                  string
-	CommandPath             string
-	commandWatcherResponses chan *etcd.Response
-	commandWatcherErrs      chan error
-	commandWatcherStopper   chan bool
+	NodeId         string
+	CommandPath    string
+	commandWatcher *EtcdWatcher
 }
 
-type Watcher func()
+type Watcher func(cordCtx CoordinatorContext)
 type EtcdWatcher struct {
-	Watcher    Watcher
-	HasStarted bool
+	cordCtx      CoordinatorContext
+	path         string
+	responseChan chan *etcd.Response
+	stopChan     chan bool
+	errorChan    chan error
+	client       *etcd.Client
+}
+
+func (w *EtcdWatcher) StartWatching() {
+	go func() {
+		const recursive = true
+		const raftIndex = uint64(0) //0 == latest version
+
+		//TODO, Im guessing that watch only picks up new nodes.
+		//   We need to manually do an ls at startup and dump the results to taskWatcherResponses,
+		//   after we filter out all non-claimed tasks.
+		_, err := w.client.Watch(
+			w.path,
+			raftIndex,
+			recursive,
+			w.responseChan,
+			w.stopChan)
+		w.errorChan <- err
+	}()
+}
+
+func (w *EtcdWatcher) Close() error {
+	w.stopChan <- true
+
+	select {
+	case err := <-w.errorChan:
+		return err
+	default:
+	}
+	return nil
 }
 
 /*
@@ -49,74 +80,89 @@ Etcd paths:
 TODO do we need a EtcdCoordinatorConfig?
 
 */
-func NewEtcdCoordinator(nodeId, namespace string, client *etcd.Client) {
+func NewEtcdCoordinator(nodeId, namespace string, client *etcd.Client) *EtcdCoordinator {
+	namespace = strings.Trim(namespace, "/ ")
 
 	if nodeId == "" {
-		os.Hostname() //TODO add a guid as a postfix, so we can run more than one node per host.
+		hn, _ := os.Hostname()
+		//Adding the UUID incase we run two nodes on the same box.
+		// TODO lets move this to the Readme as part of the example of calling NewEtcdCoordinator.
+		// Then just remove the Autocreated nodeId.
+		nodeId = hn + string(uuid.NewRandom())
 	}
+
+	nodeId = strings.Trim(nodeId, "/ ")
 
 	etcd := &EtcdCoordinator{
 		Client:    client,
 		Namespace: namespace,
 
-		TaskPath:             fmt.Sprintf("/%s/%s", namespace, TASKS_PATH),
-		taskWatcherResponses: make(chan *etcd.Response),
-		taskWatcherErrs:      make(chan error, 1),
-		taskWatcherStopper:   make(chan bool),
+		TaskPath:    fmt.Sprintf("/%s/%s", namespace, TASKS_PATH),
+		taskWatcher: nil,
 
-		NodeId:                  nodeId,
-		CommandPath:             fmt.Sprintf("/%s/%s/%s/%s", namespace, NODES_PATH, nodeId, COMMAND_PATH),
-		commandWatcherResponses: make(chan *etcd.Response),
-		commandWatcherErrs:      make(chan error, 1),
-		commandWatcherStopper:   make(chan bool),
+		NodeId:         nodeId,
+		CommandPath:    fmt.Sprintf("/%s/%s/%s/%s", namespace, NODES_PATH, nodeId, COMMAND_PATH),
+		commandWatcher: nil,
 	}
 
-	// Listens to a path like /{namespace}/tasks
-	go func() {
-		//TODO, Im guessing that watch only picks up new nodes.
-		//   We need to manually do an ls at startup and dump the results to taskWatcherResponses,
-		//   after we filter out all non-claimed tasks.
-		_, err := client.Watch(
-			etcd.TaskPath,
-			uint64(0), /*get latest version*/
-			false,     /*not recursive*/
-			etcd.taskWatcherResponses,
-			etcd.taskWatcherStopper)
-		etcd.taskWatcherErrs <- err
-	}()
+	return etcd
+}
 
-	go func() {
-		_, err := client.Watch(
-			etcd.CommandPath,
-			uint64(0), /*get latest version*/
-			false,     /*not recursive*/
-			etcd.commandWatcherResponses,
-			etcd.commandWatcherStopper)
-		etcd.commandWatcherErrs <- err
-	}()
+// Init is called once by the consumer to provide a Logger to Coordinator
+// implementations.
+func (ec *EtcdCoordinator) Init(cordCtx CoordinatorContext) {
+
+	ec.cordCtx = cordCtx
+	ec.taskWatcher = &EtcdWatcher{
+		cordCtx:      cordCtx,
+		path:         ec.TaskPath,
+		responseChan: make(chan *etcd.Response),
+		stopChan:     make(chan bool),
+		errorChan:    make(chan error),
+		client:       ec.Client,
+	}
+
+	ec.commandWatcher = &EtcdWatcher{
+		cordCtx:      cordCtx,
+		path:         ec.CommandPath,
+		responseChan: make(chan *etcd.Response),
+		stopChan:     make(chan bool),
+		errorChan:    make(chan error),
+		client:       ec.Client,
+	}
+	//start up the watchers.
+	//  Doing this in Init() incase we need access to the Ctx object...
+	ec.taskWatcher.StartWatching()
+	ec.commandWatcher.StartWatching()
 }
 
 // Watch should do a blocking watch on the broker and return a task ID that
 // can be claimed.
-func (etcd *EtcdCoordinator) Watch() (taskID string, err error) {
+func (ec *EtcdCoordinator) Watch() (taskID string, err error) {
 	for {
 		select {
-		case resp := <-etcd.taskWatcherResponses:
+		case resp := <-ec.taskWatcher.responseChan:
 			taskId := ""
-			log.Printf("New response from %s, res %v", etcd.TaskPath, resp)
+			ec.cordCtx.Log(LogLevelDebug, "New response from %s, res %v", ec.TaskPath, resp)
 			if resp.Action != "create" {
 				continue
 			}
-
-			if resp.Node.Dir {
-				taskId = resp.Node.Key
-			} else {
-				//TODO: log an error that they taskID node needs to be a dir, not a key.
-				log.Println("TaskID node needs to be a dir, not a key.")
-				taskId = resp.Node.Key
+			if resp.Node == nil {
+				//TODO log
+				continue
 			}
+			taskpath := strings.Split(resp.Node.Key, "/")
+			if len(taskpath) == 0 {
+				//TODO log
+				continue
+			}
+			if !resp.Node.Dir {
+				ec.cordCtx.Log(LogLevelWarning, "TaskID node shouldn't be a directory but a key.")
+			}
+			taskId = taskpath[len(taskpath)-1]
+
 			return taskId, nil
-		case err := <-etcd.taskWatcherErrs:
+		case err := <-ec.taskWatcher.errorChan:
 			return "", err
 		}
 	}
@@ -125,44 +171,43 @@ func (etcd *EtcdCoordinator) Watch() (taskID string, err error) {
 // Claim is called by the Consumer when a Balancer has determined that a task
 // ID can be claimed. Claim returns false if another consumer has already
 // claimed the ID.
-func (etcd *EtcdCoordinator) Claim(taskID string) (bool, error) {
-	key := fmt.Sprintf("%s/%s/owner", etcd.TaskPath, taskID)
-	res, err := etcd.Client.CreateDir(key, uint64(CLAIM_TTL))
+func (ec *EtcdCoordinator) Claim(taskID string) bool {
+	key := fmt.Sprintf("%s/%s/owner", ec.TaskPath, taskID)
+	res, err := ec.Client.CreateDir(key, CLAIM_TTL)
 	if err != nil {
-		log.Printf("Claim failed: err %v", err)
-		return false, err
+		ec.cordCtx.Log(LogLevelDebug, "Claim failed: err %v", err)
+		return false
 	}
-	log.Printf("Claim successful: resp %v", res)
-	return true, nil
+	ec.cordCtx.Log(LogLevelDebug, "Claim successful: resp %v", res)
+	return true
 }
 
 // Command blocks until a command for this node is received from the broker
 // by the coordinator.
-func (etcd *EtcdCoordinator) Command() (cmd string, err error) {
+func (ec *EtcdCoordinator) Command() (cmd string, err error) {
+
+	return "", nil
+	/*  TODO 1) cleanup the log here to match that of Watch
+	         2) discuss the schema for the command channel...
+	         3) Add code to the close method.
 	select {
-	case resp := <-etcd.commandWatcherResponses:
+	case resp := <-ec.commandWatcherResponses:
 		taskId := ""
 		if resp.Node.Dir {
 			taskId = resp.Node.Key
 		} else {
-			//TODO: log an error that they taskID node needs to be a dir, not a key.
-			log.Println("Command node needs to be a dir, not a key.")
+			ec.cordCtx.Log(LogLevelWarning, "Command node needs to be a dir, not a key.")
 			taskId = resp.Node.Key
 		}
 		return taskId, nil
-	case err := <-etcd.commandWatcherErrs:
+	case err := <-ec.commandWatcherErrs:
 		return "", err
 	}
+	*/
 }
 
-func (etcd *EtcdCoordinator) Close() error {
-	etcd.taskWatcherStopper <- true
-
-	select {
-	case err := <-etcd.taskWatcherErrs:
-		return err
-	default:
-	}
-
+func (ec *EtcdCoordinator) Close() error {
+	ec.taskWatcher.Close()
+	ec.commandWatcher.Close()
 	return nil
 }
