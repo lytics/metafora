@@ -8,7 +8,6 @@ import (
 )
 
 var (
-	random = rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	// balance calls are randomized and this is the upper bound of the random
 	// amount
@@ -85,12 +84,13 @@ func (c *Consumer) SetLogger(l logOutputter, lvl LogLevel) {
 func (c *Consumer) Run() {
 	// Call Balance in a goroutine
 	go func() {
+		randInt := rand.New(rand.NewSource(time.Now().UnixNano())).Int63n
 		for {
 			select {
 			case <-c.stop:
 				// Shutdown has been called.
 				return
-			case <-time.After(c.balEvery + time.Duration(random.Int63n(balanceJitterMax))):
+			case <-time.After(c.balEvery + time.Duration(randInt(balanceJitterMax))):
 				c.logger.Log(LogLevelDebug, "Balancing")
 				for _, task := range c.bal.Balance() {
 					// Release tasks asynchronously as their shutdown might be slow
