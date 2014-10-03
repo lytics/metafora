@@ -118,6 +118,10 @@ func (c *Consumer) Run() {
 				}
 				continue
 			}
+			if task == "" {
+				c.logger.Log(LogLevelDebug, "Coordinator has closed, exiting watch loop")
+				return
+			}
 			// Send task to watcher (or shutdown)
 			select {
 			case <-c.stop:
