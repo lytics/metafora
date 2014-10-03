@@ -183,8 +183,10 @@ func (ec *EtcdCoordinator) Claim(taskID string) bool {
 	return true
 }
 
+// Release deletes the claim directory.
 func (ec *EtcdCoordinator) Release(taskID string) {
 	key := fmt.Sprintf("%s/%s/owner", ec.TaskPath, taskID)
+	//FIXME Conditionally delete only if this node is actually the owner
 	_, err := ec.Client.DeleteDir(key)
 	if err != nil {
 		//TODO Pause and retry?!
