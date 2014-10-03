@@ -7,14 +7,21 @@ import (
 	"time"
 )
 
-const balanceJitterMax = 10 * int64(time.Second)
-
 var (
 	random = rand.New(rand.NewSource(time.Now().UnixNano()))
+
+	// balance calls are randomized and this is the upper bound of the random
+	// amount
+	balanceJitterMax = 10 * int64(time.Second)
 
 	//FIXME should probably be improved, see usage in Run()
 	consumerRetryDelay = 10 * time.Second
 )
+
+type runningTask struct {
+	h Handler
+	c chan struct{}
+}
 
 // Consumer is the core Metafora task runner.
 type Consumer struct {
@@ -22,7 +29,7 @@ type Consumer struct {
 	handler HandlerFunc
 
 	// Map of task:Handler
-	running map[string]Handler
+	running map[string]runningTask
 
 	// Mutex to protect access to running
 	runL sync.Mutex
@@ -40,7 +47,7 @@ type Consumer struct {
 // NewConsumer returns a new consumer and calls Init on the Balancer and Coordinator.
 func NewConsumer(coord Coordinator, h HandlerFunc, b Balancer) *Consumer {
 	c := &Consumer{
-		running:  make(map[string]Handler),
+		running:  make(map[string]runningTask),
 		handler:  h,
 		bal:      b,
 		balEvery: 15 * time.Minute, //TODO make balance wait configurable
@@ -85,7 +92,10 @@ func (c *Consumer) Run() {
 				return
 			case <-time.After(c.balEvery + time.Duration(random.Int63n(balanceJitterMax))):
 				c.logger.Log(LogLevelDebug, "Balancing")
-				c.bal.Balance()
+				for _, task := range c.bal.Balance() {
+					// Release tasks asynchronously as their shutdown might be slow
+					go c.release(task)
+				}
 			}
 		}
 	}()
@@ -100,7 +110,7 @@ func (c *Consumer) Run() {
 			task, err := c.coord.Watch()
 			if err != nil {
 				//FIXME add more sophisticated error handling
-				c.logger.Log(LogLevelError, "Coordinator returned an error during watch, waiting and retrying. %v", err)
+				c.logger.Log(LogLevelError, "Coordinator returned an error during watch, waiting and retrying: %v", err)
 				select {
 				case <-c.stop:
 					return
@@ -161,16 +171,21 @@ func (c *Consumer) Run() {
 		case task := <-watch:
 			if !c.bal.CanClaim(task) {
 				c.logger.Log(LogLevelInfo, "Balancer rejected task %s", task)
+				break
 			}
 			if !c.coord.Claim(task) {
 				c.logger.Log(LogLevelInfo, "Coordinator unable to claim task %s", task)
+				break
 			}
 			c.claimed(task)
-			cont <- struct{}{} // signal watch to continue
 		case cmd := <-cmdChan:
 			//FIXME Handle commands
 			c.logger.Log(LogLevelWarning, "Received command: %s", cmd)
 		}
+
+		// senders to the main loop should block on this continue channel before
+		// continuing
+		cont <- struct{}{}
 	}
 }
 
@@ -186,17 +201,18 @@ func (c *Consumer) Shutdown() {
 		c.logger.Log(LogLevelError, "Error closing Coordinator: %v", err)
 	}
 	c.logger.Log(LogLevelInfo, "Sending stop signal to handlers")
-	// Concurrently shutdown handles
-	wg := sync.WaitGroup{}
-	wg.Add(len(c.running))
-	for id, h := range c.running {
-		go func(gid string, gh Handler) {
-			gh.Stop()
 
-			// Release tasks that cleanly stopped
+	// Build list of of currently running tasks
+	tasks := c.Tasks()
+
+	// Concurrently shutdown handlers as they may take a while to shutdown
+	wg := sync.WaitGroup{}
+	wg.Add(len(tasks))
+	for _, id := range tasks {
+		go func(gid string) {
 			c.release(gid)
 			wg.Done()
-		}(id, h)
+		}(id)
 	}
 	//TODO timeout?
 	wg.Wait()
@@ -219,20 +235,16 @@ func (c *Consumer) Tasks() []string {
 	return t
 }
 
-//TODO This needs to be split into the coord.Watch/bal.CanClaim call and the
-//     coord.Claim/h.Run call.
+// claimed starts a handler for a claimed task. It is the only method to
+// manipulate c.running and closes the runningTask channel when a handler's Run
+// method exits.
 func (c *Consumer) claimed(taskID string) {
-
-	if !c.bal.CanClaim(taskID) {
-		return
-	}
-
-	// Create handler
 	h := c.handler()
 
 	// Associate handler with taskID
+	// **This is the only place tasks should be added to c.running**
 	c.runL.Lock()
-	c.running[taskID] = h
+	c.running[taskID] = runningTask{h: h, c: make(chan struct{})}
 	c.runL.Unlock()
 
 	c.hwg.Add(1)
@@ -242,18 +254,50 @@ func (c *Consumer) claimed(taskID string) {
 			if err := recover(); err != nil {
 				c.logger.Log(LogLevelError, "Handler %s panic()'d: %v", taskID, err)
 			}
+			// **This is the only place tasks should be removed from c.running**
 			c.runL.Lock()
+			close(c.running[taskID].c)
 			delete(c.running, taskID)
 			c.runL.Unlock()
 			c.hwg.Done()
 		}()
 
+		// Run the task
 		if err := h.Run(taskID); err != nil {
 			c.logger.Log(LogLevelError, "Handler for %s exited with error: %v", taskID, err)
 		}
 	}()
 }
 
+// release stops and Coordinator.Release()s a task if it's running.
+//
+// release blocks until the task handler stops running.
 func (c *Consumer) release(taskID string) {
-	//TODO release task ID
+	c.runL.Lock()
+	task, ok := c.running[taskID]
+	c.runL.Unlock()
+
+	if !ok {
+		// This can happen if a task completes during Balance() and is not an error.
+		c.logger.Log(LogLevelWarning, "Tried to release a non-running task: %s", taskID)
+		return
+	}
+
+	// all handler methods must be wrapped in a recover to prevent a misbehaving
+	// handler from crashing the entire consumer
+	func() {
+		defer func() {
+			if err := recover(); err != nil {
+				c.logger.Log(LogLevelError, "Handler %s panic()'d on Stop: %v", taskID, err)
+			}
+		}()
+
+		task.h.Stop()
+	}()
+
+	// Once the handler is stopped...
+	//FIXME should there be a timeout here?
+	<-task.c
+	// ...instruct the coordinator to release it
+	c.coord.Release(taskID)
 }

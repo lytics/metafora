@@ -20,6 +20,7 @@ func newTestCoord() *testCoord {
 func (*testCoord) Init(CoordinatorContext) {}
 func (*testCoord) Claim(string) bool       { return true }
 func (*testCoord) Close() error            { return nil }
+func (*testCoord) Release(string)          {}
 
 func (c *testCoord) Watch() (string, error) {
 	task := <-c.tasks
@@ -132,18 +133,25 @@ func TestConsumer(t *testing.T) {
 	}
 }
 
-// Balancer/ConsumerState test
+// Balancer/Consumer test
 
 type testBalancer struct {
-	c BalancerContext
-	t *testing.T
+	c         BalancerContext
+	t         *testing.T
+	secondRun bool
+	done      chan struct{}
 }
 
 func (b *testBalancer) Init(c BalancerContext) { b.c = c }
 func (b *testBalancer) CanClaim(taskID string) bool {
+	b.t.Logf("CanClaim(%s)", taskID)
 	return taskID == "ok-task"
 }
 func (b *testBalancer) Balance() []string {
+	if b.secondRun {
+		return nil
+	}
+	b.secondRun = true
 	tsks := b.c.Tasks()
 	if len(tsks) != 1 {
 		b.t.Errorf("len(ConsumerState.Tasks()) != 1 ==> %v", tsks)
@@ -152,19 +160,47 @@ func (b *testBalancer) Balance() []string {
 	if tsks[0] != "ok-task" {
 		b.t.Errorf("Wrong task in ConsumerState.Tasks(): %v", tsks)
 	}
+	close(b.done)
 	return nil
 }
 
 func TestBalancer(t *testing.T) {
-	hf, _ := newTestHandlerFunc(t)
-	c := NewConsumer(newTestCoord(), hf, &testBalancer{})
-	c.claimed("test1")
-	c.claimed("ok-task")
-	c.claimed("test2")
+	// ugly hack to force fast rebalancing
+	oldJ := balanceJitterMax
+	balanceJitterMax = 1
+	defer func() { balanceJitterMax = oldJ }()
 
-	if r := c.bal.Balance(); len(r) > 0 {
-		t.Errorf("Balance() should return 0, not: %v", r)
+	hf, tasksRun := newTestHandlerFunc(t)
+	tc := newTestCoord()
+	balDone := make(chan struct{})
+	c := NewConsumer(tc, hf, &testBalancer{t: t, done: balDone})
+	c.balEvery = 10 * time.Millisecond
+	go c.Run()
+	tc.tasks <- "test1"
+	tc.tasks <- "ok-task"
+	tc.tasks <- "test2"
+
+	// Wait for balance
+	select {
+	case <-balDone:
+	case <-time.After(c.balEvery * 10):
+		t.Error("Didn't balance in a timely fashion")
 	}
+
+	select {
+	case run := <-tasksRun:
+		if run != "ok-task" {
+			t.Errorf("Balancer didn't reject tasks properly. Ran task %s", run)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Error("Task didn't run in a timely fashion")
+	}
+
+	/*
+		if r := c.bal.Balance(); len(r) > 0 {
+			t.Errorf("Balance() should return 0, not: %v", r)
+		}
+	*/
 
 	s := make(chan int)
 	go func() {
@@ -175,5 +211,8 @@ func TestBalancer(t *testing.T) {
 	case <-s:
 	case <-time.After(100 * time.Millisecond):
 		t.Errorf("Shutdown didn't finish in a timely fashion")
+	}
+	if len(c.Tasks()) != 0 {
+		t.Errorf("Shutdown didn't stop all tasks")
 	}
 }
