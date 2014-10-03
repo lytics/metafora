@@ -11,6 +11,12 @@ import (
 	"github.com/lytics/metafora"
 )
 
+func skipEtcd(t *testing.T) {
+	if os.Getenv("ETCDTESTS") == "" {
+		t.Skip("ETCDTESTS unset. Skipping etcd tests.")
+	}
+}
+
 type testLogger struct {
 	*testing.T
 }
@@ -24,14 +30,11 @@ func (l testLogger) Log(lvl metafora.LogLevel, m string, v ...interface{}) {
 	#if you don't have etcd install use this script to set it up:
 	sudo bash ./scripts/docker_run_etcd.sh
 
-	PUBLIC_IP=`hostname --ip-address` IntegrationTests=true ETCDCTL_PEERS="${PUBLIC_IP}:5001,${PUBLIC_IP}:5002,${PUBLIC_IP}:5003" go test
+	PUBLIC_IP=`hostname --ip-address` ETCDTESTS=1 ETCDCTL_PEERS="${PUBLIC_IP}:5001,${PUBLIC_IP}:5002,${PUBLIC_IP}:5003" go test
 
 */
 func TestTaskWatcherEtcdCoordinatorIntegration(t *testing.T) {
-
-	if os.Getenv("IntegrationTests") == "" {
-		return
-	}
+	skipEtcd(t)
 
 	coordinator1, client := createEtcdCoordinator(t)
 
@@ -68,20 +71,17 @@ func TestTaskWatcherEtcdCoordinatorIntegration(t *testing.T) {
 }
 
 func TestTaskClaimingEtcdCoordinatorIntegration(t *testing.T) {
-	if os.Getenv("IntegrationTests") == "" {
-		return
-	}
-
+	skipEtcd(t)
 	createEtcdCoordinator(t)
 }
 
 func createEtcdCoordinator(t *testing.T) (*EtcdCoordinator, *etcd.Client) {
-	peers_from_environment := os.Getenv("ETCDCTL_PEERS") //This is the same ENV that etcdctl uses for Peers.
-	if peers_from_environment == "" {
-		peers_from_environment = "localhost:5001,localhost:5002,localhost:5003"
+	peerAddrs := os.Getenv("ETCDCTL_PEERS") //This is the same ENV that etcdctl uses for Peers.
+	if peerAddrs == "" {
+		peerAddrs = "localhost:5001,localhost:5002,localhost:5003"
 	}
 
-	peers := strings.Split(peers_from_environment, ",")
+	peers := strings.Split(peerAddrs, ",")
 
 	client := etcd.NewClient(peers)
 
@@ -95,7 +95,7 @@ func createEtcdCoordinator(t *testing.T) (*EtcdCoordinator, *etcd.Client) {
 		t.Fatalf("While testing etcd, the test couldn't connect to etcd. " + strings.Join(peers, ", "))
 	}
 
-	return NewEtcdCoordinator("test-1", "/testcluster/", client), client
+	return NewEtcdCoordinator("test-1", "/testcluster/", client).(*EtcdCoordinator), client
 }
 
 func isEtcdUp(client *etcd.Client, t *testing.T) bool {

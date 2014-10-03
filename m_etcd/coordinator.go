@@ -81,7 +81,7 @@ Etcd paths:
 TODO do we need a EtcdCoordinatorConfig?
 
 */
-func NewEtcdCoordinator(nodeId, namespace string, client *etcd.Client) *EtcdCoordinator {
+func NewEtcdCoordinator(nodeId, namespace string, client *etcd.Client) metafora.Coordinator {
 	namespace = strings.Trim(namespace, "/ ")
 
 	if nodeId == "" {
@@ -181,6 +181,15 @@ func (ec *EtcdCoordinator) Claim(taskID string) bool {
 	}
 	ec.cordCtx.Log(metafora.LogLevelDebug, "Claim successful: resp %v", res)
 	return true
+}
+
+func (ec *EtcdCoordinator) Release(taskID string) {
+	key := fmt.Sprintf("%s/%s/owner", ec.TaskPath, taskID)
+	_, err := ec.Client.DeleteDir(key)
+	if err != nil {
+		//TODO Pause and retry?!
+		ec.cordCtx.Log(metafora.LogLevelError, "Release failed: %v", err)
+	}
 }
 
 // Command blocks until a command for this node is received from the broker
