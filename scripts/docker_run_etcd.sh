@@ -11,7 +11,7 @@ echo
 
 echo stopping existing etcd mTesetEtcdnode docker containers 
 echo ----------------------------------------------------------------------------------------------------------------
-export RunningEtcdDockers=$(sudo docker ps --no-trunc | grep mTesetEtcdnode | awk '{print $1}')
+export RunningEtcdDockers=$(sudo docker ps --no-trunc -a | grep mTesetEtcdnode | awk '{print $1}')
 sudo docker stop ${RunningEtcdDockers}
 echo 
 
