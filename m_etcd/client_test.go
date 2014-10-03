@@ -22,7 +22,7 @@ func TestEtcdClientIntegration(t *testing.T) {
 	}
 
 	if err := mclient.SubmitTask("testid1"); err == nil {
-		t.Fatalf("Unable to submit task.   error:%v", err)
+		t.Fatalf("We shoudln't have been allowed to submit the same task twice.   error:%v", err)
 	}
 }
 
