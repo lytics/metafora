@@ -174,11 +174,17 @@ func (c *Consumer) Run() {
 	}
 }
 
-// Shutdown stops the main Run loop, stops all handlers, and releases their
-// tasks.
+// Shutdown stops the main Run loop, calls Stop on all handlers, and calls
+// Close on the Coordinator. Running tasks will be released for other nodes to
+// claim.
 func (c *Consumer) Shutdown() {
-	c.logger.Log(LogLevelDebug, "Signalling shutdown")
+	c.logger.Log(LogLevelDebug, "Stopping Run loop")
 	close(c.stop)
+	c.logger.Log(LogLevelDebug, "Closing Coordinator")
+	if err := c.coord.Close(); err != nil {
+		// Well this is a bad sign, but we have no choice but to trundle onward
+		c.logger.Log(LogLevelError, "Error closing Coordinator: %v", err)
+	}
 	c.logger.Log(LogLevelInfo, "Sending stop signal to handlers")
 	// Concurrently shutdown handles
 	wg := sync.WaitGroup{}
