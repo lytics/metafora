@@ -1,7 +1,8 @@
-package etcd
+package m_etcd
 
 import (
 	"fmt"
+
 	"github.com/coreos/go-etcd/etcd"
 	"github.com/lytics/metafora"
 )

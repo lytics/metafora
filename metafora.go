@@ -31,17 +31,17 @@ func NewConsumer(coord Coordinator, h HandlerFunc, b Balancer) *Consumer {
 		handler: h,
 		bal:     b,
 		coord:   coord,
-		logger:  newBasicLogger(),
+		logger:  NewBasicLogger(),
 	}
 
 	// initialize balancer with the consumer and a prefixed logger
 	b.Init(&struct {
 		*Consumer
 		Logger
-	}{Consumer: c, Logger: newPrefixLogger(c.logger, "balancer:")})
+	}{Consumer: c, Logger: NewPrefixLogger(c.logger, "balancer:")})
 
 	// initialize coordinator with a logger
-	coord.Init(newPrefixLogger(c.logger, "coordinator:"))
+	coord.Init(NewPrefixLogger(c.logger, "coordinator:"))
 	return c
 }
 

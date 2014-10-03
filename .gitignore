@@ -19,9 +19,14 @@ _cgo_export.*
 
 _testmain.go
 
+# Build files
+cmd/metaforactl/metaforactl
 *.exe
 *.test
 *.prof
 
 *.orig
 *.swp
+
+
+

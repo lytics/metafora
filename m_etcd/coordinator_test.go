@@ -1,4 +1,4 @@
-package metafora
+package m_etcd
 
 import (
 	"fmt"
@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/coreos/go-etcd/etcd"
+	"github.com/lytics/metafora"
 )
 
 /*
@@ -30,7 +31,7 @@ func TestTaskWatcherEtcdCoordinatorIntegration(t *testing.T) {
 		t.Fatalf("TestFailed: TaskPath should be \"/testcluster/tasks\" but we got \"%s\"", coordinator1.TaskPath)
 	}
 
-	coordinator1.Init(newBasicLogger())
+	coordinator1.Init(metafora.NewBasicLogger())
 
 	watchRes := make(chan string)
 	task001 := "test-task0001"
