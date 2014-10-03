@@ -97,7 +97,7 @@ func (e *FairBalancer) Balance() []string {
 	e.lastreleased = map[string]bool{}
 	current, err := e.clusterstate.NodeTaskCount()
 	if err != nil {
-		e.bc.Log(LogLevelWarning, "Error retirieving cluster state: %v", err)
+		e.bc.Log(LogLevelWarn, "Error retrieving cluster state: %v", err)
 		return nil
 	}
 

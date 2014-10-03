@@ -52,7 +52,7 @@ func NewConsumer(coord Coordinator, h HandlerFunc, b Balancer) *Consumer {
 		bal:      b,
 		balEvery: 15 * time.Minute, //TODO make balance wait configurable
 		coord:    coord,
-		logger:   NewBasicLogger(),
+		logger:   stdoutLogger(),
 		stop:     make(chan struct{}),
 	}
 
@@ -60,10 +60,10 @@ func NewConsumer(coord Coordinator, h HandlerFunc, b Balancer) *Consumer {
 	b.Init(&struct {
 		*Consumer
 		Logger
-	}{Consumer: c, Logger: NewPrefixLogger(c.logger, "balancer:")})
+	}{Consumer: c, Logger: c.logger})
 
 	// initialize coordinator with a logger
-	coord.Init(NewPrefixLogger(c.logger, "coordinator:"))
+	coord.Init(c.logger)
 	return c
 }
 
@@ -184,7 +184,7 @@ func (c *Consumer) Run() {
 			c.claimed(task)
 		case cmd := <-cmdChan:
 			//FIXME Handle commands
-			c.logger.Log(LogLevelWarning, "Received command: %s", cmd)
+			c.logger.Log(LogLevelWarn, "Received command: %s", cmd)
 		}
 
 		// senders to the main loop should block on this continue channel before
@@ -283,7 +283,7 @@ func (c *Consumer) release(taskID string) {
 
 	if !ok {
 		// This can happen if a task completes during Balance() and is not an error.
-		c.logger.Log(LogLevelWarning, "Tried to release a non-running task: %s", taskID)
+		c.logger.Log(LogLevelWarn, "Tried to release a non-running task: %s", taskID)
 		return
 	}
 
