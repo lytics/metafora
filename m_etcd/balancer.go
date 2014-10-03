@@ -7,8 +7,8 @@ import (
 	"github.com/lytics/metafora"
 )
 
-func NewEtcdFairBalancer(nodeid, namespace string, client *etcd.Client) *metafora.FairBalancer {
-	return metafora.NewDefaultFairBalancer(nodeid, &EtcdClusterState{client, namespace})
+func NewEtcdFairBalancer(nodeid, namespace string, client *etcd.Client) metafora.Balancer {
+	return metafora.NewDefaultFairBalancer(nodeid, &etcdClusterState{client, namespace})
 }
 
 // Checks the current state of an Etcd cluster
