@@ -20,6 +20,9 @@ type Coordinator interface {
 	// claimed the ID.
 	Claim(taskID string) bool
 
+	// Release a task for other consumers to claim.
+	Release(taskID string)
+
 	// Command blocks until a command for this node is received from the broker
 	// by the coordinator.
 	Command() (cmd string, err error)
