@@ -158,7 +158,7 @@ func (ec *EtcdCoordinator) Watch() (taskID string, err error) {
 				continue
 			}
 			if !resp.Node.Dir {
-				ec.cordCtx.Log(metafora.LogLevelWarning, "TaskID node shouldn't be a directory but a key.")
+				ec.cordCtx.Log(metafora.LogLevelWarn, "TaskID node shouldn't be a directory but a key.")
 			}
 			taskId = taskpath[len(taskpath)-1]
 

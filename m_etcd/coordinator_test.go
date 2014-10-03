@@ -11,6 +11,14 @@ import (
 	"github.com/lytics/metafora"
 )
 
+type testLogger struct {
+	*testing.T
+}
+
+func (l testLogger) Log(lvl metafora.LogLevel, m string, v ...interface{}) {
+	l.T.Log(fmt.Sprintf("[%s] %s", lvl, fmt.Sprintf(m, v...)))
+}
+
 /*
 	Running the Integration Test:
 	#if you don't have etcd install use this script to set it up:
@@ -31,7 +39,7 @@ func TestTaskWatcherEtcdCoordinatorIntegration(t *testing.T) {
 		t.Fatalf("TestFailed: TaskPath should be \"/testcluster/tasks\" but we got \"%s\"", coordinator1.TaskPath)
 	}
 
-	coordinator1.Init(metafora.NewBasicLogger())
+	coordinator1.Init(testLogger{t})
 
 	watchRes := make(chan string)
 	task001 := "test-task0001"

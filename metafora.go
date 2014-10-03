@@ -52,7 +52,7 @@ func NewConsumer(coord Coordinator, h HandlerFunc, b Balancer) *Consumer {
 		bal:      b,
 		balEvery: 15 * time.Minute, //TODO make balance wait configurable
 		coord:    coord,
-		logger:   NewBasicLogger(),
+		logger:   stdoutLogger(),
 		stop:     make(chan struct{}),
 	}
 
@@ -60,10 +60,10 @@ func NewConsumer(coord Coordinator, h HandlerFunc, b Balancer) *Consumer {
 	b.Init(&struct {
 		*Consumer
 		Logger
-	}{Consumer: c, Logger: NewPrefixLogger(c.logger, "balancer:")})
+	}{Consumer: c, Logger: c.logger})
 
 	// initialize coordinator with a logger
-	coord.Init(NewPrefixLogger(c.logger, "coordinator:"))
+	coord.Init(c.logger)
 	return c
 }
 
