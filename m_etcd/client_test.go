@@ -1,33 +1,104 @@
 package m_etcd
 
+// NOTES
+//
+// These tests are in reality integration tests which require that
+// etcd is running on the test system and its peers are found
+// in the ENV variable ETCDCTL_PEERS. The tests do not clean
+// out data and require a fresh set of etcd instances for
+// each run. You can consider this a known bug which
+// will be fixed in a future release.
+
 import (
+	"github.com/coreos/go-etcd/etcd"
 	"os"
 	"strings"
 	"testing"
-
-	"github.com/coreos/go-etcd/etcd"
 )
 
-func TestEtcdClientIntegration(t *testing.T) {
-	if os.Getenv("IntegrationTests") == "" {
+const (
+	NAMESPACE  = "test"
+	NODES_DIR  = "/test/nodes"
+	NODE1      = "node1"
+	NODE1_PATH = NODES_DIR + "/" + NODE1
+	COMMAND    = "{\"command\":\"testing\"}"
+)
+
+// Test that client.Nodes() returns the metafora nodes
+// registered in etcd.
+func TestNodes(t *testing.T) {
+	if os.Getenv("METAFORA_INTEGRATION_TEST") == "" {
 		return
 	}
 
-	eclient := createEtcdClient(t)
+	eclient := newEtcdClient(t)
 
-	mclient := NewEtcdClient("test", eclient)
+	mclient := NewClient(NAMESPACE, eclient)
 
-	if err := mclient.SubmitTask("testid1"); err != nil {
-		t.Fatalf("Unable to submit task.   error:%v", err)
+	if _, err := eclient.CreateDir(NODE1_PATH, 0); err != nil {
+		t.Fatalf("AddChild %v returned error: %v", NODES_DIR, err)
 	}
 
-	if err := mclient.SubmitTask("testid1"); err == nil {
-		t.Fatalf("We shoudln't have been allowed to submit the same task twice.   error:%v", err)
+	if nodes, err := mclient.Nodes(); err != nil {
+		t.Fatalf("Nodes returned error: %v", err)
+	} else {
+		for i, n := range nodes {
+			t.Logf("%v -> %v", i, n)
+		}
 	}
 }
 
-func createEtcdClient(t *testing.T) *etcd.Client {
-	peers_from_environment := os.Getenv("ETCDCTL_PEERS") //This is the same ENV that etcdctl uses for Peers.
+// Test that client.SubmitTask(...) adds a task to the proper path
+// in etcd, and that the same task id cannot be submitted more
+// than once.
+func TestSubmitTask(t *testing.T) {
+	if os.Getenv("METAFORA_INTEGRATION_TEST") == "" {
+		return
+	}
+
+	eclient := newEtcdClient(t)
+
+	mclient := NewClient(NAMESPACE, eclient)
+
+	if err := mclient.SubmitTask("testid1"); err != nil {
+		t.Fatalf("Submit task failed on initial submission, error: %v", err)
+	}
+
+	if err := mclient.SubmitTask("testid1"); err == nil {
+		t.Fatalf("Submit task did not fail, but should of, when using existing tast id")
+	}
+}
+
+// Test that client.SubmitCommand(...) adds a command to the proper node path
+// in etcd, and that it can be read back.
+func TestSubmitCommand(t *testing.T) {
+	if os.Getenv("METAFORA_INTEGRATION_TEST") == "" {
+		return
+	}
+
+	eclient := newEtcdClient(t)
+
+	mclient := NewClient(NAMESPACE, eclient)
+
+	if err := mclient.SubmitCommand(NODE1, COMMAND); err != nil {
+		t.Fatalf("Unable to submit command.   error:%v", err)
+	}
+
+	if res, err := eclient.Get(NODES_DIR, false, false); err != nil {
+		t.Fatalf("Get on path %v returned error: %v", NODES_DIR, err)
+	} else if res.Node == nil || res.Node.Nodes == nil {
+		t.Fatalf("Get on path %v returned nil for child nodes", NODES_DIR)
+	} else {
+		for i, n := range res.Node.Nodes {
+			t.Logf("%v -> %v", i, n)
+		}
+	}
+}
+
+// Create a new etcd client for use by metafora client during testing.
+func newEtcdClient(t *testing.T) *etcd.Client {
+	// This is the same ENV variable that etcdctl uses for peers.
+	peers_from_environment := os.Getenv("ETCDCTL_PEERS")
 
 	if peers_from_environment == "" {
 		peers_from_environment = "localhost:5001,localhost:5002,localhost:5003"
@@ -35,18 +106,15 @@ func createEtcdClient(t *testing.T) *etcd.Client {
 
 	peers := strings.Split(peers_from_environment, ",")
 
-	client := etcd.NewClient(peers)
+	eclient := etcd.NewClient(peers)
 
-	ok := client.SyncCluster()
-
-	if !ok {
-		t.Fatalf("Cannot sync with the cluster using peers " + strings.Join(peers, ", "))
+	if ok := eclient.SyncCluster(); !ok {
+		t.Fatalf("Cannot sync etcd cluster using peers: %v", strings.Join(peers, ", "))
 	}
 
-	if !isEtcdUp(client, t) {
-		t.Fatalf("While testing etcd, the test couldn't connect to etcd. " + strings.Join(peers, ", "))
+	if !isEtcdUp(eclient, t) {
+		t.Fatalf("Cannot connect to etcd using peers: %v", strings.Join(peers, ", "))
 	}
 
-	return client
-
+	return eclient
 }
