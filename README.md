@@ -27,26 +27,27 @@ Terms
 
 <table>
 <tr>
-<th>Balancer</th><td>Go interface consulted by *Consumer* for determining
-which tasks can be claimed and which should be released. See
-[balancer.go](balancer.go).</td>
+<th>Balancer</th><td>Go interface consulted by <i>Consumer</i> for determining
+which tasks can be claimed and which should be released. See <a
+href="balancer.go">balancer.go</a>.</td>
 </tr>
 <tr>
 <th>Broker</th><td>external task and command store like
-[etcd](https://github.com/coreos/etcd) for the *Coordinator* to use.</td>
+<a href="https://github.com/coreos/etcd">etcd</a> for the <i>Coordinator</i> to
+use.</td>
 </tr>
-<th>Consumer</th><td>core work runner. Integrates *Balancer*, *Coordinator*,
-and *Handlers* to get work done.</td>
+<th>Consumer</th><td>core work runner. Integrates <i>Balancer</i>,
+<i>Coordinator</i>, and <i>Handlers</i> to get work done.</td>
 </tr>
 <tr>
-<th>Coordinator</th><td>client Go interface to *Broker*. See
-[coordinator.go](coordinator.go).</td>
+<th>Coordinator</th><td>client Go interface to <i>Broker</i>. See
+<a href="coordinator.go">coordinator.go</a>.</td>
 </tr>
 <tr>
 <th>Handler</th><td>Go interface for executing tasks.</td>
 </tr>
 <tr>
-<th>Task</th><td>unit of work. Executed by *Handlers*.</td>
+<th>Task</th><td>unit of work. Executed by <i>Handlers</i>.</td>
 </tr>
 </table>
 
