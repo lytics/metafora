@@ -11,13 +11,6 @@ import (
 	"github.com/lytics/metafora"
 )
 
-const (
-	TASKS_PATH   = "tasks"
-	COMMAND_PATH = "commands"
-	NODES_PATH   = "nodes"
-	CLAIM_TTL    = uint64(120) //seconds
-)
-
 type EtcdCoordinator struct {
 	Client    *etcd.Client
 	cordCtx   metafora.CoordinatorContext
@@ -44,14 +37,14 @@ type EtcdWatcher struct {
 func (w *EtcdWatcher) StartWatching() {
 	go func() {
 		const recursive = true
-		const raftIndex = uint64(0) //0 == latest version
+		const etcdIndex = uint64(0) //0 == latest version
 
 		//TODO, Im guessing that watch only picks up new nodes.
 		//   We need to manually do an ls at startup and dump the results to taskWatcherResponses,
 		//   after we filter out all non-claimed tasks.
 		_, err := w.client.Watch(
 			w.path,
-			raftIndex,
+			etcdIndex,
 			recursive,
 			w.responseChan,
 			w.stopChan)
@@ -98,7 +91,7 @@ func NewEtcdCoordinator(nodeId, namespace string, client *etcd.Client) metafora.
 		Client:    client,
 		Namespace: namespace,
 
-		TaskPath:    fmt.Sprintf("/%s/%s", namespace, TASKS_PATH),
+		TaskPath:    fmt.Sprintf("/%s/%s", namespace, TASKS_PATH), //TODO MAKE A PACKAGE FUNC TO CREATE THIS PATH.
 		taskWatcher: nil,
 
 		NodeId:         nodeId,
@@ -164,6 +157,7 @@ func (ec *EtcdCoordinator) Watch() (taskID string, err error) {
 
 			return taskId, nil
 		case err := <-ec.taskWatcher.errorChan:
+			//if the watcher sends a nil, its because the etcd watcher was shutdown by Close()
 			return "", err
 		}
 	}
