@@ -25,16 +25,30 @@ state transitions than Metafora provides (such as Paused, Sleep, etc.).
 Terms
 -----
 
-* Balancer - Go interface consulted by *Consumer* for determining which tasks
-  can be claimed and which should be released. See [balancer.go](balancer.go).
-* Broker - external task and command store like
-  [etcd](https://github.com/coreos/etcd).
-* Consumer - core work runner. Integrates *Balancer*, *Coordinator*, and
-  *Handlers* to get work done.
-* Coordinator - client Go interface to *Broker*. See
-  [coordinator.go](coordinator.go).
-* Handler - Go interface for executing tasks.
-* Task - unit of work. Executed by *Handlers*.
+<table>
+<tr>
+<th>Balancer</th><td>Go interface consulted by *Consumer* for determining
+which tasks can be claimed and which should be released. See
+[balancer.go](balancer.go).</td>
+</tr>
+<tr>
+<th>Broker</th><td>external task and command store like
+[etcd](https://github.com/coreos/etcd) for the *Coordinator* to use.</td>
+</tr>
+<th>Consumer</th><td>core work runner. Integrates *Balancer*, *Coordinator*,
+and *Handlers* to get work done.</td>
+</tr>
+<tr>
+<th>Coordinator</th><td>client Go interface to *Broker*. See
+[coordinator.go](coordinator.go).</td>
+</tr>
+<tr>
+<th>Handler</th><td>Go interface for executing tasks.</td>
+</tr>
+<tr>
+<th>Task</th><td>unit of work. Executed by *Handlers*.</td>
+</tr>
+</table>
 
 FAQ
 ---
