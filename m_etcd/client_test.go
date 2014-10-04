@@ -9,9 +9,7 @@ import (
 )
 
 func TestEtcdClientIntegration(t *testing.T) {
-	if os.Getenv("IntegrationTests") == "" {
-		return
-	}
+	skipEtcd(t)
 
 	eclient := createEtcdClient(t)
 
