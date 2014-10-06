@@ -25,13 +25,13 @@ func TestEtcdClientIntegration(t *testing.T) {
 }
 
 func createEtcdClient(t *testing.T) *etcd.Client {
-	peers_from_environment := os.Getenv("ETCDCTL_PEERS") //This is the same ENV that etcdctl uses for Peers.
+	peerAddrs := os.Getenv("ETCDCTL_PEERS") //This is the same ENV that etcdctl uses for Peers.
 
-	if peers_from_environment == "" {
-		peers_from_environment = "localhost:5001,localhost:5002,localhost:5003"
+	if peerAddrs == "" {
+		peerAddrs = defaultPeers
 	}
 
-	peers := strings.Split(peers_from_environment, ",")
+	peers := strings.Split(peerAddrs, ",")
 
 	client := etcd.NewClient(peers)
 

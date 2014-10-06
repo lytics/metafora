@@ -11,6 +11,8 @@ import (
 	"github.com/lytics/metafora"
 )
 
+const defaultPeers = "127.0.0.1:5001,127.0.0.1:5002,127.0.0.1:5003"
+
 func skipEtcd(t *testing.T) {
 	if os.Getenv("ETCDTESTS") == "" {
 		t.Skip("ETCDTESTS unset. Skipping etcd tests.")
@@ -78,7 +80,7 @@ func TestTaskClaimingEtcdCoordinatorIntegration(t *testing.T) {
 func createEtcdCoordinator(t *testing.T) (*EtcdCoordinator, *etcd.Client) {
 	peerAddrs := os.Getenv("ETCDCTL_PEERS") //This is the same ENV that etcdctl uses for Peers.
 	if peerAddrs == "" {
-		peerAddrs = "localhost:5001,localhost:5002,localhost:5003"
+		peerAddrs = defaultPeers
 	}
 
 	peers := strings.Split(peerAddrs, ",")
