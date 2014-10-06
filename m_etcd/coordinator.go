@@ -141,6 +141,7 @@ func (ec *EtcdCoordinator) Watch() (taskID string, err error) {
 			if resp.Action != "create" {
 				continue
 			}
+			//FIXME There's gotta be a better way to only detect tasks #32
 			if strings.Contains(resp.Node.Key, "owner") {
 				continue
 			}
