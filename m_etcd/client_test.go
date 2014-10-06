@@ -19,11 +19,11 @@ import (
 )
 
 const (
-	NAMESPACE  = `test`
-	NODES_DIR  = `/test/nodes`
-	NODE1      = `node1`
-	NODE1_PATH = NODES_DIR + `/` + NODE1
-	COMMAND    = `{"command":"testing"}`
+	Namespace   = `test`
+	NodesDir    = `/test/nodes`
+	Node1       = `node1`
+	Node1Path   = NodesDir + `/` + Node1
+	CommandJson = `{"command":"testing"}`
 )
 
 // TestNodes tests that client.Nodes() returns the metafora nodes
@@ -33,10 +33,10 @@ func TestNodes(t *testing.T) {
 
 	eclient := newEtcdClient(t)
 
-	mclient := NewClient(NAMESPACE, eclient)
+	mclient := NewClient(Namespace, eclient)
 
-	if _, err := eclient.CreateDir(NODE1_PATH, 0); err != nil {
-		t.Fatalf("AddChild %v returned error: %v", NODES_DIR, err)
+	if _, err := eclient.CreateDir(Node1Path, 0); err != nil {
+		t.Fatalf("AddChild %v returned error: %v", NodesDir, err)
 	}
 
 	if nodes, err := mclient.Nodes(); err != nil {
@@ -56,7 +56,7 @@ func TestSubmitTask(t *testing.T) {
 
 	eclient := newEtcdClient(t)
 
-	mclient := NewClient(NAMESPACE, eclient)
+	mclient := NewClient(Namespace, eclient)
 
 	if err := mclient.SubmitTask("testid1"); err != nil {
 		t.Fatalf("Submit task failed on initial submission, error: %v", err)
@@ -74,16 +74,16 @@ func TestSubmitCommand(t *testing.T) {
 
 	eclient := newEtcdClient(t)
 
-	mclient := NewClient(NAMESPACE, eclient)
+	mclient := NewClient(Namespace, eclient)
 
-	if err := mclient.SubmitCommand(NODE1, COMMAND); err != nil {
+	if err := mclient.SubmitCommand(Node1, CommandJson); err != nil {
 		t.Fatalf("Unable to submit command.   error:%v", err)
 	}
 
-	if res, err := eclient.Get(NODES_DIR, false, false); err != nil {
-		t.Fatalf("Get on path %v returned error: %v", NODES_DIR, err)
+	if res, err := eclient.Get(NodesDir, false, false); err != nil {
+		t.Fatalf("Get on path %v returned error: %v", NodesDir, err)
 	} else if res.Node == nil || res.Node.Nodes == nil {
-		t.Fatalf("Get on path %v returned nil for child nodes", NODES_DIR)
+		t.Fatalf("Get on path %v returned nil for child nodes", NodesDir)
 	} else {
 		for i, n := range res.Node.Nodes {
 			t.Logf("%v -> %v", i, n)
