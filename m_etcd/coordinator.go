@@ -91,11 +91,11 @@ func NewEtcdCoordinator(nodeId, namespace string, client *etcd.Client) metafora.
 		Client:    client,
 		Namespace: namespace,
 
-		TaskPath:    fmt.Sprintf("/%s/%s", namespace, TASKS_PATH), //TODO MAKE A PACKAGE FUNC TO CREATE THIS PATH.
+		TaskPath:    fmt.Sprintf("/%s/%s", namespace, TasksPath), //TODO MAKE A PACKAGE FUNC TO CREATE THIS PATH.
 		taskWatcher: nil,
 
 		NodeId:         nodeId,
-		CommandPath:    fmt.Sprintf("/%s/%s/%s/%s", namespace, NODES_PATH, nodeId, COMMAND_PATH),
+		CommandPath:    fmt.Sprintf("/%s/%s/%s/%s", namespace, NodesPath, nodeId, CommandsPath),
 		commandWatcher: nil,
 	}
 
@@ -171,7 +171,7 @@ func (ec *EtcdCoordinator) Watch() (taskID string, err error) {
 // claimed the ID.
 func (ec *EtcdCoordinator) Claim(taskID string) bool {
 	key := fmt.Sprintf("%s/%s/owner", ec.TaskPath, taskID)
-	res, err := ec.Client.Create(key, ec.NodeId, CLAIM_TTL)
+	res, err := ec.Client.CreateDir(key, ClaimTTL)
 	if err != nil {
 		ec.cordCtx.Log(metafora.LogLevelDebug, "Claim failed: err %v", err)
 		return false

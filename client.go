@@ -1,10 +1,12 @@
 package metafora
 
 type Client interface {
+	// SubmitTask submits a task to the system, the task id must be unique.
 	SubmitTask(taskId string) error
 
-	//SubmitCommand(command string) error
+	// SubmitCommand submits a command to a particular node.
+	SubmitCommand(nodeId string, command string) error
 
-	//QueryNodes() []NodeInfo
-	//More to come!
+	// Nodes retrieves the current set of registered nodes.
+	Nodes() ([]string, error)
 }
