@@ -8,6 +8,8 @@ package m_etcd
 // out data and require a fresh set of etcd instances for
 // each run. You can consider this a known bug which
 // will be fixed in a future release.
+//
+// See: https://github.com/lytics/metafora/issues/31
 
 import (
 	"github.com/coreos/go-etcd/etcd"
@@ -17,19 +19,17 @@ import (
 )
 
 const (
-	NAMESPACE  = "test"
-	NODES_DIR  = "/test/nodes"
-	NODE1      = "node1"
-	NODE1_PATH = NODES_DIR + "/" + NODE1
-	COMMAND    = "{\"command\":\"testing\"}"
+	NAMESPACE  = `test`
+	NODES_DIR  = `/test/nodes`
+	NODE1      = `node1`
+	NODE1_PATH = NODES_DIR + `/` + NODE1
+	COMMAND    = `{"command":"testing"}`
 )
 
-// Test that client.Nodes() returns the metafora nodes
+// TestNodes tests that client.Nodes() returns the metafora nodes
 // registered in etcd.
 func TestNodes(t *testing.T) {
-	if os.Getenv("METAFORA_INTEGRATION_TEST") == "" {
-		return
-	}
+	skipEtcd(t)
 
 	eclient := newEtcdClient(t)
 
@@ -48,13 +48,11 @@ func TestNodes(t *testing.T) {
 	}
 }
 
-// Test that client.SubmitTask(...) adds a task to the proper path
-// in etcd, and that the same task id cannot be submitted more
-// than once.
+// TestSubmitTask tests that client.SubmitTask(...) adds a task to
+// the proper path in etcd, and that the same task id cannot be
+// submitted more than once.
 func TestSubmitTask(t *testing.T) {
-	if os.Getenv("METAFORA_INTEGRATION_TEST") == "" {
-		return
-	}
+	skipEtcd(t)
 
 	eclient := newEtcdClient(t)
 
@@ -69,12 +67,10 @@ func TestSubmitTask(t *testing.T) {
 	}
 }
 
-// Test that client.SubmitCommand(...) adds a command to the proper node path
-// in etcd, and that it can be read back.
+// TestSubmitCommand tests that client.SubmitCommand(...) adds a command
+// to the proper node path in etcd, and that it can be read back.
 func TestSubmitCommand(t *testing.T) {
-	if os.Getenv("METAFORA_INTEGRATION_TEST") == "" {
-		return
-	}
+	skipEtcd(t)
 
 	eclient := newEtcdClient(t)
 
@@ -95,7 +91,7 @@ func TestSubmitCommand(t *testing.T) {
 	}
 }
 
-// Create a new etcd client for use by metafora client during testing.
+// newEtcdClient creates a new etcd client for use by the metafora client during testing.
 func newEtcdClient(t *testing.T) *etcd.Client {
 	// This is the same ENV variable that etcdctl uses for peers.
 	peers_from_environment := os.Getenv("ETCDCTL_PEERS")

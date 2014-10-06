@@ -6,7 +6,7 @@ import (
 	"github.com/lytics/metafora"
 )
 
-// Create a new client using an etcd backend.
+// NewClient creates a new client using an etcd backend.
 func NewClient(namespace string, client *etcd.Client) metafora.Client {
 	return &mclient{
 		etcd:      client,
@@ -14,55 +14,54 @@ func NewClient(namespace string, client *etcd.Client) metafora.Client {
 	}
 }
 
-// Internal implementation of metafora.Client with an etcd backend.
+// Type 'mclient' is an internal implementation of metafora.Client with an etcd backend.
 type mclient struct {
 	etcd      *etcd.Client
 	namespace string
 }
 
-// Path to base directory of nodes, which is a directory in etcd.
+// ndsPath is the base path of nodes, represented as a directory in etcd.
 func (mc *mclient) ndsPath() string {
-	return fmt.Sprintf("/%s/%s", mc.namespace, NODES_PATH)
+	return fmt.Sprintf("/%s/%s", mc.namespace, NodesPath)
 }
 
-// Path to particular taskId, which is a file in etcd.
+// tskPath is the path to a particular taskId, represented as a file in etcd.
 func (mc *mclient) tskPath(taskId string) string {
-	return fmt.Sprintf("/%s/%s/%s", mc.namespace, TASKS_PATH, taskId)
+	return fmt.Sprintf("/%s/%s/%s", mc.namespace, TasksPath, taskId)
 }
 
-// Path to particular nodeId, which is a directory in etcd.
+// cmdPath is the path to a particular nodeId, represented as a directory in etcd.
 func (mc *mclient) cmdPath(nodeId string) string {
-	return fmt.Sprintf("/%s/%s/%s", mc.namespace, NODES_PATH, nodeId)
+	return fmt.Sprintf("/%s/%s/%s", mc.namespace, NodesPath, nodeId)
 }
 
-// Create a new taskId, the taskId is a directory in etcd.
+// SubmitTask creates a new taskId, represented as a directory in etcd.
 func (mc *mclient) SubmitTask(taskId string) error {
-	_, err := mc.etcd.CreateDir(mc.tskPath(taskId), TTL_FOREVER)
+	_, err := mc.etcd.CreateDir(mc.tskPath(taskId), ForeverTTL)
 
 	return err
 }
 
-// Create a new command for a particular nodeId, the command has a random
-// name and is added to the particular nodeId directory in etcd.
+// SubmitCommand creates a new command for a particular nodeId, the
+// command has a random name and is added to the particular nodeId
+// directory in etcd.
 func (mc *mclient) SubmitCommand(nodeId string, command string) error {
-	_, err := mc.etcd.AddChild(mc.cmdPath(nodeId), command, TTL_FOREVER)
+	_, err := mc.etcd.AddChild(mc.cmdPath(nodeId), command, ForeverTTL)
 
 	return err
 }
 
-// Fetch the current nodes. A non-nil error means that some error occured
-// trying to get the node list. The node list may be nil if no nodes are
-// registered.
+// Nodes fetchs the currently registered nodes. A non-nil error means that some
+// error occured trying to get the node list. The node list may be nil if no
+// nodes are registered.
 func (mc *mclient) Nodes() ([]string, error) {
-	if res, err := mc.etcd.Get(mc.ndsPath(), false, false); err != nil {
-		return make([]string, 0), err
-	} else if res.Node != nil && res.Node.Nodes != nil {
+	if res, err := mc.etcd.Get(mc.ndsPath(), false, false); err != nil && res.Node != nil && res.Node.Nodes != nil {
 		nodes := make([]string, len(res.Node.Nodes))
 		for i, n := range res.Node.Nodes {
 			nodes[i] = n.Value
 		}
 		return nodes, nil
-	} else {
-		return nil, nil
 	}
+
+	return nil, nil
 }
