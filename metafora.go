@@ -82,6 +82,7 @@ func (c *Consumer) SetLogger(l logOutputter, lvl LogLevel) {
 //
 // Run blocks until Shutdown is called.
 func (c *Consumer) Run() {
+	c.logger.Log(LogLevelDebug, "Starting consumer")
 	// Call Balance in a goroutine
 	go func() {
 		randInt := rand.New(rand.NewSource(time.Now().UnixNano())).Int63n
@@ -245,6 +246,7 @@ func (c *Consumer) Tasks() []string {
 func (c *Consumer) claimed(taskID string) {
 	h := c.handler()
 
+	c.logger.Log(LogLevelDebug, "Attempting to start task "+taskID)
 	// Associate handler with taskID
 	// **This is the only place tasks should be added to c.running**
 	c.runL.Lock()
@@ -267,6 +269,7 @@ func (c *Consumer) claimed(taskID string) {
 		}()
 
 		// Run the task
+		c.logger.Log(LogLevelDebug, "Calling run for task %s", taskID)
 		if err := h.Run(taskID); err != nil {
 			c.logger.Log(LogLevelError, "Handler for %s exited with error: %v", taskID, err)
 		}

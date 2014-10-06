@@ -141,6 +141,9 @@ func (ec *EtcdCoordinator) Watch() (taskID string, err error) {
 			if resp.Action != "create" {
 				continue
 			}
+			if strings.Contains(resp.Node.Key, "owner") {
+				continue
+			}
 			if resp.Node == nil {
 				//TODO log
 				continue
@@ -168,7 +171,7 @@ func (ec *EtcdCoordinator) Watch() (taskID string, err error) {
 // claimed the ID.
 func (ec *EtcdCoordinator) Claim(taskID string) bool {
 	key := fmt.Sprintf("%s/%s/owner", ec.TaskPath, taskID)
-	res, err := ec.Client.CreateDir(key, CLAIM_TTL)
+	res, err := ec.Client.Create(key, ec.NodeId, CLAIM_TTL)
 	if err != nil {
 		ec.cordCtx.Log(metafora.LogLevelDebug, "Claim failed: err %v", err)
 		return false
@@ -191,7 +194,7 @@ func (ec *EtcdCoordinator) Release(taskID string) {
 // Command blocks until a command for this node is received from the broker
 // by the coordinator.
 func (ec *EtcdCoordinator) Command() (cmd string, err error) {
-
+	<-ec.commandWatcher.responseChan
 	return "", nil
 	/*  TODO 1) cleanup the log here to match that of Watch
 	         2) discuss the schema for the command channel...
