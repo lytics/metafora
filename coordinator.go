@@ -6,6 +6,8 @@ type CoordinatorContext interface {
 	Logger
 }
 
+// Coordinator is the core interface Metafora uses to discover, claim, and
+// tasks as well as receive commands.
 type Coordinator interface {
 	// Init is called once by the consumer to provide a Logger to Coordinator
 	// implementations.
@@ -27,5 +29,7 @@ type Coordinator interface {
 	// by the coordinator.
 	Command() (cmd string, err error)
 
+	// Close indicates the Coordinator should stop watching and receiving
+	// commands. It is called during Consumer.Shutdown().
 	Close() error
 }

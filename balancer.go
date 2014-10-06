@@ -22,9 +22,13 @@ type BalancerContext interface {
 	Logger
 }
 
+// Balancer is the core task balancing interface. Without a master Metafora
+// clusters are cooperatively balanced -- meaning each node needs to know how
+// to balance itself.
 type Balancer interface {
-	// Init is called once and only once with an interface for use by CanClaim
-	// and Balance to use the state of the Consumer.
+	// Init is called once and only once before any other Balancer methods are
+	// called. The context argument is meant to expose functionality that might
+	// be useful for CanClaim and Balance implementations.
 	Init(BalancerContext)
 
 	// CanClaim should return true if the consumer should accept a task. No new
@@ -56,10 +60,15 @@ type ClusterState interface {
 	NodeTaskCount() (map[string]int, error)
 }
 
+// NewDefaultFairBalancer creates a new FairBalancer but requires a
+// ClusterState implementation to gain more information about the cluster than
+// BalancerContext provides.
 func NewDefaultFairBalancer(nodeid string, cs ClusterState) Balancer {
 	return NewDefaultFairBalancerWithThreshold(nodeid, cs, defaultThreshold)
 }
 
+// NewDefaultFairBalancerWithThreshold allows callers to override
+// FairBalancer's default 120% task load release threshold.
 func NewDefaultFairBalancerWithThreshold(nodeid string, cs ClusterState, threshold float32) Balancer {
 	return &FairBalancer{
 		nodeid:           nodeid,
@@ -69,10 +78,12 @@ func NewDefaultFairBalancerWithThreshold(nodeid string, cs ClusterState, thresho
 	}
 }
 
-// An implementation of `metafora.Balancer` which attempts to randomly release tasks in the case
-// when the count of those currently running on this node is greater than some percentage of
-// the cluster average (default 120%)
-// This balancer will claim all tasks which were not released on the last call to Balance
+// An implementation of Balancer which attempts to randomly release tasks in
+// the case when the count of those currently running on this node is greater
+// than some percentage of the cluster average (default 120%).
+//
+// This balancer will claim all tasks which were not released on the last call
+// to Balance.
 type FairBalancer struct {
 	nodeid string
 
@@ -88,11 +99,15 @@ func (e *FairBalancer) Init(s BalancerContext) {
 	e.bc = s
 }
 
+// CanClaim claims any task that wasn't released the last time Balance was
+// called.
 func (e *FairBalancer) CanClaim(taskid string) bool {
 	// Skip those tasks which were last released
 	return !e.lastreleased[taskid]
 }
 
+// Balance releases tasks if this node has 120% more tasks than the average
+// node in the cluster.
 func (e *FairBalancer) Balance() []string {
 	e.lastreleased = map[string]bool{}
 	current, err := e.clusterstate.NodeTaskCount()
