@@ -141,6 +141,10 @@ func (ec *EtcdCoordinator) Watch() (taskID string, err error) {
 			if resp.Action != "create" {
 				continue
 			}
+			//FIXME There's gotta be a better way to only detect tasks #32
+			if strings.Contains(resp.Node.Key, "owner") {
+				continue
+			}
 			if resp.Node == nil {
 				//TODO log
 				continue
@@ -191,7 +195,7 @@ func (ec *EtcdCoordinator) Release(taskID string) {
 // Command blocks until a command for this node is received from the broker
 // by the coordinator.
 func (ec *EtcdCoordinator) Command() (cmd string, err error) {
-
+	<-ec.commandWatcher.responseChan
 	return "", nil
 	/*  TODO 1) cleanup the log here to match that of Watch
 	         2) discuss the schema for the command channel...
