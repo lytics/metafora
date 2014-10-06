@@ -1,10 +1,4 @@
 #!/bin/bash
-echo You may need to run this once:
-echo sudo docker pull coreos/etcd
-echo 
-
-
-
 export RunningEtcdDockers=$(sudo docker ps --no-trunc -a | grep metafora-etcd- | awk '{print $1}')
 if [[ -n $RunningEtcdDockers ]]; then
 echo stopping existing etcd mTesetEtcdnode docker containers 
