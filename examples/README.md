@@ -36,8 +36,3 @@ Start a task in the other:
 ```sh
 koalemosctl sleep 30
 ```
-
-Whatever you do, **don't do this:**
-```sh
-koalesmosctl koalesmosctl
-```
