@@ -19,7 +19,7 @@ type EtcdCoordinator struct {
 
 	taskWatcher *EtcdWatcher
 
-	NodeId         string
+	NodeID         string
 	CommandPath    string
 	commandWatcher *EtcdWatcher
 }
@@ -82,7 +82,7 @@ func NewEtcdCoordinator(nodeId, namespace string, client *etcd.Client) metafora.
 		//Adding the UUID incase we run two nodes on the same box.
 		// TODO lets move this to the Readme as part of the example of calling NewEtcdCoordinator.
 		// Then just remove the Autocreated nodeId.
-		nodeId = hn + string(uuid.NewRandom())
+		nodeId = hn + uuid.NewRandom().String()
 	}
 
 	nodeId = strings.Trim(nodeId, "/ ")
@@ -91,11 +91,11 @@ func NewEtcdCoordinator(nodeId, namespace string, client *etcd.Client) metafora.
 		Client:    client,
 		Namespace: namespace,
 
-		TaskPath:    fmt.Sprintf("/%s/%s", namespace, TASKS_PATH), //TODO MAKE A PACKAGE FUNC TO CREATE THIS PATH.
+		TaskPath:    fmt.Sprintf("/%s/%s", namespace, TasksPath), //TODO MAKE A PACKAGE FUNC TO CREATE THIS PATH.
 		taskWatcher: nil,
 
-		NodeId:         nodeId,
-		CommandPath:    fmt.Sprintf("/%s/%s/%s/%s", namespace, NODES_PATH, nodeId, COMMAND_PATH),
+		NodeID:         nodeId,
+		CommandPath:    fmt.Sprintf("/%s/%s/%s/%s", namespace, NodesPath, nodeId, CommandsPath),
 		commandWatcher: nil,
 	}
 
@@ -141,6 +141,10 @@ func (ec *EtcdCoordinator) Watch() (taskID string, err error) {
 			if resp.Action != "create" {
 				continue
 			}
+			//FIXME There's gotta be a better way to only detect tasks #32
+			if strings.Contains(resp.Node.Key, "owner") {
+				continue
+			}
 			if resp.Node == nil {
 				//TODO log
 				continue
@@ -168,7 +172,7 @@ func (ec *EtcdCoordinator) Watch() (taskID string, err error) {
 // claimed the ID.
 func (ec *EtcdCoordinator) Claim(taskID string) bool {
 	key := fmt.Sprintf("%s/%s/owner", ec.TaskPath, taskID)
-	res, err := ec.Client.CreateDir(key, CLAIM_TTL)
+	res, err := ec.Client.CreateDir(key, ClaimTTL)
 	if err != nil {
 		ec.cordCtx.Log(metafora.LogLevelDebug, "Claim failed: err %v", err)
 		return false
@@ -191,7 +195,7 @@ func (ec *EtcdCoordinator) Release(taskID string) {
 // Command blocks until a command for this node is received from the broker
 // by the coordinator.
 func (ec *EtcdCoordinator) Command() (cmd string, err error) {
-
+	<-ec.commandWatcher.responseChan
 	return "", nil
 	/*  TODO 1) cleanup the log here to match that of Watch
 	         2) discuss the schema for the command channel...
