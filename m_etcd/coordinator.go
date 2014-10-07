@@ -19,7 +19,7 @@ type EtcdCoordinator struct {
 
 	taskWatcher *EtcdWatcher
 
-	NodeId         string
+	NodeID         string
 	CommandPath    string
 	commandWatcher *EtcdWatcher
 }
@@ -82,7 +82,7 @@ func NewEtcdCoordinator(nodeId, namespace string, client *etcd.Client) metafora.
 		//Adding the UUID incase we run two nodes on the same box.
 		// TODO lets move this to the Readme as part of the example of calling NewEtcdCoordinator.
 		// Then just remove the Autocreated nodeId.
-		nodeId = hn + string(uuid.NewRandom())
+		nodeId = hn + uuid.NewRandom().String()
 	}
 
 	nodeId = strings.Trim(nodeId, "/ ")
@@ -94,7 +94,7 @@ func NewEtcdCoordinator(nodeId, namespace string, client *etcd.Client) metafora.
 		TaskPath:    fmt.Sprintf("/%s/%s", namespace, TasksPath), //TODO MAKE A PACKAGE FUNC TO CREATE THIS PATH.
 		taskWatcher: nil,
 
-		NodeId:         nodeId,
+		NodeID:         nodeId,
 		CommandPath:    fmt.Sprintf("/%s/%s/%s/%s", namespace, NodesPath, nodeId, CommandsPath),
 		commandWatcher: nil,
 	}
