@@ -1,30 +1,29 @@
 #!/bin/bash
-PUBLIC_IP=`hostname --ip-address`
-echo PUBLIC_IP = ${PUBLIC_IP}
-
-echo You may need to run this once:
-echo sudo docker pull coreos/etcd
-echo
-
-echo stopping existing etcd TestEtcdNode docker containers 
+export RunningEtcdDockers=$(sudo docker ps -a | grep metafora-etcd- | awk '{print $1}')
+if [[ -n $RunningEtcdDockers ]]; then
+echo stopping existing etcd metafora docker containers 
 echo ----------------------------------------------------------------------------------------------------------------
-ETCD_DOCKERS=$(sudo docker ps --no-trunc -a | grep TestEtcdNode | awk '{print $1}')
-sudo docker stop ${ETCD_DOCKERS}
+    echo sudo docker stop ${RunningEtcdDockers}
+    sudo docker stop ${RunningEtcdDockers}
+    echo 
+
+
+    echo removing existing etcd docker containers 
+    echo ----------------------------------------------------------------------------------------------------------------
+    sudo docker rm ${RunningEtcdDockers}
+    echo 
+fi
+
+echo starting new etcd metafora docker containers 
+echo ----------------------------------------------------------------------------------------------------------------
+sudo docker run -d --name="metafora-etcd-a" --net=host coreos/etcd \
+    -peer-addr 127.0.0.1:8001 -peer-bind-addr 127.0.0.1:8001 -addr 127.0.0.1:5001 -bind-addr 127.0.0.1:5001 -name metafora-a
+sudo docker run -d --name="metafora-etcd-b" --net=host coreos/etcd \
+    -peer-addr 127.0.0.1:8002 -peer-bind-addr 127.0.0.1:8002 -addr 127.0.0.1:5002 -bind-addr 127.0.0.1:5002 -name metafora-b -peers 127.0.0.1:8001,127.0.0.1:8002,127.0.0.1:8003
+sudo docker run -d --name="metafora-etcd-c" --net=host coreos/etcd \
+    -peer-addr 127.0.0.1:8003 -peer-bind-addr 127.0.0.1:8003 -addr 127.0.0.1:5003 -bind-addr 127.0.0.1:5003 -name metafora-c -peers 127.0.0.1:8001,127.0.0.1:8002,127.0.0.1:8003
 echo 
 
-
-echo removing existing etcd TestEtcdNode docker containers 
+echo list of running metafora docker containers 
 echo ----------------------------------------------------------------------------------------------------------------
-sudo docker rm ${ETCD_DOCKERS}
-echo 
-
-echo starting new etcd TestEtcdNode docker containers 
-echo ----------------------------------------------------------------------------------------------------------------
-sudo docker run -d -p 8001:8001 -p 5001:5001 coreos/etcd -peer-addr ${PUBLIC_IP}:8001 -addr ${PUBLIC_IP}:5001 -name TestEtcdNode1
-sudo docker run -d -p 8002:8002 -p 5002:5002 coreos/etcd -peer-addr ${PUBLIC_IP}:8002 -addr ${PUBLIC_IP}:5002 -name TestEtcdNode2 -peers ${PUBLIC_IP}:8001,${PUBLIC_IP}:8002,${PUBLIC_IP}:8003
-sudo docker run -d -p 8003:8003 -p 5003:5003 coreos/etcd -peer-addr ${PUBLIC_IP}:8003 -addr ${PUBLIC_IP}:5003 -name TestEtcdNode3 -peers ${PUBLIC_IP}:8001,${PUBLIC_IP}:8002,${PUBLIC_IP}:8003
-echo 
-
-echo list of running TestEtcdNode docker containers 
-echo ----------------------------------------------------------------------------------------------------------------
-sudo docker ps --no-trunc | grep TestEtcdNode
+sudo docker ps | grep metafora-etcd-
