@@ -2,15 +2,34 @@ package m_etcd
 
 import (
 	"fmt"
+
 	"github.com/coreos/go-etcd/etcd"
 	"github.com/lytics/metafora"
 )
 
+type dumbLogger struct {
+}
+
+func (l dumbLogger) Log(lvl metafora.LogLevel, m string, v ...interface{}) {
+	//NOOP
+}
+
 // NewClient creates a new client using an etcd backend.
 func NewClient(namespace string, client *etcd.Client) metafora.Client {
+
 	return &mclient{
 		etcd:      client,
 		namespace: namespace,
+		logger:    &dumbLogger{},
+	}
+}
+
+// NewClient creates a new client using an etcd backend.
+func NewClientWithLogger(namespace string, client *etcd.Client, logger metafora.Logger) metafora.Client {
+	return &mclient{
+		etcd:      client,
+		namespace: namespace,
+		logger:    logger,
 	}
 }
 
@@ -18,6 +37,7 @@ func NewClient(namespace string, client *etcd.Client) metafora.Client {
 type mclient struct {
 	etcd      *etcd.Client
 	namespace string
+	logger    metafora.Logger
 }
 
 // ndsPath is the base path of nodes, represented as a directory in etcd.
@@ -37,8 +57,17 @@ func (mc *mclient) cmdPath(nodeId string) string {
 
 // SubmitTask creates a new taskId, represented as a directory in etcd.
 func (mc *mclient) SubmitTask(taskId string) error {
-	_, err := mc.etcd.CreateDir(mc.tskPath(taskId), ForeverTTL)
+	fullpath := mc.tskPath(taskId)
+	_, err := mc.etcd.CreateDir(fullpath, ForeverTTL)
+	mc.logger.Log(metafora.LogLevelDebug, "task submitted [%s]", fullpath)
+	return err
+}
 
+// Delete a task
+func (mc *mclient) DeleteTask(taskId string) error {
+	fullpath := mc.tskPath(taskId)
+	mc.logger.Log(metafora.LogLevelDebug, "task deleted [%s]", fullpath)
+	_, err := mc.etcd.DeleteDir(fullpath)
 	return err
 }
 
@@ -47,7 +76,6 @@ func (mc *mclient) SubmitTask(taskId string) error {
 // directory in etcd.
 func (mc *mclient) SubmitCommand(nodeId string, command string) error {
 	_, err := mc.etcd.AddChild(mc.cmdPath(nodeId), command, ForeverTTL)
-
 	return err
 }
 

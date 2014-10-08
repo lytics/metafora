@@ -18,8 +18,10 @@ type EtcdCoordinator struct {
 	TaskPath  string
 
 	taskWatcher *EtcdWatcher
+	ClaimTTL    uint64
 
 	NodeId         string
+	NodePath       string
 	CommandPath    string
 	commandWatcher *EtcdWatcher
 }
@@ -90,12 +92,14 @@ func NewEtcdCoordinator(nodeId, namespace string, client *etcd.Client) metafora.
 	etcd := &EtcdCoordinator{
 		Client:    client,
 		Namespace: namespace,
+		ClaimTTL:  ClaimTTL,
 
 		TaskPath:    fmt.Sprintf("/%s/%s", namespace, TasksPath), //TODO MAKE A PACKAGE FUNC TO CREATE THIS PATH.
 		taskWatcher: nil,
 
 		NodeId:         nodeId,
 		CommandPath:    fmt.Sprintf("/%s/%s/%s/%s", namespace, NodesPath, nodeId, CommandsPath),
+		NodePath:       fmt.Sprintf("/%s/%s/%s/%s", namespace, NodesPath, nodeId),
 		commandWatcher: nil,
 	}
 
@@ -105,6 +109,20 @@ func NewEtcdCoordinator(nodeId, namespace string, client *etcd.Client) metafora.
 // Init is called once by the consumer to provide a Logger to Coordinator
 // implementations.
 func (ec *EtcdCoordinator) Init(cordCtx metafora.CoordinatorContext) {
+
+	//insure the taskpath has been created.  This returns an error if it's already
+	// created, which we'll just ignore.
+	_, err := ec.Client.CreateDir(fmt.Sprintf("/%s", ec.Namespace), ForeverTTL)
+	if err != nil {
+		cordCtx.Log(metafora.LogLevelDebug, "Init error creating the namespace path: [ %v ]", err)
+	}
+	_, err = ec.Client.CreateDir(ec.TaskPath, ForeverTTL)
+	if err != nil {
+		cordCtx.Log(metafora.LogLevelDebug, "Init error creating the task path: [ %v ]", err)
+	}
+
+	ec.Client.CreateDir(ec.NodePath, NodeIDTTL)
+	ec.Client.CreateDir(ec.CommandPath, ForeverTTL)
 
 	ec.cordCtx = cordCtx
 	ec.taskWatcher = &EtcdWatcher{
@@ -124,6 +142,7 @@ func (ec *EtcdCoordinator) Init(cordCtx metafora.CoordinatorContext) {
 		errorChan:    make(chan error),
 		client:       ec.Client,
 	}
+
 	//start up the watchers.
 	//  Doing this in Init() incase we need access to the Ctx object...
 	ec.taskWatcher.StartWatching()
@@ -137,7 +156,8 @@ func (ec *EtcdCoordinator) Watch() (taskID string, err error) {
 		select {
 		case resp := <-ec.taskWatcher.responseChan:
 			taskId := ""
-			ec.cordCtx.Log(metafora.LogLevelDebug, "New response from %s, res %v", ec.TaskPath, resp)
+			ec.cordCtx.Log(metafora.LogLevelDebug, "New response from watching %s: response[action:%v etcdIndex:%v nodeKey:%v]",
+				ec.TaskPath, resp.Action, resp.EtcdIndex, resp.Node.Key)
 			if resp.Action != "create" {
 				continue
 			}
@@ -149,6 +169,7 @@ func (ec *EtcdCoordinator) Watch() (taskID string, err error) {
 				//TODO log
 				continue
 			}
+			ec.cordCtx.Log(metafora.LogLevelDebug, "Node key:%s", resp.Node.Key)
 			taskpath := strings.Split(resp.Node.Key, "/")
 			if len(taskpath) == 0 {
 				//TODO log
@@ -158,6 +179,10 @@ func (ec *EtcdCoordinator) Watch() (taskID string, err error) {
 				ec.cordCtx.Log(metafora.LogLevelWarn, "TaskID node shouldn't be a directory but a key.")
 			}
 			taskId = taskpath[len(taskpath)-1]
+
+			if taskId == "tasks" {
+				continue
+			}
 
 			return taskId, nil
 		case err := <-ec.taskWatcher.errorChan:
@@ -172,7 +197,7 @@ func (ec *EtcdCoordinator) Watch() (taskID string, err error) {
 // claimed the ID.
 func (ec *EtcdCoordinator) Claim(taskID string) bool {
 	key := fmt.Sprintf("%s/%s/owner", ec.TaskPath, taskID)
-	res, err := ec.Client.CreateDir(key, ClaimTTL)
+	res, err := ec.Client.CreateDir(key, ec.ClaimTTL)
 	if err != nil {
 		ec.cordCtx.Log(metafora.LogLevelDebug, "Claim failed: err %v", err)
 		return false
