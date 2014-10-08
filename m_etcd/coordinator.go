@@ -48,6 +48,10 @@ func (w *EtcdWatcher) StartWatching() {
 			recursive,
 			w.responseChan,
 			w.stopChan)
+		if err == etcd.ErrWatchStoppedByUser {
+			// This isn't actually an error, return nil
+			w.errorChan <- nil
+		}
 		w.errorChan <- err
 	}()
 }
