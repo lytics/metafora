@@ -1,6 +1,6 @@
 ## Introduction 
 
-Metafora is a framework for creating highly available and distributed services written in Go.  Metafora is embeded has to be started in your code.  It uses etcd to coordinate with other nodes in the cluster.  Its a masterless system, but the nodes coordinate with eachother to insure that work is evenly distributed between nodes. 
+Metafora is a framework for creating highly available and distributed services written in Go.  Metafora is embeded meaning your code controls how and when metafora is started.  It uses etcd to coordinate across the nodes in your cluster.  Metafora is a leaderless task distribution system, where the nodes coordinate with eachother to insure that work is evenly distributed over the cluster. 
 
 Metafora is an embeded work stealing framework built on top of etcd.  
 
