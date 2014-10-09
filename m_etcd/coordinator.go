@@ -50,21 +50,18 @@ func (w *EtcdWatcher) StartWatching() {
 			w.stopChan)
 		if err == etcd.ErrWatchStoppedByUser {
 			// This isn't actually an error, return nil
-			w.errorChan <- nil
+			err = nil
 		}
 		w.errorChan <- err
+		close(w.errorChan)
 	}()
 }
 
+// Close stops the watching goroutine. Close will panic if called more than
+// once.
 func (w *EtcdWatcher) Close() error {
-	w.stopChan <- true
-
-	select {
-	case err := <-w.errorChan:
-		return err
-	default:
-	}
-	return nil
+	close(w.stopChan)
+	return <-w.errorChan
 }
 
 /*
@@ -139,7 +136,12 @@ func (ec *EtcdCoordinator) Init(cordCtx metafora.CoordinatorContext) {
 func (ec *EtcdCoordinator) Watch() (taskID string, err error) {
 	for {
 		select {
-		case resp := <-ec.taskWatcher.responseChan:
+		case resp, ok := <-ec.taskWatcher.responseChan:
+			if !ok {
+				// responseChan being closed means watcher has exited
+				return "", nil
+			}
+
 			taskId := ""
 			ec.cordCtx.Log(metafora.LogLevelDebug, "New response from %s, res %v", ec.TaskPath, resp)
 			if resp.Action != "create" {
