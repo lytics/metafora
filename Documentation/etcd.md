@@ -4,6 +4,7 @@ Metafora is a framework for creating highly available and distributed services w
 
 Metafora is an embeded work stealing framework built on top of etcd.  
 
+<br> 
 <a href="url"><img src="/Documentation/images/metafora_logical_integration_diagram.png" align="left" height="400" width="430" ></a>
 
 ## Overview
@@ -14,14 +15,17 @@ Metafora gives you the ablity to build an elastic distributed application.  It m
 
 When a node fails (or you scale in your nodes), metafora will will release the tasks from the missing node back into the task pool.  Other metafora nodes will detect the unclaimed tasks and attempt to claim them.  It's important to note that metafora simple manages the reassigment of tasks, its upto your code (possiable in your metafora handler) to cleanup any bad state caused by a tasks crashing during processing.
 
+<br> 
 <a href="url"><img src="/Documentation/images/metafora_nodefailure.png" align="left" height="400" width="380" ></a>
 
 #### Node recovery or scaling out
 
 When a new node joins the cluster it begins picking up new tasks immediately.  But initially, the other nodes may have more tasks because they've been in the cluster longer.  To address this, occasionally the members compare task load and rebalance the tasks between them.  
 
+<br> 
 <a href="url"><img src="/Documentation/images/metafora_node_recovery.png" align="left" height="400" width="380" ></a>
-
+<br> 
+<br> 
 
 
 
