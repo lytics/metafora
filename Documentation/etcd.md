@@ -47,3 +47,9 @@ contents of the files are a command to be executed. Only one command will be
 executed at a time, and pending commands are lost on node shutdown.
 
 
+### Useful links for managing etcd
+
+[The etcd API](https://coreos.com/docs/distributed-configuration/etcd-api/)
+
+[etcd cli tool](https://github.com/coreos/etcdctl)
+
