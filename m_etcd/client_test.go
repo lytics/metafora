@@ -113,5 +113,7 @@ func newEtcdClient(t *testing.T) *etcd.Client {
 		t.Fatalf("Cannot sync etcd cluster using peers: %v", strings.Join(peers, ", "))
 	}
 
+	eclient.SetConsistency(etcd.STRONG_CONSISTENCY)
+
 	return eclient
 }

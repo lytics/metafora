@@ -1,7 +1,6 @@
 package m_etcd
 
 import (
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -224,14 +223,12 @@ func TestCoordinatorTC3(t *testing.T) {
 //   Submit a task before any coordinator is active and watching for tasks.
 //
 func TestCoordinatorTC4(t *testing.T) {
-	skipEtcd(t)
-	t.Log("\nDoing Test Setup")
+	eclient := newEtcdClient(t)
 	cleanupNameSpace(t, TestNameSpace)
 
 	test_finished := make(chan bool)
 	testTasks := []string{"testtask0001", "testtask0002", "testtask0003"}
 
-	eclient := createEtcdClient(t)
 	mclient := NewClientWithLogger(TestNameSpace, eclient, testLogger{"metafora-client1", t})
 	/*
 		for _, taskId := range testTasks { //Remove any old taskids left over from other tests.
@@ -284,35 +281,14 @@ func TestCoordinatorTC4(t *testing.T) {
 	}
 }
 
-func createEtcdClient(t *testing.T) *etcd.Client {
-	peerAddrs := os.Getenv("ETCDCTL_PEERS") //This is the same ENV that etcdctl uses for Peers.
-	if peerAddrs == "" {
-		peerAddrs = "localhost:5001,localhost:5002,localhost:5003"
-	}
-
-	peers := strings.Split(peerAddrs, ",")
-
-	client := etcd.NewClient(peers)
-
-	ok := client.SyncCluster()
-
-	if !ok {
-		t.Fatalf("Cannot sync with the cluster using peers " + strings.Join(peers, ", "))
-	}
-
-	client.SetConsistency(etcd.STRONG_CONSISTENCY)
-
-	return client
-}
-
 func createEtcdCoordinator(t *testing.T, namespace string) (*EtcdCoordinator, *etcd.Client) {
-	client := createEtcdClient(t)
+	client := newEtcdClient(t)
 
 	return NewEtcdCoordinator(TestNodeID, namespace, client).(*EtcdCoordinator), client
 }
 
 func cleanupNameSpace(t *testing.T, namespace string) {
-	client := createEtcdClient(t)
+	client := newEtcdClient(t)
 	const recursive = true
 	client.Delete(namespace, recursive)
 }
