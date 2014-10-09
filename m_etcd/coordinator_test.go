@@ -1,7 +1,6 @@
 package m_etcd
 
 import (
-	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -301,10 +300,6 @@ func createEtcdClient(t *testing.T) *etcd.Client {
 		t.Fatalf("Cannot sync with the cluster using peers " + strings.Join(peers, ", "))
 	}
 
-	if !isEtcdUp(client, t) {
-		t.Fatalf("While testing etcd, the test couldn't connect to etcd. " + strings.Join(peers, ", "))
-	}
-
 	client.SetConsistency(etcd.STRONG_CONSISTENCY)
 
 	return client
@@ -320,16 +315,4 @@ func cleanupNameSpace(t *testing.T, namespace string) {
 	client := createEtcdClient(t)
 	const recursive = true
 	client.Delete(namespace, recursive)
-}
-
-func isEtcdUp(client *etcd.Client, t *testing.T) bool {
-	client.Create("/foo", "test", 1)
-	res, err := client.Get("/foo", false, false)
-	if err != nil {
-		t.Errorf("Writing a test key to etcd failed. error:%v", err)
-		return false
-	} else {
-		t.Log(fmt.Sprintf("Res:[Action:%s Key:%s Value:%s tll:%d]", res.Action, res.Node.Key, res.Node.Value, res.Node.TTL))
-		return true
-	}
 }

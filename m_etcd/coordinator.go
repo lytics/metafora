@@ -1,6 +1,7 @@
 package m_etcd
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -111,8 +112,8 @@ func (ec *EtcdCoordinator) Init(cordCtx metafora.CoordinatorContext) {
 
 	ec.upsertDir("/"+ec.Namespace, ForeverTTL)
 	ec.upsertDir(ec.TaskPath, ForeverTTL)
-	//ec.upsertDir(ec.NodePath, ForeverTTL)
-	//ec.upsertDir(ec.CommandPath, ForeverTTL)
+	//TODO setup node Dir with a shorter TTL and patch in the heartbeat to update the TTL
+	ec.upsertDir(ec.CommandPath, ForeverTTL)
 
 	ec.tasksPrefetchChan = make(chan *etcd.Node)
 	ec.taskWatcher = &EtcdWatcher{
@@ -162,19 +163,35 @@ func (ec *EtcdCoordinator) upsertDir(path string, ttl uint64) {
 	//hidden etcd key that isn't visible to ls commands on the directory,
 	//  you have to know about it to find it :).  I'm using it to add some
 	//  info about when the cluster's schema was setup.
-	pathMarker := path + "/" + CreatedMarker
-
+	pathMarker := path + "/" + MetadataKey
 	const sorted = false
 	const recursive = false
+
 	_, err := ec.Client.Get(path, sorted, recursive)
-	if err != nil && strings.Contains(err.Error(), "Key not found") {
+	if err == nil {
+		return
+	}
+
+	etcdErr, ok := err.(*etcd.EtcdError)
+	if ok && etcdErr.ErrorCode == EcodeKeyNotFound {
 		_, err := ec.Client.CreateDir(path, ttl)
 		if err != nil {
 			ec.cordCtx.Log(metafora.LogLevelDebug, "Error trying to create directory. path:[%s] error:[ %v ]", path, err)
 		}
 		host, _ := os.Hostname()
-		markerVal := fmt.Sprintf("createdAt:[%s] by:[%s] nodeid:[%s]", time.Now().String(), host, ec.NodeID) //debug info only
-		ec.Client.Set(pathMarker, markerVal, ttl)
+
+		metadata := struct {
+			Host        string
+			CreatedTime string
+			NodeID      string
+		}{
+			host,
+			time.Now().String(),
+			ec.NodeID,
+		}
+		metadataB, _ := json.Marshal(metadata)
+		metadataStr := string(metadataB)
+		ec.Client.Create(pathMarker, metadataStr, ttl)
 	}
 }
 

@@ -68,8 +68,8 @@ func (mc *mclient) SubmitTask(taskId string) error {
 // Delete a task
 func (mc *mclient) DeleteTask(taskId string) error {
 	fullpath := mc.tskPath(taskId)
-	mc.logger.Log(metafora.LogLevelDebug, "task deleted [%s]", fullpath)
 	_, err := mc.etcd.DeleteDir(fullpath)
+	mc.logger.Log(metafora.LogLevelDebug, "task deleted [%s]", fullpath)
 	return err
 }
 
@@ -77,7 +77,9 @@ func (mc *mclient) DeleteTask(taskId string) error {
 // command has a random name and is added to the particular nodeId
 // directory in etcd.
 func (mc *mclient) SubmitCommand(nodeId string, command string) error {
-	_, err := mc.etcd.AddChild(mc.cmdPath(nodeId), command, ForeverTTL)
+	cmdPath := mc.cmdPath(nodeId)
+	_, err := mc.etcd.AddChild(cmdPath, command, ForeverTTL)
+	mc.logger.Log(metafora.LogLevelDebug, "command submitted commandPath[%s] command[%s]", cmdPath, command)
 	return err
 }
 
