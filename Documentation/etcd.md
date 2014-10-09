@@ -6,6 +6,7 @@ Metafora is an embeded work stealing framework built on top of etcd.
 
 <br> 
 <a href="url"><img src="/Documentation/images/metafora_logical_integration_diagram.png" align="left" height="400" width="430" ></a>
+<br> 
 
 ## Overview
 
@@ -17,6 +18,7 @@ When a node fails (or you scale in your nodes), metafora will will release the t
 
 <br> 
 <a href="url"><img src="/Documentation/images/metafora_nodefailure.png" align="left" height="400" width="380" ></a>
+<br> 
 
 #### Node recovery or scaling out
 
@@ -25,9 +27,6 @@ When a new node joins the cluster it begins picking up new tasks immediately.  B
 <br> 
 <a href="url"><img src="/Documentation/images/metafora_node_recovery.png" align="left" height="400" width="380" ></a>
 <br> 
-<br> 
-
-
 
 ## etcd integration
 
