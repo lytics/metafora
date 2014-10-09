@@ -18,21 +18,42 @@ const TestNodeID = "test-node01"
 	#if you don't have etcd install use this script to set it up:
 	sudo bash ./scripts/docker_run_etcd.sh
 
-	PUBLIC_IP=`hostname --ip-address` ETCDTESTS=1 ETCDCTL_PEERS="${PUBLIC_IP}:5001,${PUBLIC_IP}:5002,${PUBLIC_IP}:5003" go test
-
+ETCDTESTS=1 go test -v ./...
 */
+
+func TestCoordinatorFirstNodeJoiner(t *testing.T) {
+	skipEtcd(t)
+	cleanupNameSpace(t, TestNameSpace)
+
+	coordinator1, client := createEtcdCoordinator(t, TestNameSpace)
+	defer coordinator1.Close()
+	coordinator1.Init(testLogger{"coordinator1", t})
+
+	if coordinator1.TaskPath != TestNameSpace+"/tasks" {
+		t.Fatalf("TestFailed: TaskPath should be \"/%s/tasks\" but we got \"%s\"", TestNameSpace, coordinator1.TaskPath)
+	}
+
+	const sorted = false
+	const recursive = false
+	_, err := client.Get(TestNameSpace+"/tasks", sorted, recursive)
+	if err != nil && strings.Contains(err.Error(), "Key not found") {
+		t.Fatalf("The tasks path wasn't created when the first node joined: path[%s]", TestNameSpace+"/tasks")
+	} else if err != nil {
+		t.Fatalf("Unknown error trying to test: err: %s", err.Error())
+	}
+
+	//TODO test for node path too...
+
+}
 
 // Insure that Watch() picks up new tasks and returns them.
 //
 func TestCoordinatorTC1(t *testing.T) {
 	skipEtcd(t)
+	cleanupNameSpace(t, TestNameSpace)
 
 	coordinator1, client := createEtcdCoordinator(t, TestNameSpace)
 	defer coordinator1.Close()
-
-	if coordinator1.TaskPath != TestNameSpace+"/tasks" {
-		t.Fatalf("TestFailed: TaskPath should be \"/%s/tasks\" but we got \"%s\"", TestNameSpace, coordinator1.TaskPath)
-	}
 
 	coordinator1.Init(testLogger{"coordinator1", t})
 
@@ -40,6 +61,7 @@ func TestCoordinatorTC1(t *testing.T) {
 	task001 := "test-task0001"
 	fullTask001Path := coordinator1.TaskPath + "/" + task001
 	client.Delete(coordinator1.TaskPath+task001, true)
+
 	go func() {
 		//Watch blocks, so we need to test it in its own go routine.
 		taskId, err := coordinator1.Watch()
@@ -47,18 +69,23 @@ func TestCoordinatorTC1(t *testing.T) {
 			t.Fatalf("coordinator1.Watch() returned an err: %v", err)
 		}
 		t.Logf("We got a task id from the coordinator1.Watch() res:%s", taskId)
+
 		watchRes <- taskId
 	}()
 
-	client.CreateDir(fullTask001Path, 1)
+	client.CreateDir(fullTask001Path, 5)
 
 	select {
 	case taskId := <-watchRes:
+
 		if taskId != task001 {
 			t.Fatalf("coordinator1.Watch() test failed: We received the incorrect taskId.  Got [%s] Expected[%s]", taskId, task001)
 		}
+		coordinator1.Close()
 	case <-time.After(time.Second * 5):
+
 		t.Fatalf("coordinator1.Watch() test failed: The testcase timed out after 5 seconds.")
+		coordinator1.Close()
 	}
 }
 
@@ -66,7 +93,7 @@ func TestCoordinatorTC1(t *testing.T) {
 //
 func TestCoordinatorTC2(t *testing.T) {
 	skipEtcd(t)
-
+	cleanupNameSpace(t, TestNameSpace)
 	coordinator1, eclient := createEtcdCoordinator(t, TestNameSpace)
 	coordinator1.Init(testLogger{"coordinator1", t})
 
@@ -122,7 +149,7 @@ func TestCoordinatorTC2(t *testing.T) {
 //
 func TestCoordinatorTC3(t *testing.T) {
 	skipEtcd(t)
-
+	cleanupNameSpace(t, TestNameSpace)
 	coordinator1, eclient := createEtcdCoordinator(t, TestNameSpace)
 	coordinator1.Init(testLogger{"coordinator1", t})
 	coordinator2, _ := createEtcdCoordinator(t, TestNameSpace)
@@ -200,6 +227,7 @@ func TestCoordinatorTC3(t *testing.T) {
 func TestCoordinatorTC4(t *testing.T) {
 	skipEtcd(t)
 	t.Log("\nDoing Test Setup")
+	cleanupNameSpace(t, TestNameSpace)
 
 	test_finished := make(chan bool)
 	testTasks := []string{"testtask0001", "testtask0002", "testtask0003"}
@@ -222,13 +250,11 @@ func TestCoordinatorTC4(t *testing.T) {
 
 	const sorted = false
 	const recursive = true
-	fmt.Println("before\n\n")
 	eclient.Get("/testnamespace/", sorted, recursive)
 
 	//Don't start up the coordinator until after the metafora client has submitted work.
 	coordinator1, _ := createEtcdCoordinator(t, TestNameSpace)
 	coordinator1.Init(testLogger{"coordinator1", t})
-	fmt.Println("after\n\n")
 	eclient.Get("/testnamespace/", sorted, recursive)
 
 	startATaskWatcher := func() {
@@ -279,15 +305,21 @@ func createEtcdClient(t *testing.T) *etcd.Client {
 		t.Fatalf("While testing etcd, the test couldn't connect to etcd. " + strings.Join(peers, ", "))
 	}
 
+	client.SetConsistency(etcd.STRONG_CONSISTENCY)
+
 	return client
 }
 
 func createEtcdCoordinator(t *testing.T, namespace string) (*EtcdCoordinator, *etcd.Client) {
 	client := createEtcdClient(t)
-	const recursive = true
-	client.Delete(namespace, recursive)
 
 	return NewEtcdCoordinator(TestNodeID, namespace, client).(*EtcdCoordinator), client
+}
+
+func cleanupNameSpace(t *testing.T, namespace string) {
+	client := createEtcdClient(t)
+	const recursive = true
+	client.Delete(namespace, recursive)
 }
 
 func isEtcdUp(client *etcd.Client, t *testing.T) bool {

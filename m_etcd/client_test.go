@@ -30,8 +30,6 @@ const (
 // TestNodes tests that client.Nodes() returns the metafora nodes
 // registered in etcd.
 func TestNodes(t *testing.T) {
-	skipEtcd(t)
-
 	eclient := newEtcdClient(t)
 	const recursive = true
 	eclient.Delete(Node1Path, recursive)
@@ -55,8 +53,6 @@ func TestNodes(t *testing.T) {
 // the proper path in etcd, and that the same task id cannot be
 // submitted more than once.
 func TestSubmitTask(t *testing.T) {
-	skipEtcd(t)
-
 	eclient := newEtcdClient(t)
 
 	mclient := NewClientWithLogger(Namespace, eclient, testLogger{"metafora-client", t})
@@ -77,8 +73,6 @@ func TestSubmitTask(t *testing.T) {
 // TestSubmitCommand tests that client.SubmitCommand(...) adds a command
 // to the proper node path in etcd, and that it can be read back.
 func TestSubmitCommand(t *testing.T) {
-	skipEtcd(t)
-
 	eclient := newEtcdClient(t)
 
 	mclient := NewClient(Namespace, eclient)
@@ -100,23 +94,23 @@ func TestSubmitCommand(t *testing.T) {
 
 // newEtcdClient creates a new etcd client for use by the metafora client during testing.
 func newEtcdClient(t *testing.T) *etcd.Client {
-	// This is the same ENV variable that etcdctl uses for peers.
-	peers_from_environment := os.Getenv("ETCDCTL_PEERS")
-
-	if peers_from_environment == "" {
-		peers_from_environment = "localhost:5001,localhost:5002,localhost:5003"
+	if os.Getenv("ETCDTESTS") == "" {
+		t.Skip("ETCDTESTS unset. Skipping etcd tests.")
 	}
 
-	peers := strings.Split(peers_from_environment, ",")
+	// This is the same ENV variable that etcdctl uses for peers.
+	peerAddrs := os.Getenv("ETCDCTL_PEERS")
+
+	if peerAddrs == "" {
+		peerAddrs = "127.0.0.1:5001,127.0.0.1:5002,127.0.0.1:5003"
+	}
+
+	peers := strings.Split(peerAddrs, ",")
 
 	eclient := etcd.NewClient(peers)
 
 	if ok := eclient.SyncCluster(); !ok {
 		t.Fatalf("Cannot sync etcd cluster using peers: %v", strings.Join(peers, ", "))
-	}
-
-	if !isEtcdUp(eclient, t) {
-		t.Fatalf("Cannot connect to etcd using peers: %v", strings.Join(peers, ", "))
 	}
 
 	return eclient
