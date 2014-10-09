@@ -243,11 +243,6 @@ func (ec *EtcdCoordinator) Watch() (taskID string, err error) {
 func (ec *EtcdCoordinator) parseTaskIDFromNode(node *etcd.Node) (taskID string, skip bool) {
 	taskId := ""
 
-	if node == nil {
-		//TODO log
-		return "", true
-	}
-
 	//FIXME There's gotta be a better way to only detect tasks #32
 	//TODO per discussion last night, we are going to prefix tasks in the client,
 	//     so we can easily determine tasks from other keys/dirs created in the
