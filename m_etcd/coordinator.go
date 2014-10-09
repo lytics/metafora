@@ -125,25 +125,23 @@ func (ec *EtcdCoordinator) Init(cordCtx metafora.CoordinatorContext) {
 	}
 
 	go func() {
-		//First read the and dump the current tasks, then start up the background watcher()
+		//Read the tasks
 		const sorted = false
 		const recursive = true
 		resp, err := ec.Client.Get(ec.TaskPath, sorted, recursive)
-
 		if err != nil {
 			cordCtx.Log(metafora.LogLevelDebug, "Init error getting the current tasks from the path:[%s] error:[%v]", ec.TaskPath, err)
 		} else {
-
+			//Now dump any current tasks
 			cordCtx.Log(metafora.LogLevelDebug, "Fetching tasks, response from GET %s: response[action:%v etcdIndex:%v nodeKey:%v]",
 				ec.TaskPath, resp.Action, resp.EtcdIndex, resp.Node.Key)
 
 			for _, node := range resp.Node.Nodes {
-				cordCtx.Log(metafora.LogLevelDebug, "---"+node.Key)
 				ec.tasksPrefetchChan <- node
 			}
 		}
 
-		//Don't start up the watcher until we've iterated over the existing tasks
+		//After processing the existing tasks, lets start up the background watcher() to look for new ones.
 		ec.taskWatcher.StartWatching()
 	}()
 
@@ -161,28 +159,31 @@ func (ec *EtcdCoordinator) Init(cordCtx metafora.CoordinatorContext) {
 
 func (ec *EtcdCoordinator) upsertDir(path string, ttl uint64) {
 
-	pathMarker := path + "/" + CreatedMarker //hidden etcd key that isn't visible to directory get commands
+	//hidden etcd key that isn't visible to ls commands on the directory,
+	//  you have to know about it to find it :).  I'm using it to add some
+	//  info about when the cluster's schema was setup.
+	pathMarker := path + "/" + CreatedMarker
 
 	const sorted = false
 	const recursive = false
-	_, err := ec.Client.Get(pathMarker, sorted, recursive)
+	_, err := ec.Client.Get(path, sorted, recursive)
 	if err != nil && strings.Contains(err.Error(), "Key not found") {
 		_, err := ec.Client.CreateDir(path, ttl)
 		if err != nil {
 			ec.cordCtx.Log(metafora.LogLevelDebug, "Error trying to create directory. path:[%s] error:[ %v ]", path, err)
 		}
 		host, _ := os.Hostname()
-		markerVal := fmt.Sprintf("createdAt=%s&by=%s", time.Now().String(), host)
+		markerVal := fmt.Sprintf("createdAt:[%s] by:[%s] nodeid:[%s]", time.Now().String(), host, ec.NodeID) //debug info only
 		ec.Client.Set(pathMarker, markerVal, ttl)
 	}
 }
 
-// Watch should do a blocking watch on the broker and return a task ID that
-// can be claimed.
+// Watch will do a blocking etcd watch() on taskPath until a taskId is returned.
+// The return taskId isn't guaranteed to be claimable.
+//
 func (ec *EtcdCoordinator) Watch() (taskID string, err error) {
 
 	for {
-
 		select {
 		// before the watcher starts, this channel is filled up with existing tasks during init()
 		case node, ok := <-ec.tasksPrefetchChan:
@@ -231,6 +232,9 @@ func (ec *EtcdCoordinator) parseTaskIDFromNode(node *etcd.Node) (taskID string, 
 	}
 
 	//FIXME There's gotta be a better way to only detect tasks #32
+	//TODO per discussion last night, we are going to prefix tasks in the client,
+	//     so we can easily determine tasks from other keys/dirs created in the
+	//     tasks path.
 	if strings.Contains(node.Key, OwnerMarker) {
 		return "", true
 	}
