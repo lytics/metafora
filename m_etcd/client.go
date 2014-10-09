@@ -2,6 +2,7 @@ package m_etcd
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/coreos/go-etcd/etcd"
 	"github.com/lytics/metafora"
@@ -26,6 +27,7 @@ func NewClient(namespace string, client *etcd.Client) metafora.Client {
 
 // NewClient creates a new client using an etcd backend.
 func NewClientWithLogger(namespace string, client *etcd.Client, logger metafora.Logger) metafora.Client {
+	namespace = strings.Trim(namespace, "/ ")
 	return &mclient{
 		etcd:      client,
 		namespace: namespace,
