@@ -1,28 +1,16 @@
 package m_etcd
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"code.google.com/p/go-uuid/uuid"
-
 	"github.com/coreos/go-etcd/etcd"
 	"github.com/lytics/metafora"
 )
-
-type EtcdCoordinator struct {
-	Client    *etcd.Client
-	cordCtx   metafora.CoordinatorContext
-	Namespace string
-	TaskPath  string
-
-	taskWatcher *EtcdWatcher
-
-	NodeID         string
-	CommandPath    string
-	commandWatcher *EtcdWatcher
-}
 
 type Watcher func(cordCtx metafora.CoordinatorContext)
 type EtcdWatcher struct {
@@ -32,6 +20,7 @@ type EtcdWatcher struct {
 	stopChan     chan bool
 	errorChan    chan error
 	client       *etcd.Client
+	isClosed     bool
 }
 
 func (w *EtcdWatcher) StartWatching() {
@@ -60,21 +49,29 @@ func (w *EtcdWatcher) StartWatching() {
 // Close stops the watching goroutine. Close will panic if called more than
 // once.
 func (w *EtcdWatcher) Close() error {
-	close(w.stopChan)
-	return <-w.errorChan
+	if w.isClosed {
+		close(w.stopChan)
+		w.isClosed = true
+		return <-w.errorChan
+	}
+
+	return nil
 }
 
-/*
-Etcd paths:
-/{namespace}/tasks/{task_id}/
-/{namespace}/tasks/{task_id}/owner/
+type EtcdCoordinator struct {
+	Client    *etcd.Client
+	cordCtx   metafora.CoordinatorContext
+	Namespace string
+	TaskPath  string
 
+	taskWatcher       *EtcdWatcher
+	tasksPrefetchChan chan *etcd.Node
 
-/{namespace}/node/{node_id}/command
+	NodeID         string
+	CommandPath    string
+	commandWatcher *EtcdWatcher
+}
 
-TODO do we need a EtcdCoordinatorConfig?
-
-*/
 func NewEtcdCoordinator(nodeId, namespace string, client *etcd.Client) metafora.Coordinator {
 	namespace = strings.Trim(namespace, "/ ")
 
@@ -106,8 +103,19 @@ func NewEtcdCoordinator(nodeId, namespace string, client *etcd.Client) metafora.
 // Init is called once by the consumer to provide a Logger to Coordinator
 // implementations.
 func (ec *EtcdCoordinator) Init(cordCtx metafora.CoordinatorContext) {
+	ec.Client.SetConsistency(etcd.STRONG_CONSISTENCY)
+
+	cordCtx.Log(metafora.LogLevelDebug, "namespace[%s] Etcd-Cluster-Peers[%s]", ec.Namespace,
+		strings.Join(ec.Client.GetCluster(), ", "))
 
 	ec.cordCtx = cordCtx
+
+	ec.upsertDir("/"+ec.Namespace, ForeverTTL)
+	ec.upsertDir(ec.TaskPath, ForeverTTL)
+	//TODO setup node Dir with a shorter TTL and patch in the heartbeat to update the TTL
+	ec.upsertDir(ec.CommandPath, ForeverTTL)
+
+	ec.tasksPrefetchChan = make(chan *etcd.Node)
 	ec.taskWatcher = &EtcdWatcher{
 		cordCtx:      cordCtx,
 		path:         ec.TaskPath,
@@ -117,6 +125,27 @@ func (ec *EtcdCoordinator) Init(cordCtx metafora.CoordinatorContext) {
 		client:       ec.Client,
 	}
 
+	go func() {
+		//Read the tasks
+		const sorted = false
+		const recursive = true
+		resp, err := ec.Client.Get(ec.TaskPath, sorted, recursive)
+		if err != nil {
+			cordCtx.Log(metafora.LogLevelDebug, "Init error getting the current tasks from the path:[%s] error:[%v]", ec.TaskPath, err)
+		} else {
+			//Now dump any current tasks
+			cordCtx.Log(metafora.LogLevelDebug, "Fetching tasks, response from GET %s: response[action:%v etcdIndex:%v nodeKey:%v]",
+				ec.TaskPath, resp.Action, resp.EtcdIndex, resp.Node.Key)
+
+			for _, node := range resp.Node.Nodes {
+				ec.tasksPrefetchChan <- node
+			}
+		}
+
+		//After processing the existing tasks, lets start up the background watcher() to look for new ones.
+		ec.taskWatcher.StartWatching()
+	}()
+
 	ec.commandWatcher = &EtcdWatcher{
 		cordCtx:      cordCtx,
 		path:         ec.CommandPath,
@@ -125,59 +154,127 @@ func (ec *EtcdCoordinator) Init(cordCtx metafora.CoordinatorContext) {
 		errorChan:    make(chan error),
 		client:       ec.Client,
 	}
-	//start up the watchers.
-	//  Doing this in Init() incase we need access to the Ctx object...
-	ec.taskWatcher.StartWatching()
+
 	ec.commandWatcher.StartWatching()
 }
 
-// Watch should do a blocking watch on the broker and return a task ID that
-// can be claimed.
+func (ec *EtcdCoordinator) upsertDir(path string, ttl uint64) {
+
+	//hidden etcd key that isn't visible to ls commands on the directory,
+	//  you have to know about it to find it :).  I'm using it to add some
+	//  info about when the cluster's schema was setup.
+	pathMarker := path + "/" + MetadataKey
+	const sorted = false
+	const recursive = false
+
+	_, err := ec.Client.Get(path, sorted, recursive)
+	if err == nil {
+		return
+	}
+
+	etcdErr, ok := err.(*etcd.EtcdError)
+	if ok && etcdErr.ErrorCode == EcodeKeyNotFound {
+		_, err := ec.Client.CreateDir(path, ttl)
+		if err != nil {
+			ec.cordCtx.Log(metafora.LogLevelDebug, "Error trying to create directory. path:[%s] error:[ %v ]", path, err)
+		}
+		host, _ := os.Hostname()
+
+		metadata := struct {
+			Host        string
+			CreatedTime string
+			NodeID      string
+		}{
+			host,
+			time.Now().String(),
+			ec.NodeID,
+		}
+		metadataB, _ := json.Marshal(metadata)
+		metadataStr := string(metadataB)
+		ec.Client.Create(pathMarker, metadataStr, ttl)
+	}
+}
+
+// Watch will do a blocking etcd watch() on taskPath until a taskId is returned.
+// The return taskId isn't guaranteed to be claimable.
+//
 func (ec *EtcdCoordinator) Watch() (taskID string, err error) {
+
 	for {
 		select {
-		case resp, ok := <-ec.taskWatcher.responseChan:
+		// before the watcher starts, this channel is filled up with existing tasks during init()
+		case node, ok := <-ec.tasksPrefetchChan:
 			if !ok {
-				// responseChan being closed means watcher has exited
 				return "", nil
 			}
+			ec.cordCtx.Log(metafora.LogLevelDebug, "New node from the tasksPrefetchChan %s: node[nodeKey:%v]",
+				ec.TaskPath, node.Key)
 
-			taskId := ""
-			ec.cordCtx.Log(metafora.LogLevelDebug, "New response from %s, res %v", ec.TaskPath, resp)
-			if resp.Action != "create" {
-				continue
+			taskId, skip := ec.parseTaskIDFromNode(node)
+			if !skip {
+				return taskId, nil
 			}
-			//FIXME There's gotta be a better way to only detect tasks #32
-			if strings.Contains(resp.Node.Key, "owner") {
-				continue
+		case resp, ok := <-ec.taskWatcher.responseChan:
+			if !ok {
+				return "", nil
 			}
-			if resp.Node == nil {
-				//TODO log
-				continue
-			}
-			taskpath := strings.Split(resp.Node.Key, "/")
-			if len(taskpath) == 0 {
-				//TODO log
-				continue
-			}
-			if !resp.Node.Dir {
-				ec.cordCtx.Log(metafora.LogLevelWarn, "TaskID node shouldn't be a directory but a key.")
-			}
-			taskId = taskpath[len(taskpath)-1]
+			ec.cordCtx.Log(metafora.LogLevelDebug, "New response from watching %s: response[action:%v etcdIndex:%v nodeKey:%v]",
+				ec.TaskPath, resp.Action, resp.EtcdIndex, resp.Node.Key)
 
-			return taskId, nil
-		case err := <-ec.taskWatcher.errorChan:
+			if resp.Action != "create" { //TODO eventually we'll need to deal with expired "owner" nodes.
+				continue
+			}
+
+			taskId, skip := ec.parseTaskIDFromNode(resp.Node)
+			if !skip {
+				return taskId, nil
+			}
+
+		case err, ok := <-ec.taskWatcher.errorChan:
+			if !ok {
+				return "", nil
+			}
 			//if the watcher sends a nil, its because the etcd watcher was shutdown by Close()
 			return "", err
 		}
 	}
 }
 
+func (ec *EtcdCoordinator) parseTaskIDFromNode(node *etcd.Node) (taskID string, skip bool) {
+	taskId := ""
+
+	//FIXME There's gotta be a better way to only detect tasks #32
+	//TODO per discussion last night, we are going to prefix tasks in the client,
+	//     so we can easily determine tasks from other keys/dirs created in the
+	//     tasks path.
+	if strings.Contains(node.Key, OwnerMarker) {
+		return "", true
+	}
+
+	ec.cordCtx.Log(metafora.LogLevelDebug, "Node key:%s", node.Key)
+	taskpath := strings.Split(node.Key, "/")
+	if len(taskpath) == 0 {
+		//TODO log
+		return "", true
+	}
+	if !node.Dir {
+		return "", true
+	}
+
+	taskId = taskpath[len(taskpath)-1]
+
+	if taskId == "tasks" {
+		return "", true
+	}
+
+	return taskId, false
+}
+
 // Claim is called by the Consumer when a Balancer has determined that a task
 // ID can be claimed. Claim returns false if another consumer has already
 // claimed the ID.
 func (ec *EtcdCoordinator) Claim(taskID string) bool {
-	key := fmt.Sprintf("%s/%s/owner", ec.TaskPath, taskID)
+	key := fmt.Sprintf("%s/%s/%s", ec.TaskPath, taskID, OwnerMarker)
 	res, err := ec.Client.CreateDir(key, ClaimTTL)
 	if err != nil {
 		ec.cordCtx.Log(metafora.LogLevelDebug, "Claim failed: err %v", err)
@@ -189,7 +286,7 @@ func (ec *EtcdCoordinator) Claim(taskID string) bool {
 
 // Release deletes the claim directory.
 func (ec *EtcdCoordinator) Release(taskID string) {
-	key := fmt.Sprintf("%s/%s/owner", ec.TaskPath, taskID)
+	key := fmt.Sprintf("%s/%s/%s", ec.TaskPath, taskID, OwnerMarker)
 	//FIXME Conditionally delete only if this node is actually the owner
 	_, err := ec.Client.DeleteDir(key)
 	if err != nil {

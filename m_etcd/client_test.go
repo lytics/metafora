@@ -31,6 +31,8 @@ const (
 // registered in etcd.
 func TestNodes(t *testing.T) {
 	eclient := newEtcdClient(t)
+	const recursive = true
+	eclient.Delete(Node1Path, recursive)
 
 	mclient := NewClient(Namespace, eclient)
 
@@ -53,7 +55,11 @@ func TestNodes(t *testing.T) {
 func TestSubmitTask(t *testing.T) {
 	eclient := newEtcdClient(t)
 
-	mclient := NewClient(Namespace, eclient)
+	mclient := NewClientWithLogger(Namespace, eclient, testLogger{"metafora-client", t})
+
+	if err := mclient.DeleteTask("testid1"); err != nil {
+		t.Logf("DeleteTask returned an error, which maybe ok.  Error:%v", err)
+	}
 
 	if err := mclient.SubmitTask("testid1"); err != nil {
 		t.Fatalf("Submit task failed on initial submission, error: %v", err)
