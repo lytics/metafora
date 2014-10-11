@@ -48,7 +48,7 @@ type logger struct {
 	lvl LogLevel
 }
 
-func stdoutLogger() Logger {
+func stdoutLogger() *logger {
 	return &logger{l: log.New(os.Stdout, "", lflags), lvl: LogLevelInfo}
 }
 
