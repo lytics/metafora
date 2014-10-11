@@ -69,11 +69,11 @@ func TestTtlRefresherTiming(t *testing.T) {
 	}
 	time.Sleep(1 * time.Second)
 	if len(runHistory) != 1 {
-		t.Fatal("The tasks should have fired once and only once.  But it fired %s times.", len(runHistory))
+		t.Fatal("The tasks should have fired once and only once.  But it fired %d times.", len(runHistory))
 	}
 	nRefresher.UnscheduleTTLRefresh(testPaths[0])
 	time.Sleep(2 * time.Second)
 	if len(runHistory) != 1 {
-		t.Fatal("The tasks should have fired once and only once.  But it fired %s times.", len(runHistory))
+		t.Fatal("The tasks shouldn't have fired again.  But it most have because fired times is now %d.", len(runHistory))
 	}
 }

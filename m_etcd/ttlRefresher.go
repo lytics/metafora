@@ -35,6 +35,8 @@ func NewNodeRefresher(client *etcd.Client) *NodeRefresher {
 	}
 }
 
+//Returns a function used to update the ttl in etcd.  For testing reasons, you can create your own
+// RefreshFunction.  That way we can test the Refresher without etcd.
 func NewDefaultRefreshFunction(client *etcd.Client) func(string, int64) error {
 	return func(node_path string, ttl int64) error {
 		_, err := client.RawUpdate(node_path, "", uint64(ttl)) //an empty value only updates the ttl
@@ -55,32 +57,33 @@ func (s *NodeRefresher) UnscheduleTTLRefresh(node_path string) {
 	s.removeTaskChannel <- node_path // signal the run loop to stop updating the ttl for the node_path
 }
 
+//This starts the main run loop for the scheduler.  The run loops monitors for new/removed etcd
+//node_removal schedules and on an interval it executes the overdue node-updates.
 func (s *NodeRefresher) StartScheduler() {
 	go func() {
-		//This runs in the background were it does the following:
-		//  1) listens on the inbound channel for new etcd paths
-		//  2) on an interval it updates the TTL for all paths
-
 		for {
 			select {
+			//listen on the channel for new etcd paths
 			case refreshTask, ok := <-s.addTaskChannel:
 				if !ok {
 					return
 				}
 				s.scheduleNode(refreshTask)
+			//listen on the channel for removed etcd paths
 			case path, ok := <-s.removeTaskChannel:
 				if !ok {
 					return
 				}
 				s.unschedulePath(path)
+			//Every 250 milliseconds look for Nodes that have a next-run-time before time.Now(), using the min heap below to be efficient.
 			case <-time.After(time.Millisecond * 250):
 				// Using a frequency of 4 times a second, so that if we have a ttl of 1 second, we can update
 				// it every 3/4 of a second.  Note that in updateNextRun() we use the ttl - 300ms as the
 				// refresh interval.  Because we want to update the ttl before it times out...
 				nodes := s.allExcutableNodes(time.Now())
 				for _, node := range nodes {
-					s.RefreshFunction(node.Node, node.TTLInterval) //do the refresh
-					s.updateNextRun(node)                          //figure out when the next schedule is
+					s.RefreshFunction(node.Node, node.TTLInterval) //do the refresh and update the node's ttl
+					s.updateNextRun(node)                          //calculate the nodes next scheduled ttl update
 					s.scheduleNode(node)                           //schedule this node to be updated then
 				}
 			}
@@ -104,16 +107,17 @@ func (s *NodeRefresher) updateNextRun(node *TTLRefreshNode) {
 	}
 }
 
-//Return the node with the next available time to run
-func (s *NodeRefresher) allExcutableNodes(now time.Time) []*TTLRefreshNode {
+//Return all the nodes with an available runtime before the parameter time limit.
+func (s *NodeRefresher) allExcutableNodes(limit time.Time) []*TTLRefreshNode {
 	results := []*TTLRefreshNode{}
-	for MinTime(s.ttlHeap).Before(now) {
+	for minTime(s.ttlHeap).Before(limit) {
 		node := s.nextExcutableNode()
 		results = append(results, node)
 	}
 	return results
 }
 
+//get the node-struct from the min-heap with the next run time.
 func (s *NodeRefresher) nextExcutableNode() *TTLRefreshNode {
 	x := heap.Pop(s.ttlHeap)
 	node, _ := x.(*TTLRefreshNode)
@@ -121,17 +125,21 @@ func (s *NodeRefresher) nextExcutableNode() *TTLRefreshNode {
 	return node
 }
 
+//adds a node-struct to the min-heap and our path to node-struct map
 func (s *NodeRefresher) scheduleNode(node *TTLRefreshNode) {
 	s.pathToNodeMap[node.Node] = node
 	heap.Push(s.ttlHeap, node)
 }
 
+//used to remove a node by path from the min-heap.
+// looks up the node-struct in a map and calls unscheduleNode(node *TTLRefreshNode)
 func (s *NodeRefresher) unschedulePath(p string) {
 	if node, ok := s.pathToNodeMap[p]; ok {
 		s.unscheduleNode(node)
 	}
 }
 
+//used to remove a node by node-pointer from the min heap, and our path to node-struct map
 func (s *NodeRefresher) unscheduleNode(node *TTLRefreshNode) {
 	index, ok := s.ttlHeap.nodeToIndexMap[node]
 	if ok {
@@ -140,7 +148,8 @@ func (s *NodeRefresher) unscheduleNode(node *TTLRefreshNode) {
 	}
 }
 
-func MinTime(h *ttlRefreshNodeHeap) time.Time {
+//Basically this func allows you to pick at the timestamp for the min time in the heap.
+func minTime(h *ttlRefreshNodeHeap) time.Time {
 	if h.Len() != 0 {
 		return h.bkArr[0].NextRun
 	}
