@@ -44,6 +44,7 @@ func main() {
 	coord := m_etcd.NewEtcdCoordinator(*name, *namespace, etcdc).(*m_etcd.EtcdCoordinator)
 	bal := &metafora.DumbBalancer{}
 	c := metafora.NewConsumer(coord, hfunc, bal)
+	c.SetLogger(logger, mlvl)
 	log.Printf(
 		"Starting koalsmosd with etcd=%s; namespace=%s; name=%s; loglvl=%s",
 		*peers, *namespace, coord.NodeID, mlvl)
