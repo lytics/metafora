@@ -15,4 +15,5 @@ const (
 	//So to find the error codes use this ref:
 	//       https://github.com/coreos/etcd/blob/master/error/error.go#L67
 	EcodeKeyNotFound = 100
+	EcodeNodeExist   = 105
 )

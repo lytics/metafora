@@ -12,52 +12,6 @@ import (
 	"github.com/lytics/metafora"
 )
 
-type Watcher func(cordCtx metafora.CoordinatorContext)
-type EtcdWatcher struct {
-	cordCtx      metafora.CoordinatorContext
-	path         string
-	responseChan chan *etcd.Response
-	stopChan     chan bool
-	errorChan    chan error
-	client       *etcd.Client
-	isClosed     bool
-}
-
-func (w *EtcdWatcher) StartWatching() {
-	go func() {
-		const recursive = true
-		const etcdIndex = uint64(0) //0 == latest version
-
-		//TODO, Im guessing that watch only picks up new nodes.
-		//   We need to manually do an ls at startup and dump the results to taskWatcherResponses,
-		//   after we filter out all non-claimed tasks.
-		_, err := w.client.Watch(
-			w.path,
-			etcdIndex,
-			recursive,
-			w.responseChan,
-			w.stopChan)
-		if err == etcd.ErrWatchStoppedByUser {
-			// This isn't actually an error, return nil
-			err = nil
-		}
-		w.errorChan <- err
-		close(w.errorChan)
-	}()
-}
-
-// Close stops the watching goroutine. Close will panic if called more than
-// once.
-func (w *EtcdWatcher) Close() error {
-	if w.isClosed {
-		close(w.stopChan)
-		w.isClosed = true
-		return <-w.errorChan
-	}
-
-	return nil
-}
-
 type EtcdCoordinator struct {
 	Client    *etcd.Client
 	cordCtx   metafora.CoordinatorContext
@@ -66,10 +20,15 @@ type EtcdCoordinator struct {
 
 	taskWatcher       *EtcdWatcher
 	tasksPrefetchChan chan *etcd.Node
+	ClaimTTL          uint64
 
 	NodeID         string
 	CommandPath    string
 	commandWatcher *EtcdWatcher
+
+	refresher *NodeRefresher
+
+	IsClosed bool
 }
 
 func NewEtcdCoordinator(nodeId, namespace string, client *etcd.Client) metafora.Coordinator {
@@ -91,10 +50,15 @@ func NewEtcdCoordinator(nodeId, namespace string, client *etcd.Client) metafora.
 
 		TaskPath:    fmt.Sprintf("/%s/%s", namespace, TasksPath), //TODO MAKE A PACKAGE FUNC TO CREATE THIS PATH.
 		taskWatcher: nil,
+		ClaimTTL:    ClaimTTL, //default to the package constant, but allow it to be overwritten
 
 		NodeID:         nodeId,
 		CommandPath:    fmt.Sprintf("/%s/%s/%s/%s", namespace, NodesPath, nodeId, CommandsPath),
 		commandWatcher: nil,
+
+		refresher: nil,
+
+		IsClosed: false,
 	}
 
 	return etcd
@@ -156,6 +120,10 @@ func (ec *EtcdCoordinator) Init(cordCtx metafora.CoordinatorContext) {
 	}
 
 	ec.commandWatcher.StartWatching()
+
+	// starts the run loop that processes ttl refreshes in a background go routine.
+	ec.refresher = NewNodeRefresher(ec.Client, cordCtx)
+	ec.refresher.StartScheduler()
 }
 
 func (ec *EtcdCoordinator) upsertDir(path string, ttl uint64) {
@@ -218,16 +186,29 @@ func (ec *EtcdCoordinator) Watch() (taskID string, err error) {
 			if !ok {
 				return "", nil
 			}
-			ec.cordCtx.Log(metafora.LogLevelDebug, "New response from watching %s: response[action:%v etcdIndex:%v nodeKey:%v]",
-				ec.TaskPath, resp.Action, resp.EtcdIndex, resp.Node.Key)
 
-			if resp.Action != "create" { //TODO eventually we'll need to deal with expired "owner" nodes.
-				continue
+			//The etcd watcher may have received a new task signal.
+			if resp.Action == "create" {
+				ec.cordCtx.Log(metafora.LogLevelDebug, "New task signaled while watching %s: response[action:%v etcdIndex:%v nodeKey:%v]",
+					ec.TaskPath, resp.Action, resp.EtcdIndex, resp.Node.Key)
+				taskId, skip := ec.parseTaskIDFromNode(resp.Node)
+				if !skip {
+					return taskId, nil
+				}
 			}
 
-			taskId, skip := ec.parseTaskIDFromNode(resp.Node)
-			if !skip {
-				return taskId, nil
+			//The etcd watcher may have received a released task or an owner may have left the cluster.
+			//Ref: etcd event types : https://github.com/coreos/etcd/blob/master/store/event.go#L4
+			if (resp.Action == "expire" || resp.Action == "delete" || resp.Action == "compareAndDelete") &&
+				ec.nodeIsTheOwnerMarker(resp.Node) {
+
+				ec.cordCtx.Log(metafora.LogLevelDebug, "Released task signaled while watching %s: response[action:%v etcdIndex:%v nodeKey:%v]",
+					ec.TaskPath, resp.Action, resp.EtcdIndex, resp.Node.Key)
+
+				taskId, skip := ec.getTaskIdOfOwner(resp.Node.Key)
+				if !skip {
+					return taskId, nil
+				}
 			}
 
 		case err, ok := <-ec.taskWatcher.errorChan:
@@ -240,18 +221,26 @@ func (ec *EtcdCoordinator) Watch() (taskID string, err error) {
 	}
 }
 
+func (ec *EtcdCoordinator) getTaskIdOfOwner(nodePath string) (taskID string, skip bool) {
+	//remove ec.TaskPath
+	res := strings.Replace(nodePath, ec.TaskPath+"/", "", 1)
+	//remove OwnerMarker
+	res2 := strings.Replace(res, "/"+OwnerMarker, "", 1)
+	//if remainder doens't contain "/", then we've found the taskid
+	if !strings.Contains(res2, "/") {
+		return res2, false
+	} else {
+		return "", true
+	}
+}
+
 func (ec *EtcdCoordinator) parseTaskIDFromNode(node *etcd.Node) (taskID string, skip bool) {
 	taskId := ""
 
-	//FIXME There's gotta be a better way to only detect tasks #32
-	//TODO per discussion last night, we are going to prefix tasks in the client,
-	//     so we can easily determine tasks from other keys/dirs created in the
-	//     tasks path.
-	if strings.Contains(node.Key, OwnerMarker) {
+	if ec.nodeHasOwnerMarker(node) || ec.nodeIsTheOwnerMarker(node) {
 		return "", true
 	}
 
-	ec.cordCtx.Log(metafora.LogLevelDebug, "Node key:%s", node.Key)
 	taskpath := strings.Split(node.Key, "/")
 	if len(taskpath) == 0 {
 		//TODO log
@@ -267,28 +256,61 @@ func (ec *EtcdCoordinator) parseTaskIDFromNode(node *etcd.Node) (taskID string, 
 		return "", true
 	}
 
+	ec.cordCtx.Log(metafora.LogLevelDebug, "A claimable task was found. task:%s key:%s", taskId, node.Key)
 	return taskId, false
+}
+
+func (ec *EtcdCoordinator) nodeIsTheOwnerMarker(node *etcd.Node) bool {
+	//If the node is the owner marker, it most likely means the recursive watch picked
+	// this node's creation up.
+	if strings.Contains(node.Key, OwnerMarker) {
+		return true
+	}
+	return false
+}
+
+func (ec *EtcdCoordinator) nodeHasOwnerMarker(node *etcd.Node) bool {
+	//If its a task with an owner marker (Child), then most likely this node came from
+	// the prefetch code which found an existing task.
+	if node.Nodes != nil && len(node.Nodes) > 0 {
+		for _, n := range node.Nodes {
+			if strings.Contains(n.Key, OwnerMarker) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // Claim is called by the Consumer when a Balancer has determined that a task
 // ID can be claimed. Claim returns false if another consumer has already
 // claimed the ID.
 func (ec *EtcdCoordinator) Claim(taskID string) bool {
-	key := fmt.Sprintf("%s/%s/%s", ec.TaskPath, taskID, OwnerMarker)
-	res, err := ec.Client.CreateDir(key, ClaimTTL)
+	claimedMarker := fmt.Sprintf("%s/%s/%s", ec.TaskPath, taskID, OwnerMarker)
+	res, err := ec.Client.CreateDir(claimedMarker, ec.ClaimTTL)
 	if err != nil {
-		ec.cordCtx.Log(metafora.LogLevelDebug, "Claim failed: err %v", err)
+		etcdErr, ok := err.(*etcd.EtcdError)
+		if !ok || etcdErr.ErrorCode != EcodeNodeExist {
+			ec.cordCtx.Log(metafora.LogLevelError, "Claim failed with an expected error: key%s err %v", claimedMarker, err)
+		} else {
+			ec.cordCtx.Log(metafora.LogLevelDebug, "Claim failed, it appears someone else got it first: resp %v", res)
+		}
 		return false
 	}
 	ec.cordCtx.Log(metafora.LogLevelDebug, "Claim successful: resp %v", res)
+
+	//add a scheduled tasks to refresh the ./owner/ dir's ttl until the coordinator is shutdown.
+	ec.refresher.ScheduleDirRefresh(claimedMarker, ec.ClaimTTL)
+
 	return true
 }
 
 // Release deletes the claim directory.
 func (ec *EtcdCoordinator) Release(taskID string) {
-	key := fmt.Sprintf("%s/%s/%s", ec.TaskPath, taskID, OwnerMarker)
+	claimedMarker := fmt.Sprintf("%s/%s/%s", ec.TaskPath, taskID, OwnerMarker)
 	//FIXME Conditionally delete only if this node is actually the owner
-	_, err := ec.Client.DeleteDir(key)
+	ec.refresher.UnscheduleDirRefresh(claimedMarker)
+	_, err := ec.Client.DeleteDir(claimedMarker)
 	if err != nil {
 		//TODO Pause and retry?!
 		ec.cordCtx.Log(metafora.LogLevelError, "Release failed: %v", err)
@@ -320,7 +342,11 @@ func (ec *EtcdCoordinator) Command() (cmd string, err error) {
 }
 
 func (ec *EtcdCoordinator) Close() error {
-	ec.taskWatcher.Close()
-	ec.commandWatcher.Close()
+	if !ec.IsClosed {
+		ec.taskWatcher.Close()
+		ec.commandWatcher.Close()
+		ec.refresher.Close()
+		ec.IsClosed = true
+	}
 	return nil
 }

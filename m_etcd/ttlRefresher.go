@@ -5,9 +5,10 @@ import (
 	"time"
 
 	"github.com/coreos/go-etcd/etcd"
+	"github.com/lytics/metafora"
 )
 
-type TTLRefreshNode struct {
+type RefreshableEtcdDir struct {
 	Node        string
 	TTLInterval int64
 	NextRun     time.Time
@@ -16,50 +17,69 @@ type TTLRefreshNode struct {
 // The Scheduler runs reoccurring tasks on an interval for this coordinator.
 // For example updating the TTLs for etcd paths we've claimed.
 type NodeRefresher struct {
-	addTaskChannel    chan *TTLRefreshNode
+	addTaskChannel    chan *RefreshableEtcdDir
 	removeTaskChannel chan string
-	refreshtasks      map[string]*TTLRefreshNode
-	ttlHeap           *ttlRefreshNodeHeap
-	pathToNodeMap     map[string]*TTLRefreshNode
+	stopChannel       chan bool
+	refreshtasks      map[string]*RefreshableEtcdDir
+	ttlHeap           *RefreshableEtcdDirHeap
+	pathToNodeMap     map[string]*RefreshableEtcdDir
 	RefreshFunction   func(key string, ttl int64) error
+	isCloseable       bool
+	cordCtx           metafora.CoordinatorContext
 }
 
-func NewNodeRefresher(client *etcd.Client) *NodeRefresher {
+func NewNodeRefresher(client *etcd.Client, cordCtx metafora.CoordinatorContext) *NodeRefresher {
 	return &NodeRefresher{
-		addTaskChannel:    make(chan *TTLRefreshNode),
+		addTaskChannel:    make(chan *RefreshableEtcdDir),
 		removeTaskChannel: make(chan string),
-		refreshtasks:      make(map[string]*TTLRefreshNode),
-		ttlHeap:           newTTLRefreshNodeHeap(),
-		pathToNodeMap:     make(map[string]*TTLRefreshNode),
-		RefreshFunction:   NewDefaultRefreshFunction(client),
+		refreshtasks:      make(map[string]*RefreshableEtcdDir),
+		ttlHeap:           newRefreshableDirHeap(),
+		pathToNodeMap:     make(map[string]*RefreshableEtcdDir),
+		RefreshFunction:   NewDefaultRefreshFunction(client, cordCtx),
+		isCloseable:       false,
+		cordCtx:           cordCtx,
 	}
 }
 
 //Returns a function used to update the ttl in etcd.  For testing reasons, you can create your own
 // RefreshFunction.  That way we can test the Refresher without etcd.
-func NewDefaultRefreshFunction(client *etcd.Client) func(string, int64) error {
+func NewDefaultRefreshFunction(client *etcd.Client, cordCtx metafora.CoordinatorContext) func(string, int64) error {
 	return func(node_path string, ttl int64) error {
 		_, err := client.RawUpdate(node_path, "", uint64(ttl)) //an empty value only updates the ttl
+		if err != nil {
+			cordCtx.Log(metafora.LogLevelError, "Error trying to update node[%s]'s ttl.  Error:%s", node_path, err.Error())
+		}
 		return err
 	}
 }
 
-func (s *NodeRefresher) ScheduleTTLRefresh(node_path string, ttl int64) {
-	node := &TTLRefreshNode{
-		Node:        node_path,
-		TTLInterval: ttl,
+// This schedules a ttl refresh of a etcd directory.  It you try to refresh a etcd key,
+// the default RefreshFunction will not function correctly as it will unset the key's
+// value.  The common pattern in etcd is to refresh the directory ttl of the directory
+// containing the key.
+// Ref:
+// https://github.com/coreos/etcd/issues/385
+// https://github.com/coreos/etcd/issues/1232
+func (s *NodeRefresher) ScheduleDirRefresh(etcd_dir string, ttl uint64) {
+	node := &RefreshableEtcdDir{
+		Node:        etcd_dir,
+		TTLInterval: int64(ttl),
 	}
 	s.updateNextRun(node)
 	s.addTaskChannel <- node // signal the run loop that we have a new node_path to update
 }
 
-func (s *NodeRefresher) UnscheduleTTLRefresh(node_path string) {
-	s.removeTaskChannel <- node_path // signal the run loop to stop updating the ttl for the node_path
+func (s *NodeRefresher) UnscheduleDirRefresh(etcd_dir string) {
+	s.removeTaskChannel <- etcd_dir // signal the run loop to stop updating the ttl for the node_path
 }
 
 //This starts the main run loop for the scheduler.  The run loops monitors for new/removed etcd
 //node_removal schedules and on an interval it executes the overdue node-updates.
+//
+// Node if you call StartScheduler() after calling Close() your very likely to get a panic.
 func (s *NodeRefresher) StartScheduler() {
+	s.stopChannel = make(chan bool)
+	s.isCloseable = true
 	go func() {
 		for {
 			select {
@@ -86,14 +106,25 @@ func (s *NodeRefresher) StartScheduler() {
 					s.updateNextRun(node)                          //calculate the nodes next scheduled ttl update
 					s.scheduleNode(node)                           //schedule this node to be updated then
 				}
+			case <-s.stopChannel:
+				return
 			}
 		}
 	}()
 }
 
+func (s *NodeRefresher) Close() {
+	if s.isCloseable {
+		close(s.addTaskChannel)
+		close(s.removeTaskChannel)
+		close(s.stopChannel)
+		s.isCloseable = false
+	}
+}
+
 //Internal functions to support the scheduler
 //
-func (s *NodeRefresher) updateNextRun(node *TTLRefreshNode) {
+func (s *NodeRefresher) updateNextRun(node *RefreshableEtcdDir) {
 	//There isn't any science here.
 	// Basically we want to update the TTL before it expires
 	//
@@ -108,8 +139,8 @@ func (s *NodeRefresher) updateNextRun(node *TTLRefreshNode) {
 }
 
 //Return all the nodes with an available runtime before the parameter time limit.
-func (s *NodeRefresher) allExcutableNodes(limit time.Time) []*TTLRefreshNode {
-	results := []*TTLRefreshNode{}
+func (s *NodeRefresher) allExcutableNodes(limit time.Time) []*RefreshableEtcdDir {
+	results := []*RefreshableEtcdDir{}
 	for minTime(s.ttlHeap).Before(limit) {
 		node := s.nextExcutableNode()
 		results = append(results, node)
@@ -118,21 +149,21 @@ func (s *NodeRefresher) allExcutableNodes(limit time.Time) []*TTLRefreshNode {
 }
 
 //get the node-struct from the min-heap with the next run time.
-func (s *NodeRefresher) nextExcutableNode() *TTLRefreshNode {
+func (s *NodeRefresher) nextExcutableNode() *RefreshableEtcdDir {
 	x := heap.Pop(s.ttlHeap)
-	node, _ := x.(*TTLRefreshNode)
+	node, _ := x.(*RefreshableEtcdDir)
 	delete(s.pathToNodeMap, node.Node)
 	return node
 }
 
 //adds a node-struct to the min-heap and our path to node-struct map
-func (s *NodeRefresher) scheduleNode(node *TTLRefreshNode) {
+func (s *NodeRefresher) scheduleNode(node *RefreshableEtcdDir) {
 	s.pathToNodeMap[node.Node] = node
 	heap.Push(s.ttlHeap, node)
 }
 
 //used to remove a node by path from the min-heap.
-// looks up the node-struct in a map and calls unscheduleNode(node *TTLRefreshNode)
+// looks up the node-struct in a map and calls unscheduleNode(node *RefreshableEtcdDir)
 func (s *NodeRefresher) unschedulePath(p string) {
 	if node, ok := s.pathToNodeMap[p]; ok {
 		s.unscheduleNode(node)
@@ -140,7 +171,7 @@ func (s *NodeRefresher) unschedulePath(p string) {
 }
 
 //used to remove a node by node-pointer from the min heap, and our path to node-struct map
-func (s *NodeRefresher) unscheduleNode(node *TTLRefreshNode) {
+func (s *NodeRefresher) unscheduleNode(node *RefreshableEtcdDir) {
 	index, ok := s.ttlHeap.nodeToIndexMap[node]
 	if ok {
 		delete(s.pathToNodeMap, node.Node)
@@ -149,7 +180,7 @@ func (s *NodeRefresher) unscheduleNode(node *TTLRefreshNode) {
 }
 
 //Basically this func allows you to pick at the timestamp for the min time in the heap.
-func minTime(h *ttlRefreshNodeHeap) time.Time {
+func minTime(h *RefreshableEtcdDirHeap) time.Time {
 	if h.Len() != 0 {
 		return h.bkArr[0].NextRun
 	}
@@ -157,32 +188,32 @@ func minTime(h *ttlRefreshNodeHeap) time.Time {
 }
 
 /////////////////////////////////////////////////////////////////////
-// Internal Min Heap stuff so ttlRefreshNodeHeap satisfies the Heap interface
+// Internal Min Heap stuff so RefreshableEtcdDirHeap satisfies the Heap interface
 //
 //  DON'T CALL THESE DIRECTLY
 //
-// An TTLRefreshNodeHeap is a min-heap of TTLKeys order by expiration time
+// An RefreshableEtcdDirHeap is a min-heap of TTLKeys order by expiration time
 //
-type ttlRefreshNodeHeap struct {
-	bkArr          []*TTLRefreshNode
-	nodeToIndexMap map[*TTLRefreshNode]int
+type RefreshableEtcdDirHeap struct {
+	bkArr          []*RefreshableEtcdDir
+	nodeToIndexMap map[*RefreshableEtcdDir]int
 }
 
-func newTTLRefreshNodeHeap() *ttlRefreshNodeHeap {
-	h := &ttlRefreshNodeHeap{nodeToIndexMap: make(map[*TTLRefreshNode]int)}
+func newRefreshableDirHeap() *RefreshableEtcdDirHeap {
+	h := &RefreshableEtcdDirHeap{nodeToIndexMap: make(map[*RefreshableEtcdDir]int)}
 	heap.Init(h)
 	return h
 }
 
-func (h ttlRefreshNodeHeap) Len() int {
+func (h RefreshableEtcdDirHeap) Len() int {
 	return len(h.bkArr)
 }
 
-func (h ttlRefreshNodeHeap) Less(i, j int) bool {
+func (h RefreshableEtcdDirHeap) Less(i, j int) bool {
 	return h.bkArr[i].NextRun.Before(h.bkArr[j].NextRun)
 }
 
-func (h ttlRefreshNodeHeap) Swap(i, j int) {
+func (h RefreshableEtcdDirHeap) Swap(i, j int) {
 	// swap
 	h.bkArr[i], h.bkArr[j] = h.bkArr[j], h.bkArr[i]
 
@@ -191,13 +222,13 @@ func (h ttlRefreshNodeHeap) Swap(i, j int) {
 	h.nodeToIndexMap[h.bkArr[j]] = j
 }
 
-func (h *ttlRefreshNodeHeap) Push(x interface{}) {
-	n, _ := x.(*TTLRefreshNode)
+func (h *RefreshableEtcdDirHeap) Push(x interface{}) {
+	n, _ := x.(*RefreshableEtcdDir)
 	h.nodeToIndexMap[n] = len(h.bkArr)
 	h.bkArr = append(h.bkArr, n)
 }
 
-func (h *ttlRefreshNodeHeap) Pop() interface{} {
+func (h *RefreshableEtcdDirHeap) Pop() interface{} {
 	old := h.bkArr
 	n := len(old)
 	x := old[n-1]
