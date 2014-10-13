@@ -178,7 +178,7 @@ func (ec *EtcdCoordinator) Watch() (taskID string, err error) {
 			ec.cordCtx.Log(metafora.LogLevelDebug, "New node from the tasksPrefetchChan %s: node[nodeKey:%v]",
 				ec.TaskPath, node.Key)
 
-			taskId, skip := ec.parseTaskIDFromNode(node)
+			taskId, skip := ec.parseTaskIdFromTaskNode(node)
 			if !skip {
 				return taskId, nil
 			}
@@ -191,7 +191,7 @@ func (ec *EtcdCoordinator) Watch() (taskID string, err error) {
 			if resp.Action == "create" {
 				ec.cordCtx.Log(metafora.LogLevelDebug, "New task signaled while watching %s: response[action:%v etcdIndex:%v nodeKey:%v]",
 					ec.TaskPath, resp.Action, resp.EtcdIndex, resp.Node.Key)
-				taskId, skip := ec.parseTaskIDFromNode(resp.Node)
+				taskId, skip := ec.parseTaskIdFromTaskNode(resp.Node)
 				if !skip {
 					return taskId, nil
 				}
@@ -205,7 +205,7 @@ func (ec *EtcdCoordinator) Watch() (taskID string, err error) {
 				ec.cordCtx.Log(metafora.LogLevelDebug, "Released task signaled while watching %s: response[action:%v etcdIndex:%v nodeKey:%v]",
 					ec.TaskPath, resp.Action, resp.EtcdIndex, resp.Node.Key)
 
-				taskId, skip := ec.getTaskIdOfOwner(resp.Node.Key)
+				taskId, skip := ec.parseTaskIdFromOwnerNode(resp.Node.Key)
 				if !skip {
 					return taskId, nil
 				}
@@ -221,7 +221,7 @@ func (ec *EtcdCoordinator) Watch() (taskID string, err error) {
 	}
 }
 
-func (ec *EtcdCoordinator) getTaskIdOfOwner(nodePath string) (taskID string, skip bool) {
+func (ec *EtcdCoordinator) parseTaskIdFromOwnerNode(nodePath string) (taskID string, skip bool) {
 	//remove ec.TaskPath
 	res := strings.Replace(nodePath, ec.TaskPath+"/", "", 1)
 	//remove OwnerMarker
@@ -234,10 +234,26 @@ func (ec *EtcdCoordinator) getTaskIdOfOwner(nodePath string) (taskID string, ski
 	}
 }
 
-func (ec *EtcdCoordinator) parseTaskIDFromNode(node *etcd.Node) (taskID string, skip bool) {
+//Determines if its a task by removing the [ec.TaskPath + "/"] from the path
+// and if there are still slashes then we know its a child of the the task
+// not the task it's self.
+func (ec *EtcdCoordinator) isATaskNode(nodePath string) bool {
+	possibleTaskId := strings.Replace(nodePath, ec.TaskPath+"/", "", 1)
+	if strings.Contains(possibleTaskId, "/") {
+		return false
+	} else {
+		return true
+	}
+}
+
+func (ec *EtcdCoordinator) parseTaskIdFromTaskNode(node *etcd.Node) (taskID string, skip bool) {
 	taskId := ""
 
-	if ec.nodeHasOwnerMarker(node) || ec.nodeIsTheOwnerMarker(node) {
+	if !ec.isATaskNode(node.Key) {
+		return "", true
+	}
+
+	if ec.nodeHasOwnerMarker(node) {
 		return "", true
 	}
 
