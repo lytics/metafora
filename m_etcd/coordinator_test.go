@@ -44,7 +44,7 @@ func TestCoordinatorFirstNodeJoiner(t *testing.T) {
 
 }
 
-// Insure that Watch() picks up new tasks and returns them.
+// Ensure that Watch() picks up new tasks and returns them.
 //
 func TestCoordinatorTC1(t *testing.T) {
 	skipEtcd(t)
@@ -205,7 +205,7 @@ func TestCoordinatorTC3(t *testing.T) {
 }
 
 // Submit a task before any coordinators are active.  Then start a coordinator to
-// insure the tasks are picked up by the new coordinator
+// ensure the tasks are picked up by the new coordinator
 //
 // Then call coordinator.Release() on the task to make sure a coordinator picks it
 // up again.
