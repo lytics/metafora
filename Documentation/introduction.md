@@ -1,8 +1,8 @@
 ## Introduction 
 
-Metafora is a framework for creating highly available and distributed services written in Go.  Metafora is embeded meaning your code controls how and when metafora is started.  It uses etcd to coordinate across the nodes in your cluster.  Metafora is a leaderless task distribution system, where the nodes coordinate with eachother to insure that work is evenly distributed over the cluster. 
+Metafora is a framework for creating highly available and distributed services written in Go.  Metafora is embeded meaning your code controls how and when metafora is started.  It uses etcd to coordinate across the nodes in your cluster.  Metafora is a leaderless task distribution system where the nodes coordinate with each other to ensure that work is evenly distributed over the cluster. 
 
-Metafora is an embeded work stealing framework built on top of etcd.  
+Metafora is an embedded work stealing framework built on top of etcd.  
 
 ![logical1](/Documentation/images/metafora_logical_integration_diagram.png) 
 
@@ -19,6 +19,6 @@ When a node fails (or you scale in your nodes), metafora will will release the t
 
 #### Node recovery or scaling out
 
-When a new node joins the cluster it begins picking up new tasks immediately.  But initially, the other nodes may have more tasks because they've been in the cluster longer.  To address this, occasionally the members compare task load and rebalance the tasks between them.  
+When a new node joins the cluster it begins picking up new tasks immediately.  Initially the other nodes may have more tasks because they've been in the cluster longer.  To address this, occasionally the members compare task load and rebalance the tasks between them.  
 
 ![logical1](/Documentation/images/metafora_node_recovery.png)
