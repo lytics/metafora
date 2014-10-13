@@ -10,17 +10,18 @@ import (
 
 type testCoord struct {
 	tasks    chan string // will be returned in order, "" indicates return an error
-	commands chan string
+	commands chan Command
 }
 
 func newTestCoord() *testCoord {
-	return &testCoord{tasks: make(chan string, 10), commands: make(chan string, 10)}
+	return &testCoord{tasks: make(chan string, 10), commands: make(chan Command, 10)}
 }
 
 func (*testCoord) Init(CoordinatorContext) {}
 func (*testCoord) Claim(string) bool       { return true }
-func (*testCoord) Close() error            { return nil }
+func (*testCoord) Close()                  { return }
 func (*testCoord) Release(string)          {}
+func (*testCoord) Freeze()                 { return }
 
 func (c *testCoord) Watch() (string, error) {
 	task := <-c.tasks
@@ -30,10 +31,10 @@ func (c *testCoord) Watch() (string, error) {
 	return task, nil
 }
 
-func (c *testCoord) Command() (string, error) {
+func (c *testCoord) Command() (Command, error) {
 	cmd := <-c.commands
-	if cmd == "" {
-		return "", errors.New("test error")
+	if cmd == nil {
+		return cmd, errors.New("test error")
 	}
 	return cmd, nil
 }

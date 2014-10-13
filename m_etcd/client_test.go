@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/coreos/go-etcd/etcd"
+	"github.com/lytics/metafora"
 )
 
 const (
@@ -24,7 +25,7 @@ const (
 	NodesDir    = `/test/nodes`
 	Node1       = `node1`
 	Node1Path   = NodesDir + `/` + Node1
-	CommandJson = `{"command":"testing"}`
+	CommandJsor = `{"command":"testing"}`
 )
 
 // TestNodes tests that client.Nodes() returns the metafora nodes
@@ -77,7 +78,7 @@ func TestSubmitCommand(t *testing.T) {
 
 	mclient := NewClient(Namespace, eclient)
 
-	if err := mclient.SubmitCommand(Node1, CommandJson); err != nil {
+	if err := mclient.SubmitCommand(Node1, metafora.CommandFreeze()); err != nil {
 		t.Fatalf("Unable to submit command.   error:%v", err)
 	}
 

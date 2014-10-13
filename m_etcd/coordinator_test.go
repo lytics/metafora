@@ -79,11 +79,9 @@ func TestCoordinatorTC1(t *testing.T) {
 		if taskId != task001 {
 			t.Fatalf("coordinator1.Watch() test failed: We received the incorrect taskId.  Got [%s] Expected[%s]", taskId, task001)
 		}
-		coordinator1.Close()
 	case <-time.After(time.Second * 5):
 
 		t.Fatalf("coordinator1.Watch() test failed: The testcase timed out after 5 seconds.")
-		coordinator1.Close()
 	}
 }
 
