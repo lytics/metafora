@@ -87,10 +87,15 @@ type EtcdCoordinator struct {
 	TaskPath  string
 
 	taskWatcher *watcher
+	ClaimTTL    uint64
 
 	NodeID         string
 	CommandPath    string
 	commandWatcher *watcher
+
+	refresher *NodeRefresher
+
+	IsClosed bool
 }
 
 func NewEtcdCoordinator(nodeId, namespace string, client *etcd.Client) metafora.Coordinator {
@@ -111,6 +116,7 @@ func NewEtcdCoordinator(nodeId, namespace string, client *etcd.Client) metafora.
 		Namespace: namespace,
 
 		TaskPath: fmt.Sprintf("/%s/%s", namespace, TasksPath), //TODO MAKE A PACKAGE FUNC TO CREATE THIS PATH.
+		ClaimTTL:    ClaimTTL, //default to the package constant, but allow it to be overwritten
 
 		NodeID:      nodeId,
 		CommandPath: fmt.Sprintf("/%s/%s/%s/%s", namespace, NodesPath, nodeId, CommandsPath),
@@ -147,6 +153,10 @@ func (ec *EtcdCoordinator) Init(cordCtx metafora.CoordinatorContext) {
 		errorChan:    make(chan error),
 		client:       ec.Client,
 	}
+
+	// starts the run loop that processes ttl refreshes in a background go routine.
+	ec.refresher = NewNodeRefresher(ec.Client, cordCtx)
+	ec.refresher.StartScheduler()
 }
 
 func (ec *EtcdCoordinator) upsertDir(path string, ttl uint64) {
@@ -201,16 +211,29 @@ func (ec *EtcdCoordinator) Watch() (taskID string, err error) {
 			if !ok {
 				return "", nil
 			}
-			ec.cordCtx.Log(metafora.LogLevelDebug, "New response from watching %s: response[action:%v etcdIndex:%v nodeKey:%v]",
-				ec.TaskPath, resp.Action, resp.EtcdIndex, resp.Node.Key)
 
-			if resp.Action != "create" { //TODO eventually we'll need to deal with expired "owner" nodes.
-				continue
+			//The etcd watcher may have received a new task signal.
+			if resp.Action == "create" {
+				ec.cordCtx.Log(metafora.LogLevelDebug, "New task signaled while watching %s: response[action:%v etcdIndex:%v nodeKey:%v]",
+					ec.TaskPath, resp.Action, resp.EtcdIndex, resp.Node.Key)
+				taskId, skip := ec.parseTaskIdFromTaskNode(resp.Node)
+				if !skip {
+					return taskId, nil
+				}
 			}
 
-			taskId, skip := ec.parseTaskIDFromNode(resp.Node)
-			if !skip {
-				return taskId, nil
+			//The etcd watcher may have received a released task or an owner may have left the cluster.
+			//Ref: etcd event types : https://github.com/coreos/etcd/blob/master/store/event.go#L4
+			if (resp.Action == "expire" || resp.Action == "delete" || resp.Action == "compareAndDelete") &&
+				ec.nodeIsTheOwnerMarker(resp.Node) {
+
+				ec.cordCtx.Log(metafora.LogLevelDebug, "Released task signaled while watching %s: response[action:%v etcdIndex:%v nodeKey:%v]",
+					ec.TaskPath, resp.Action, resp.EtcdIndex, resp.Node.Key)
+
+				taskId, skip := ec.parseTaskIdFromOwnerNode(resp.Node.Key)
+				if !skip {
+					return taskId, nil
+				}
 			}
 
 		case err := <-ec.taskWatcher.errorChan:
@@ -219,18 +242,42 @@ func (ec *EtcdCoordinator) Watch() (taskID string, err error) {
 	}
 }
 
-func (ec *EtcdCoordinator) parseTaskIDFromNode(node *etcd.Node) (taskID string, skip bool) {
+func (ec *EtcdCoordinator) parseTaskIdFromOwnerNode(nodePath string) (taskID string, skip bool) {
+	//remove ec.TaskPath
+	res := strings.Replace(nodePath, ec.TaskPath+"/", "", 1)
+	//remove OwnerMarker
+	res2 := strings.Replace(res, "/"+OwnerMarker, "", 1)
+	//if remainder doens't contain "/", then we've found the taskid
+	if !strings.Contains(res2, "/") {
+		return res2, false
+	} else {
+		return "", true
+	}
+}
+
+//Determines if its a task by removing the [ec.TaskPath + "/"] from the path
+// and if there are still slashes then we know its a child of the the task
+// not the task it's self.
+func (ec *EtcdCoordinator) isATaskNode(nodePath string) bool {
+	possibleTaskId := strings.Replace(nodePath, ec.TaskPath+"/", "", 1)
+	if strings.Contains(possibleTaskId, "/") {
+		return false
+	} else {
+		return true
+	}
+}
+
+func (ec *EtcdCoordinator) parseTaskIdFromTaskNode(node *etcd.Node) (taskID string, skip bool) {
 	taskId := ""
 
-	//FIXME There's gotta be a better way to only detect tasks #32
-	//TODO per discussion last night, we are going to prefix tasks in the client,
-	//     so we can easily determine tasks from other keys/dirs created in the
-	//     tasks path.
-	if strings.Contains(node.Key, OwnerMarker) {
+	if !ec.isATaskNode(node.Key) {
 		return "", true
 	}
 
-	ec.cordCtx.Log(metafora.LogLevelDebug, "Node key:%s", node.Key)
+	if ec.nodeHasOwnerMarker(node) {
+		return "", true
+	}
+
 	taskpath := strings.Split(node.Key, "/")
 	if len(taskpath) == 0 {
 		//TODO log
@@ -246,28 +293,61 @@ func (ec *EtcdCoordinator) parseTaskIDFromNode(node *etcd.Node) (taskID string, 
 		return "", true
 	}
 
+	ec.cordCtx.Log(metafora.LogLevelDebug, "A claimable task was found. task:%s key:%s", taskId, node.Key)
 	return taskId, false
+}
+
+func (ec *EtcdCoordinator) nodeIsTheOwnerMarker(node *etcd.Node) bool {
+	//If the node is the owner marker, it most likely means the recursive watch picked
+	// this node's creation up.
+	if strings.Contains(node.Key, OwnerMarker) {
+		return true
+	}
+	return false
+}
+
+func (ec *EtcdCoordinator) nodeHasOwnerMarker(node *etcd.Node) bool {
+	//If its a task with an owner marker (Child), then most likely this node came from
+	// the prefetch code which found an existing task.
+	if node.Nodes != nil && len(node.Nodes) > 0 {
+		for _, n := range node.Nodes {
+			if strings.Contains(n.Key, OwnerMarker) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // Claim is called by the Consumer when a Balancer has determined that a task
 // ID can be claimed. Claim returns false if another consumer has already
 // claimed the ID.
 func (ec *EtcdCoordinator) Claim(taskID string) bool {
-	key := fmt.Sprintf("%s/%s/%s", ec.TaskPath, taskID, OwnerMarker)
-	res, err := ec.Client.CreateDir(key, ClaimTTL)
+	claimedMarker := fmt.Sprintf("%s/%s/%s", ec.TaskPath, taskID, OwnerMarker)
+	res, err := ec.Client.CreateDir(claimedMarker, ec.ClaimTTL)
 	if err != nil {
-		ec.cordCtx.Log(metafora.LogLevelDebug, "Claim failed: err %v", err)
+		etcdErr, ok := err.(*etcd.EtcdError)
+		if !ok || etcdErr.ErrorCode != EcodeNodeExist {
+			ec.cordCtx.Log(metafora.LogLevelError, "Claim failed with an expected error: key%s err %v", claimedMarker, err)
+		} else {
+			ec.cordCtx.Log(metafora.LogLevelDebug, "Claim failed, it appears someone else got it first: resp %v", res)
+		}
 		return false
 	}
 	ec.cordCtx.Log(metafora.LogLevelDebug, "Claim successful: resp %v", res)
+
+	//add a scheduled tasks to refresh the ./owner/ dir's ttl until the coordinator is shutdown.
+	ec.refresher.ScheduleDirRefresh(claimedMarker, ec.ClaimTTL)
+
 	return true
 }
 
 // Release deletes the claim directory.
 func (ec *EtcdCoordinator) Release(taskID string) {
-	key := fmt.Sprintf("%s/%s/%s", ec.TaskPath, taskID, OwnerMarker)
+	claimedMarker := fmt.Sprintf("%s/%s/%s", ec.TaskPath, taskID, OwnerMarker)
 	//FIXME Conditionally delete only if this node is actually the owner
-	_, err := ec.Client.DeleteDir(key)
+	ec.refresher.UnscheduleDirRefresh(claimedMarker)
+	_, err := ec.Client.DeleteDir(claimedMarker)
 	if err != nil {
 		//TODO Pause and retry?!
 		ec.cordCtx.Log(metafora.LogLevelError, "Release failed: %v", err)
@@ -311,4 +391,5 @@ func (ec *EtcdCoordinator) Freeze() {
 func (ec *EtcdCoordinator) Close() {
 	ec.taskWatcher.stop()
 	ec.commandWatcher.stop()
+	ec.refresher.Close()
 }
