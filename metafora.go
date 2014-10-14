@@ -42,11 +42,11 @@ type Consumer struct {
 	logger   *logger
 	stop     chan struct{} // closed by Shutdown to cause Run to exit
 
-	watch    chan string // channel for watcher to send tasks to main loop
-	watching bool        // channel to prevent multiple watchers
-	watchL   sync.Mutex  // mutex to protect access to watching
+	watch chan string // channel for watcher to send tasks to main loop
 
-	cont chan bool // channel for main loop to tick
+	// Set by command handler, read anywhere via Consumer.frozen()
+	freezeL sync.Mutex
+	freeze  bool
 }
 
 // NewConsumer returns a new consumer and calls Init on the Balancer and Coordinator.
@@ -60,7 +60,6 @@ func NewConsumer(coord Coordinator, h HandlerFunc, b Balancer) *Consumer {
 		logger:   stdoutLogger(),
 		stop:     make(chan struct{}),
 		watch:    make(chan string),
-		cont:     make(chan bool),
 	}
 
 	// initialize balancer with the consumer and a prefixed logger
@@ -108,12 +107,6 @@ func (c *Consumer) Run() {
 			case <-time.After(c.balEvery + time.Duration(randInt(balanceJitterMax))):
 				balance <- true
 			}
-			// Wait for main loop to acknowledge task before continuing (or shutdown)
-			select {
-			case <-c.stop:
-				return
-			case <-c.cont:
-			}
 		}
 	}()
 
@@ -144,17 +137,24 @@ func (c *Consumer) Run() {
 				return
 			case cmdChan <- cmd:
 			}
-			// Wait for watcher to acknowledge command before continuing (or shutdown)
-			select {
-			case <-c.stop:
-				return
-			case <-c.cont:
-			}
 		}
 	}()
 
 	// Main Loop ensures events are processed synchronously
 	for {
+		if c.frozen() {
+			// Only recv commands while frozen
+			select {
+			case <-c.stop:
+				// Shutdown has been called.
+				return
+			case cmd := <-cmdChan:
+				c.logger.Log(LogLevelDebug, "Received command: %s", cmd)
+				c.handleCommand(cmd)
+			}
+			continue
+		}
+
 		select {
 		case <-c.stop:
 			// Shutdown has been called.
@@ -175,29 +175,10 @@ func (c *Consumer) Run() {
 			c.logger.Log(LogLevelDebug, "Received command: %s", cmd)
 			c.handleCommand(cmd)
 		}
-
-		// Each loop of the main loop ticks this channel so that the goroutine whose
-		// chan is being handled doesn't continue until the main loop is ready to
-		// select again.
-		c.cont <- true
 	}
 }
 
 func (c *Consumer) watcher() {
-	c.watchL.Lock()
-	if c.watching {
-		c.logger.Log(LogLevelWarn, "bug: Called watch() while already watching!")
-		return
-	}
-	c.watching = true
-	c.watchL.Unlock()
-
-	defer func() {
-		c.watchL.Lock()
-		c.watching = false
-		c.watchL.Unlock()
-	}()
-
 	c.logger.Log(LogLevelDebug, "Consumer watching")
 
 	for {
@@ -221,12 +202,6 @@ func (c *Consumer) watcher() {
 		case <-c.stop:
 			return
 		case c.watch <- task:
-		}
-		// Wait for watcher to acknowledge task before continuing (or shutdown)
-		select {
-		case <-c.stop:
-			return
-		case <-c.cont:
 		}
 	}
 }
@@ -357,25 +332,33 @@ func (c *Consumer) stopTask(taskID string) bool {
 	return true
 }
 
+func (c *Consumer) frozen() bool {
+	c.freezeL.Lock()
+	r := c.freeze
+	c.freezeL.Unlock()
+	return r
+}
+
 func (c *Consumer) handleCommand(cmd Command) {
 	switch cmd.Name() {
 	case cmdFreeze:
-		c.watchL.Lock()
-		defer c.watchL.Unlock()
-		if !c.watching {
-			c.logger.Log(LogLevelInfo, "Ignoring freeze command: no watching")
+		if c.frozen() {
+			c.logger.Log(LogLevelInfo, "Ignoring freeze command: already frozen")
 			return
 		}
 		c.logger.Log(LogLevelInfo, "Freezing")
-		c.coord.Freeze()
+		c.freezeL.Lock()
+		c.freeze = true
+		c.freezeL.Unlock()
 	case cmdUnfreeze:
-		c.watchL.Lock()
-		defer c.watchL.Unlock()
-		if c.watching {
-			c.logger.Log(LogLevelInfo, "Ignoring unfreeze command: already watching")
+		if !c.frozen() {
+			c.logger.Log(LogLevelInfo, "Ignoring unfreeze command: not frozen")
 			return
 		}
-		go c.watcher()
+		c.logger.Log(LogLevelInfo, "Unfreezing")
+		c.freezeL.Lock()
+		c.freeze = false
+		c.freezeL.Unlock()
 	case cmdBalance:
 		c.logger.Log(LogLevelInfo, "Balancing due to command")
 		c.balance()
