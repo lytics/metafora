@@ -14,7 +14,8 @@ type Coordinator interface {
 	Init(CoordinatorContext)
 
 	// Watch should do a blocking watch on the broker and return a task ID that
-	// can be claimed. Watch must return ("", nil) when Close is called.
+	// can be claimed. Watch must return ("", nil) when Close or Freeze are
+	// called.
 	Watch() (taskID string, err error)
 
 	// Claim is called by the Consumer when a Balancer has determined that a task
@@ -26,10 +27,10 @@ type Coordinator interface {
 	Release(taskID string)
 
 	// Command blocks until a command for this node is received from the broker
-	// by the coordinator. Command must return ("", nil) when Close is called.
-	Command() (cmd string, err error)
+	// by the coordinator. Command must return (nil, nil) when Close is called.
+	Command() (Command, error)
 
 	// Close indicates the Coordinator should stop watching and receiving
 	// commands. It is called during Consumer.Shutdown().
-	Close() error
+	Close()
 }

@@ -2,6 +2,7 @@ package m_etcd
 
 import (
 	"fmt"
+	"path"
 	"strings"
 
 	"github.com/coreos/go-etcd/etcd"
@@ -53,8 +54,8 @@ func (mc *mclient) tskPath(taskId string) string {
 }
 
 // cmdPath is the path to a particular nodeId, represented as a directory in etcd.
-func (mc *mclient) cmdPath(nodeId string) string {
-	return fmt.Sprintf("/%s/%s/%s", mc.namespace, NodesPath, nodeId)
+func (mc *mclient) cmdPath(node string) string {
+	return path.Join("/", mc.namespace, NodesPath, node, "commands")
 }
 
 // SubmitTask creates a new taskId, represented as a directory in etcd.
@@ -76,11 +77,20 @@ func (mc *mclient) DeleteTask(taskId string) error {
 // SubmitCommand creates a new command for a particular nodeId, the
 // command has a random name and is added to the particular nodeId
 // directory in etcd.
-func (mc *mclient) SubmitCommand(nodeId string, command string) error {
-	cmdPath := mc.cmdPath(nodeId)
-	_, err := mc.etcd.AddChild(cmdPath, command, ForeverTTL)
-	mc.logger.Log(metafora.LogLevelDebug, "command submitted commandPath[%s] command[%s]", cmdPath, command)
-	return err
+func (mc *mclient) SubmitCommand(node string, command metafora.Command) error {
+	cmdPath := mc.cmdPath(node)
+	body, err := command.Marshal()
+	if err != nil {
+		// This is either a bug in metafora or someone implemented their own
+		// command incorrectly.
+		return err
+	}
+	if _, err := mc.etcd.AddChild(cmdPath, string(body), ForeverTTL); err != nil {
+		mc.logger.Log(metafora.LogLevelError, "Error submitting command: %s to node: %s", command, node)
+		return err
+	}
+	mc.logger.Log(metafora.LogLevelDebug, "Submitted command: %s to node: %s", command, node)
+	return nil
 }
 
 // Nodes fetchs the currently registered nodes. A non-nil error means that some
