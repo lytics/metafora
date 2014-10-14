@@ -21,11 +21,10 @@ import (
 )
 
 const (
-	Namespace   = `test`
-	NodesDir    = `/test/nodes`
-	Node1       = `node1`
-	Node1Path   = NodesDir + `/` + Node1
-	CommandJsor = `{"command":"testing"}`
+	Namespace = `test`
+	NodesDir  = `/test/nodes`
+	Node1     = `node1`
+	Node1Path = NodesDir + `/` + Node1
 )
 
 // TestNodes tests that client.Nodes() returns the metafora nodes
