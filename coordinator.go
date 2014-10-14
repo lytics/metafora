@@ -18,9 +18,6 @@ type Coordinator interface {
 	// called.
 	Watch() (taskID string, err error)
 
-	// Freeze cancels pending watches, causing Watch to return ("", nil).
-	Freeze()
-
 	// Claim is called by the Consumer when a Balancer has determined that a task
 	// ID can be claimed. Claim returns false if another consumer has already
 	// claimed the ID.

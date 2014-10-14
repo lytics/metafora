@@ -21,7 +21,6 @@ func (*testCoord) Init(CoordinatorContext) {}
 func (*testCoord) Claim(string) bool       { return true }
 func (*testCoord) Close()                  { return }
 func (*testCoord) Release(string)          {}
-func (*testCoord) Freeze()                 { return }
 
 func (c *testCoord) Watch() (string, error) {
 	task := <-c.tasks

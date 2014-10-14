@@ -116,7 +116,7 @@ func NewEtcdCoordinator(nodeId, namespace string, client *etcd.Client) metafora.
 		Namespace: namespace,
 
 		TaskPath: fmt.Sprintf("/%s/%s", namespace, TasksPath), //TODO MAKE A PACKAGE FUNC TO CREATE THIS PATH.
-		ClaimTTL:    ClaimTTL, //default to the package constant, but allow it to be overwritten
+		ClaimTTL: ClaimTTL,                                    //default to the package constant, but allow it to be overwritten
 
 		NodeID:      nodeId,
 		CommandPath: fmt.Sprintf("/%s/%s/%s/%s", namespace, NodesPath, nodeId, CommandsPath),
@@ -382,10 +382,6 @@ func (ec *EtcdCoordinator) Command() (metafora.Command, error) {
 			return nil, err
 		}
 	}
-}
-
-func (ec *EtcdCoordinator) Freeze() {
-	ec.taskWatcher.stop()
 }
 
 func (ec *EtcdCoordinator) Close() {
