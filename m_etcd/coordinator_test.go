@@ -25,7 +25,7 @@ func TestCoordinatorFirstNodeJoiner(t *testing.T) {
 
 	coordinator1, client := createEtcdCoordinator(t, TestNameSpace)
 	defer coordinator1.Close()
-	coordinator1.Init(testLogger{"coordinator1", t})
+	coordinator1.Init(newCtx(t, "coordinator1"))
 
 	if coordinator1.TaskPath != TestNameSpace+"/tasks" {
 		t.Fatalf("TestFailed: TaskPath should be \"/%s/tasks\" but we got \"%s\"", TestNameSpace, coordinator1.TaskPath)
@@ -53,7 +53,7 @@ func TestCoordinatorTC1(t *testing.T) {
 	coordinator1, client := createEtcdCoordinator(t, TestNameSpace)
 	defer coordinator1.Close()
 
-	coordinator1.Init(testLogger{"coordinator1", t})
+	coordinator1.Init(newCtx(t, "coordinator1"))
 
 	watchRes := make(chan string)
 	task001 := "test-task0001"
@@ -88,7 +88,7 @@ func TestCoordinatorTC2(t *testing.T) {
 	skipEtcd(t)
 	cleanupNameSpace(t, TestNameSpace)
 	coordinator1, eclient := createEtcdCoordinator(t, TestNameSpace)
-	coordinator1.Init(testLogger{"coordinator1", t})
+	coordinator1.Init(newCtx(t, "coordinator1"))
 	defer coordinator1.Close()
 
 	test_finished := make(chan bool)
@@ -138,10 +138,10 @@ func TestCoordinatorTC3(t *testing.T) {
 	skipEtcd(t)
 	cleanupNameSpace(t, TestNameSpace)
 	coordinator1, eclient := createEtcdCoordinator(t, TestNameSpace)
-	coordinator1.Init(testLogger{"coordinator1", t})
+	coordinator1.Init(newCtx(t, "coordinator1"))
 	defer coordinator1.Close()
 	coordinator2, _ := createEtcdCoordinator(t, TestNameSpace)
-	coordinator2.Init(testLogger{"coordinator2", t})
+	coordinator2.Init(newCtx(t, "coordinator2"))
 	defer coordinator2.Close()
 
 	test_finished := make(chan bool)
@@ -213,12 +213,12 @@ func TestCoordinatorTC4(t *testing.T) {
 	eclient := newEtcdClient(t)
 	cleanupNameSpace(t, TestNameSpace)
 
-	test_finished := make(chan bool)
-	testTasks := []string{"testtask0001", "testtask0002", "testtask0003"}
+	watchOk := make(chan bool)
+	task := "testtask4"
 
 	mclient := NewClientWithLogger(TestNameSpace, eclient, testLogger{"metafora-client1", t})
 
-	err := mclient.SubmitTask(testTasks[0])
+	err := mclient.SubmitTask(task)
 	if err != nil {
 		t.Fatalf("%s Error submitting a task to metafora via the client.  Error:", err)
 	}
@@ -229,45 +229,42 @@ func TestCoordinatorTC4(t *testing.T) {
 
 	//Don't start up the coordinator until after the metafora client has submitted work.
 	coordinator1, _ := createEtcdCoordinator(t, TestNameSpace)
-	coordinator1.Init(testLogger{"coordinator1", t})
+	coordinator1.Init(newCtx(t, "coordinator1"))
 	defer coordinator1.Close()
 	eclient.Get("/testnamespace/", sorted, recursive)
 
-	startATaskWatcher := func() {
+	coord1Watch := func() {
 		//Watch blocks, so we need to test it in its own go routine.
 		taskId, err := coordinator1.Watch()
 		if err != nil {
 			t.Fatalf("coordinator1.Watch() returned an err: %v", err)
 		}
 
-		t.Logf("We got a task id from the coordinator1.Watch() res: %s", taskId)
+		t.Logf("Task from the coordinator1.Watch(): %s", taskId)
 
 		if ok := coordinator1.Claim(taskId); !ok {
 			t.Fatal("coordinator1.Claim() unable to claim the task")
 		}
 
-		test_finished <- true
+		watchOk <- true
 	}
 
-	go startATaskWatcher()
+	go coord1Watch()
 	select {
-	case res := <-test_finished:
-		if !res {
-			t.Fatalf("Background test checker failed so the test failed.")
-		}
+	case <-watchOk:
 	case <-time.After(time.Second * 5):
 		t.Fatalf("Test failed: The testcase timed out after 5 seconds.")
 	}
 
 	//Testcase2 test releasing a task,  Since coordinator1 is still running
 	// it should be able to pick up the task again.
-	coordinator1.Release(testTasks[0])
-	go startATaskWatcher()
+	t.Logf("Releasing %s", task)
+	coordinator1.Release(task)
+
+	t.Log("Watching again")
+	go coord1Watch()
 	select {
-	case res := <-test_finished:
-		if !res {
-			t.Fatalf("Background test checker failed so the test failed.")
-		}
+	case <-watchOk:
 	case <-time.After(time.Second * 5):
 		t.Fatalf("Test failed: The testcase timed out after 5 seconds.")
 	}
@@ -286,7 +283,7 @@ func TestClaimRefreshExpire(t *testing.T) {
 	coordinator1, eclient := createEtcdCoordinator(t, TestNameSpace)
 	coordinator1.ClaimTTL = 1
 	defer coordinator1.Close()
-	coordinator1.Init(testLogger{"coordinator1", t})
+	coordinator1.Init(newCtx(t, "coordinator1"))
 	coord1ResultChannel := make(chan string)
 
 	mclient := NewClientWithLogger(TestNameSpace, eclient, testLogger{"metafora-client1", t})
@@ -323,7 +320,7 @@ func TestClaimRefreshExpire(t *testing.T) {
 	coordinator2, _ := createEtcdCoordinator(t, TestNameSpace)
 	coordinator2.ClaimTTL = 1
 	defer coordinator2.Close()
-	coordinator2.Init(testLogger{"coordinator2", t})
+	coordinator2.Init(newCtx(t, "coordinator2"))
 	coord2ResultChannel := make(chan string)
 	go func() {
 		//Watch blocks, so we need to test it in its own go routine.
