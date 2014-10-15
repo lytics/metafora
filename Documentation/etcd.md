@@ -1,4 +1,6 @@
-## etcd
+
+
+## etcd integration
 
 Metafora contains an [etcd](https://github.com/coreos/etcd) implementation of
 the core
@@ -6,7 +8,7 @@ the core
 [`Client`](http://godoc.org/github.com/lytics/metafora#Client) interfaces, so
 that implementing Metafora with etcd in your own work system is quick and easy.
 
-## Layout
+##### etcd layout
 
 ```
 /
@@ -21,7 +23,7 @@ that implementing Metafora with etcd in your own work system is quick and easy.
                                contents are the owning node
 ```
 
-### Tasks
+##### Tasks
 
 Metafora clients submit tasks by making an empty directory in
 `/<namespace>/tasks/` without a TTL.
@@ -34,7 +36,7 @@ otherwise another node will claim the task and begin working on it.
 
 Note that Metafora does not handle task parameters or configuration.
 
-### Commands
+##### Commands
 
 Metafora clients send commands by making a file inside
 `/<namespace>/nodes/<node_id>/commands/` with any name (preferably using a time-ordered
@@ -43,3 +45,11 @@ UUID).
 Metafora nodes watch their own node's `commands` directory for new files. The
 contents of the files are a command to be executed. Only one command will be
 executed at a time, and pending commands are lost on node shutdown.
+
+
+### Useful links for managing etcd
+
+[The etcd API](https://coreos.com/docs/distributed-configuration/etcd-api/)
+
+[etcd cli tool](https://github.com/coreos/etcdctl)
+
