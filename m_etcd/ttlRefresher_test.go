@@ -28,10 +28,11 @@ func TestTtlRefresherExecutionOrder(t *testing.T) {
 	}
 
 	nRefresher.StartScheduler()
+	defer nRefresher.Close()
 	testPaths := []string{"1", "2", "3"}
-	nRefresher.ScheduleDirRefresh(testPaths[0], 1)
-	nRefresher.ScheduleDirRefresh(testPaths[1], 2)
-	nRefresher.ScheduleDirRefresh(testPaths[2], 3)
+	nRefresher.ScheduleRefresh(testPaths[0], 1)
+	nRefresher.ScheduleRefresh(testPaths[1], 2)
+	nRefresher.ScheduleRefresh(testPaths[2], 3)
 
 	time.Sleep(4 * time.Second)
 
@@ -63,8 +64,9 @@ func TestTtlRefresherTiming(t *testing.T) {
 	}
 
 	nRefresher.StartScheduler()
+	defer nRefresher.Close()
 	testPaths := []string{"2"}
-	nRefresher.ScheduleDirRefresh(testPaths[0], 2)
+	nRefresher.ScheduleRefresh(testPaths[0], 2)
 	time.Sleep(1 * time.Second)
 	if len(runHistory) > 0 {
 		t.Fatal("No tasks should have fired yet, as the timer is for 2 seconds and its only been one second.")
@@ -73,7 +75,7 @@ func TestTtlRefresherTiming(t *testing.T) {
 	if len(runHistory) != 1 {
 		t.Fatal("The tasks should have fired once and only once.  But it fired %d times.", len(runHistory))
 	}
-	nRefresher.UnscheduleDirRefresh(testPaths[0])
+	nRefresher.UnscheduleRefresh(testPaths[0])
 	time.Sleep(2 * time.Second)
 	if len(runHistory) != 1 {
 		t.Fatal("The tasks shouldn't have fired again.  But it most have because fired times is now %d.", len(runHistory))
@@ -103,7 +105,7 @@ func TestTtlRefresherIntegration(t *testing.T) {
 		t.Fatalf("Error trying to get back our test node.  Error %s", err.Error())
 	}
 
-	refresher.ScheduleDirRefresh(testDir, 1)
+	refresher.ScheduleRefresh(testDir, 1)
 
 	time.Sleep(3 * time.Second)
 
@@ -135,7 +137,7 @@ func TestTtlRefresherIntegration(t *testing.T) {
 	//
 	t.Log("TestCase2: remove the path from the refresher and make sure the etcd dir expires after the TTL\n")
 
-	refresher.UnscheduleDirRefresh(testDir)
+	refresher.UnscheduleRefresh(testDir)
 	time.Sleep(1 * time.Second)
 
 	//First make sure the etcd key is still around.

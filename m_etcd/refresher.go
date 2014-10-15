@@ -60,7 +60,7 @@ func NewDefaultRefreshFunction(client *etcd.Client, cordCtx metafora.Coordinator
 // Ref:
 // https://github.com/coreos/etcd/issues/385
 // https://github.com/coreos/etcd/issues/1232
-func (s *NodeRefresher) ScheduleDirRefresh(etcd_dir string, ttl uint64) {
+func (s *NodeRefresher) ScheduleRefresh(etcd_dir string, ttl uint64) {
 	node := &RefreshableEtcdDir{
 		Node:        etcd_dir,
 		TTLInterval: int64(ttl),
@@ -69,7 +69,7 @@ func (s *NodeRefresher) ScheduleDirRefresh(etcd_dir string, ttl uint64) {
 	s.addTaskChannel <- node // signal the run loop that we have a new node_path to update
 }
 
-func (s *NodeRefresher) UnscheduleDirRefresh(etcd_dir string) {
+func (s *NodeRefresher) UnscheduleRefresh(etcd_dir string) {
 	s.removeTaskChannel <- etcd_dir // signal the run loop to stop updating the ttl for the node_path
 }
 

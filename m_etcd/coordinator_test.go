@@ -218,7 +218,6 @@ func TestCoordinatorTC4(t *testing.T) {
 
 	mclient := NewClientWithLogger(TestNameSpace, eclient, testLogger{"metafora-client1", t})
 
-	t.Log("\n\nStart of the test case")
 	err := mclient.SubmitTask(testTasks[0])
 	if err != nil {
 		t.Fatalf("%s Error submitting a task to metafora via the client.  Error:", err)
@@ -280,7 +279,7 @@ func TestCoordinatorTC4(t *testing.T) {
 // Test after (ClaimTTL + 1 second) that the claim is still around.
 // Then add a second coordinator and kill the first one.  The second coordinator
 // should pick up the work from the dead first one.
-func TestCoordinatorWatchClaimRefresher_allTest(t *testing.T) {
+func TestClaimRefreshExpire(t *testing.T) {
 	skipEtcd(t)
 	cleanupNameSpace(t, TestNameSpace)
 
@@ -288,7 +287,7 @@ func TestCoordinatorWatchClaimRefresher_allTest(t *testing.T) {
 	coordinator1.ClaimTTL = 1
 	defer coordinator1.Close()
 	coordinator1.Init(testLogger{"coordinator1", t})
-	cood1ResultChannel := make(chan string)
+	coord1ResultChannel := make(chan string)
 
 	mclient := NewClientWithLogger(TestNameSpace, eclient, testLogger{"metafora-client1", t})
 	task001 := "test-task0001"
@@ -302,7 +301,7 @@ func TestCoordinatorWatchClaimRefresher_allTest(t *testing.T) {
 		t.Logf("We got a task id from the coordinator1.Watch() res:%s", taskId)
 
 		coordinator1.Claim(taskId)
-		cood1ResultChannel <- taskId
+		coord1ResultChannel <- taskId
 	}()
 
 	err := mclient.SubmitTask(task001)
@@ -312,19 +311,20 @@ func TestCoordinatorWatchClaimRefresher_allTest(t *testing.T) {
 
 	//Step 1 : Make sure we picked up and claimed the task before moving on...
 	select {
-	case taskId := <-cood1ResultChannel:
+	case taskId := <-coord1ResultChannel:
 		if taskId != task001 {
 			t.Fatalf("coordinator1.Watch() test failed: We received the incorrect taskId.  Got [%s] Expected[%s]", taskId, task001)
 		}
 	case <-time.After(time.Second * 5):
 		t.Fatalf("coordinator1.Watch() test failed: The testcase timed out after 5 seconds.")
 	}
+
 	//start a second coordinator and make sure it can't claim our task.
 	coordinator2, _ := createEtcdCoordinator(t, TestNameSpace)
 	coordinator2.ClaimTTL = 1
 	defer coordinator2.Close()
 	coordinator2.Init(testLogger{"coordinator2", t})
-	cood2ResultChannel := make(chan string)
+	coord2ResultChannel := make(chan string)
 	go func() {
 		//Watch blocks, so we need to test it in its own go routine.
 		taskId, err := coordinator2.Watch()
@@ -333,24 +333,32 @@ func TestCoordinatorWatchClaimRefresher_allTest(t *testing.T) {
 		}
 		t.Logf("We got a task id from the coordinator2.Watch() res:%s", taskId)
 		coordinator2.Claim(taskId)
-		cood2ResultChannel <- taskId
+		coord2ResultChannel <- taskId
 	}()
+
 	//make sure we still have the claim after 2 seconds
-	time.Sleep(3 * time.Second)
 	select {
-	case taskId := <-cood2ResultChannel:
+	case taskId := <-coord2ResultChannel:
 		t.Fatalf("coordinator2.Watch() test failed: We received a taskId when we shouldn't have.  Got [%s]", taskId)
-	default:
+	case <-time.After(3 * time.Second):
 	}
+
 	// This should shut down coordinator1's task watcher and refresher, so that all its tasks are returned
 	// and coordinator2 should pick them up.
 	t.Log("Coordinator1 trying to shutdown coordinator1. ")
+	go func() {
+		// The only way to tell when coord.Close() finishes is by waiting for a Watch()
+		// to exit.
+		coordinator1.Watch()
+		coord1ResultChannel <- ""
+	}()
 	coordinator1.Close()
+	<-coord1ResultChannel
 	t.Log("Coordinator1 was closed, so its tasks should shortly become available again. ")
 
 	//Now that coordinator1 is shutdown coordinator2 should reover it's tasks.
 	select {
-	case taskId := <-cood2ResultChannel:
+	case taskId := <-coord2ResultChannel:
 		if taskId != task001 {
 			t.Fatalf("coordinator2.Watch() test failed: We received the incorrect taskId.  Got [%s] Expected[%s]", taskId, task001)
 		}
