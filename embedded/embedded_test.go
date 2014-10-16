@@ -20,12 +20,8 @@ func TestEmbedded(t *testing.T) {
 	coord, client := NewEmbeddedPair("testnode")
 	runner := metafora.NewConsumer(coord, thfunc, &metafora.DumbBalancer{})
 
-	donechan := make(chan struct{})
-
 	go func() {
 		runner.Run()
-		<-donechan
-		runner.Shutdown()
 	}()
 
 	for _, taskid := range []string{"one", "two", "three", "four"} {
@@ -36,7 +32,7 @@ func TestEmbedded(t *testing.T) {
 	}
 
 	time.Sleep(10 * time.Millisecond)
-	close(donechan)
+	runner.Shutdown()
 
 	runs := tc.Runs()
 	if len(runs) != 4 {
@@ -55,12 +51,8 @@ func TestEmbeddedStopTask(t *testing.T) {
 	coord, client := NewEmbeddedPair("testnode")
 	runner := metafora.NewConsumer(coord, thfunc, &metafora.DumbBalancer{})
 
-	donechan := make(chan struct{})
-
 	go func() {
 		runner.Run()
-		<-donechan
-		runner.Shutdown()
 	}()
 
 	tasks := []string{"one", "two", "three", "four"}
@@ -83,7 +75,7 @@ func TestEmbeddedStopTask(t *testing.T) {
 	if len(testcounter.Runs()) != 4 {
 		t.Fatalf("Expected four runs, got %d", len(testcounter.Runs()))
 	}
-	close(donechan)
+	runner.Shutdown()
 }
 
 func newTestCounter() *testcounter {

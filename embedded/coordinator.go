@@ -28,7 +28,7 @@ type EmbeddedCoordinator struct {
 	ctx      metafora.CoordinatorContext
 	inchan   chan string
 	cmdchan  chan *NodeCommand
-	nodechan chan []string
+	nodechan chan<- []string
 	stopchan chan struct{}
 }
 
@@ -55,8 +55,6 @@ func (e *EmbeddedCoordinator) Claim(taskID string) bool {
 }
 
 func (e *EmbeddedCoordinator) Release(taskID string) {
-	// Right now this is coordinator is mostly meant for testing; this could potentiall
-	// block forever if not careful
 	e.inchan <- taskID
 }
 

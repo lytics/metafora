@@ -11,7 +11,7 @@ type NodeCommand struct {
 func NewEmbeddedPair(nodeid string) (metafora.Coordinator, metafora.Client) {
 	taskchan := make(chan string)
 	cmdchan := make(chan *NodeCommand)
-	nodechan := make(chan []string)
+	nodechan := make(chan []string, 1)
 
 	coord := NewEmbeddedCoordinator(nodeid, taskchan, cmdchan, nodechan)
 	client := NewEmbeddedClient(taskchan, cmdchan, nodechan)

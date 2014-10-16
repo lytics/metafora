@@ -7,9 +7,9 @@ func NewEmbeddedClient(taskchan chan string, cmdchan chan *NodeCommand, nodechan
 }
 
 type EmbeddedClient struct {
-	taskchan chan string
-	cmdchan  chan *NodeCommand
-	nodechan chan []string
+	taskchan chan<- string
+	cmdchan  chan<- *NodeCommand
+	nodechan <-chan []string
 }
 
 func (ec *EmbeddedClient) SubmitTask(taskid string) error {
