@@ -15,7 +15,7 @@ import (
 )
 
 type ownerValue struct {
-	Node string `json:"string"`
+	Node string `json:"node"`
 }
 
 type watcher struct {
