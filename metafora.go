@@ -68,8 +68,7 @@ func NewConsumer(coord Coordinator, h HandlerFunc, b Balancer) *Consumer {
 		Logger
 	}{Consumer: c, Logger: c.logger})
 
-	// initialize coordinator with a logger
-	coord.Init(c.logger)
+	coord.Init(&coordinatorContext{Consumer: c, Logger: c.logger})
 	return c
 }
 

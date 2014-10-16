@@ -3,6 +3,12 @@ package metafora
 // CoordinatorContext is the context passed to coordinators by the core
 // consumer.
 type CoordinatorContext interface {
+	// Lost is called by the Coordinator when a claimed task is lost to another
+	// node. The Consumer will stop the task locally.
+	//
+	// Since this implies there is a window of time where the task is executing
+	// more than once, this is a sign of an unhealthy cluster.
+	Lost(taskID string)
 	Logger
 }
 
@@ -33,4 +39,18 @@ type Coordinator interface {
 	// Close indicates the Coordinator should stop watching and receiving
 	// commands. It is called during Consumer.Shutdown().
 	Close()
+}
+
+type coordinatorContext struct {
+	*Consumer
+	Logger
+}
+
+// Lost is a light wrapper around Coordinator.stopTask to make it suitable for
+// calling by Coordinator implementations via the CoordinatorContext interface.
+func (ctx *coordinatorContext) Lost(taskID string) {
+	ctx.Log(LogLevelError, "Lost task %s", taskID)
+	if !ctx.stopTask(taskID) {
+		ctx.Log(LogLevelWarn, "Lost task %s wasn't running.", taskID)
+	}
 }

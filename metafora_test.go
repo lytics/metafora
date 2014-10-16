@@ -2,6 +2,7 @@ package metafora
 
 import (
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -165,10 +166,10 @@ func (b *testBalancer) Balance() []string {
 }
 
 func TestBalancer(t *testing.T) {
-	// ugly hack to force fast rebalancing
-	oldJ := balanceJitterMax
-	balanceJitterMax = 1
-	defer func() { balanceJitterMax = oldJ }()
+	// ugly hack to force fast rebalancing (use atomic to make race detector happy)
+	oldJ := atomic.LoadInt64(&balanceJitterMax)
+	atomic.StoreInt64(&balanceJitterMax, 1)
+	defer func() { atomic.StoreInt64(&balanceJitterMax, oldJ) }()
 
 	hf, tasksRun := newTestHandlerFunc(t)
 	tc := newTestCoord()

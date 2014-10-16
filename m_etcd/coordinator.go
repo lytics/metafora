@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path"
 	"strings"
 	"sync"
 	"time"
@@ -12,6 +13,10 @@ import (
 	"github.com/coreos/go-etcd/etcd"
 	"github.com/lytics/metafora"
 )
+
+type ownerValue struct {
+	Node string `json:"node"`
+}
 
 type watcher struct {
 	cordCtx      metafora.CoordinatorContext
@@ -72,11 +77,15 @@ func (w *watcher) watching() bool {
 	return r
 }
 
-// Close stops the watching goroutine. Close will panic if called more than
-// once.
+// stops the watching goroutine.
 func (w *watcher) stop() {
 	if w.watching() {
-		close(w.stopChan)
+		select {
+		case <-w.stopChan:
+			// already stopped, let's avoid panic()s
+		default:
+			close(w.stopChan)
+		}
 	}
 }
 
@@ -87,15 +96,13 @@ type EtcdCoordinator struct {
 	TaskPath  string
 
 	taskWatcher *watcher
-	ClaimTTL    uint64
+	ClaimTTL    uint64 // seconds
 
 	NodeID         string
 	CommandPath    string
 	commandWatcher *watcher
 
-	refresher *NodeRefresher
-
-	IsClosed bool
+	taskManager *taskManager
 }
 
 func NewEtcdCoordinator(nodeId, namespace string, client *etcd.Client) metafora.Coordinator {
@@ -111,6 +118,7 @@ func NewEtcdCoordinator(nodeId, namespace string, client *etcd.Client) metafora.
 
 	nodeId = strings.Trim(nodeId, "/ ")
 
+	client.SetConsistency(etcd.STRONG_CONSISTENCY)
 	return &EtcdCoordinator{
 		Client:    client,
 		Namespace: namespace,
@@ -126,16 +134,13 @@ func NewEtcdCoordinator(nodeId, namespace string, client *etcd.Client) metafora.
 // Init is called once by the consumer to provide a Logger to Coordinator
 // implementations.
 func (ec *EtcdCoordinator) Init(cordCtx metafora.CoordinatorContext) {
-	ec.Client.SetConsistency(etcd.STRONG_CONSISTENCY)
-
-	cordCtx.Log(metafora.LogLevelDebug, "namespace[%s] Etcd-Cluster-Peers[%s]", ec.Namespace,
-		strings.Join(ec.Client.GetCluster(), ", "))
+	cordCtx.Log(metafora.LogLevelDebug, "Initializing coordinator with namespace: %s and etcd cluster: %s",
+		ec.Namespace, strings.Join(ec.Client.GetCluster(), ", "))
 
 	ec.cordCtx = cordCtx
 
 	ec.upsertDir("/"+ec.Namespace, ForeverTTL)
 	ec.upsertDir(ec.TaskPath, ForeverTTL)
-	//TODO setup node Dir with a shorter TTL and patch in the heartbeat to update the TTL
 	ec.upsertDir(ec.CommandPath, ForeverTTL)
 
 	ec.taskWatcher = &watcher{
@@ -154,9 +159,7 @@ func (ec *EtcdCoordinator) Init(cordCtx metafora.CoordinatorContext) {
 		client:       ec.Client,
 	}
 
-	// starts the run loop that processes ttl refreshes in a background go routine.
-	ec.refresher = NewNodeRefresher(ec.Client, cordCtx)
-	ec.refresher.StartScheduler()
+	ec.taskManager = newManager(cordCtx, ec.Client, ec.ClaimTTL)
 }
 
 func (ec *EtcdCoordinator) upsertDir(path string, ttl uint64) {
@@ -319,39 +322,44 @@ func (ec *EtcdCoordinator) nodeHasOwnerMarker(node *etcd.Node) bool {
 	return false
 }
 
+func (ec *EtcdCoordinator) ownerKey(taskID string) string {
+	return path.Join(ec.TaskPath, taskID, OwnerMarker)
+}
+
+func (ec *EtcdCoordinator) ownerNode(taskID string) (key, value string) {
+	p, err := json.Marshal(&ownerValue{Node: ec.NodeID})
+	if err != nil {
+		panic(fmt.Sprintf("coordinator: error marshalling node body: %v", err))
+	}
+	return ec.ownerKey(taskID), string(p)
+}
+
 // Claim is called by the Consumer when a Balancer has determined that a task
 // ID can be claimed. Claim returns false if another consumer has already
 // claimed the ID.
 func (ec *EtcdCoordinator) Claim(taskID string) bool {
-	claimedMarker := fmt.Sprintf("%s/%s/%s", ec.TaskPath, taskID, OwnerMarker)
-	res, err := ec.Client.CreateDir(claimedMarker, ec.ClaimTTL)
+	key, value := ec.ownerNode(taskID)
+	res, err := ec.Client.Create(key, value, ec.ClaimTTL)
 	if err != nil {
 		etcdErr, ok := err.(*etcd.EtcdError)
 		if !ok || etcdErr.ErrorCode != EcodeNodeExist {
-			ec.cordCtx.Log(metafora.LogLevelError, "Claim failed with an expected error: key%s err %v", claimedMarker, err)
+			ec.cordCtx.Log(metafora.LogLevelError, "Claim of %s failed with an expected error: %v", key, err)
 		} else {
-			ec.cordCtx.Log(metafora.LogLevelDebug, "Claim failed, it appears someone else got it first: resp %v", res)
+			ec.cordCtx.Log(metafora.LogLevelDebug, "Claim of %s failed, already claimed", key)
 		}
 		return false
 	}
 	ec.cordCtx.Log(metafora.LogLevelDebug, "Claim successful: resp %v", res)
 
-	//add a scheduled tasks to refresh the ./owner/ dir's ttl until the coordinator is shutdown.
-	ec.refresher.ScheduleDirRefresh(claimedMarker, ec.ClaimTTL)
+	//add a scheduled tasks to refresh the key's ttl until the coordinator is shutdown.
+	ec.taskManager.add(taskID, key, value)
 
 	return true
 }
 
-// Release deletes the claim directory.
+// Release deletes the claim file.
 func (ec *EtcdCoordinator) Release(taskID string) {
-	claimedMarker := fmt.Sprintf("%s/%s/%s", ec.TaskPath, taskID, OwnerMarker)
-	//FIXME Conditionally delete only if this node is actually the owner
-	ec.refresher.UnscheduleDirRefresh(claimedMarker)
-	_, err := ec.Client.DeleteDir(claimedMarker)
-	if err != nil {
-		//TODO Pause and retry?!
-		ec.cordCtx.Log(metafora.LogLevelError, "Release failed: %v", err)
-	}
+	ec.taskManager.remove(taskID)
 }
 
 // Command blocks until a command for this node is received from the broker
@@ -384,8 +392,10 @@ func (ec *EtcdCoordinator) Command() (metafora.Command, error) {
 	}
 }
 
+// Close stops the coordinator and causes blocking Watch and Command methods to
+// return zero values.
 func (ec *EtcdCoordinator) Close() {
 	ec.taskWatcher.stop()
 	ec.commandWatcher.stop()
-	ec.refresher.Close()
+	ec.taskManager.stop()
 }

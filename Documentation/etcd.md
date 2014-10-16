@@ -1,5 +1,3 @@
-
-
 ## etcd integration
 
 Metafora contains an [etcd](https://github.com/coreos/etcd) implementation of
@@ -16,11 +14,11 @@ that implementing Metafora with etcd in your own work system is quick and easy.
     ├── nodes
     │   └── <node_id>          Ephemeral
     │       └── commands  
-    │           └── <command>  contents are the command name
+    │           └── <command>  JSON value
     └── tasks
         └── <task_id>
             └── owner          Ephemeral
-                               contents are the owning node
+                               JSON value
 ```
 
 ##### Tasks
@@ -34,6 +32,12 @@ Metafora nodes claim tasks by watching the `tasks` directory and -- if
 name and a short TTL. The node must touch the file before the TTL expires
 otherwise another node will claim the task and begin working on it.
 
+The JSON format is:
+
+```json
+{"node": "<node ID>"}
+```
+
 Note that Metafora does not handle task parameters or configuration.
 
 ##### Commands
@@ -46,6 +50,11 @@ Metafora nodes watch their own node's `commands` directory for new files. The
 contents of the files are a command to be executed. Only one command will be
 executed at a time, and pending commands are lost on node shutdown.
 
+```json
+{"command": "<command name>", "parameters": {}}
+```
+
+Where parameters is an arbitrary JSON Object.
 
 ### Useful links for managing etcd
 
