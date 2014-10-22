@@ -171,7 +171,6 @@ func (c *Consumer) Run() {
 			}
 			c.claimed(task)
 		case cmd := <-cmdChan:
-			c.logger.Log(LogLevelDebug, "Received command: %s", cmd)
 			c.handleCommand(cmd)
 		}
 	}
