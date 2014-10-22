@@ -56,7 +56,11 @@ func (w *watcher) watch() {
 
 	for _, node := range resp.Node.Nodes {
 		// Act like these are newly created nodes
-		w.responseChan <- &etcd.Response{Action: "create", Node: node, EtcdIndex: resp.EtcdIndex}
+		select {
+		case <-w.stopChan:
+			goto done
+		case w.responseChan <- &etcd.Response{Action: "create", Node: node, EtcdIndex: resp.EtcdIndex}:
+		}
 	}
 
 	// Start blocking watch
@@ -65,6 +69,7 @@ func (w *watcher) watch() {
 		// This isn't actually an error, return nil
 		err = nil
 	}
+done:
 	w.errorChan <- err
 }
 
@@ -185,13 +190,13 @@ func (ec *EtcdCoordinator) upsertDir(path string, ttl uint64) {
 		host, _ := os.Hostname()
 
 		metadata := struct {
-			Host        string
-			CreatedTime string
-			NodeID      string
+			Host        string `json:"host"`
+			CreatedTime string `json:"created"`
+			ownerValue
 		}{
-			host,
-			time.Now().String(),
-			ec.NodeID,
+			Host:        host,
+			CreatedTime: time.Now().String(),
+			ownerValue:  ownerValue{Node: ec.NodeID},
 		}
 		metadataB, _ := json.Marshal(metadata)
 		metadataStr := string(metadataB)
@@ -376,7 +381,8 @@ func (ec *EtcdCoordinator) Command() (metafora.Command, error) {
 				return nil, nil
 			}
 
-			if resp.Action != "create" {
+			if strings.HasSuffix(resp.Node.Key, MetadataKey) {
+				// Skip metadata marker
 				continue
 			}
 
