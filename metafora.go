@@ -287,6 +287,7 @@ func (c *Consumer) claimed(taskID string) {
 		if err := h.Run(taskID); err != nil {
 			c.logger.Log(LogLevelError, "Handler for %s exited with error: %v", taskID, err)
 		}
+		c.coord.Done(taskID)
 	}()
 }
 
