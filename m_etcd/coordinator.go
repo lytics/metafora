@@ -256,8 +256,6 @@ func (ec *EtcdCoordinator) Watch() (taskID string, err error) {
 				return "", nil
 			}
 
-			ec.cordCtx.Log(metafora.LogLevelDebug, "%#v -- %#v", resp, resp.Node)
-
 			//The etcd watcher may have received a new task signal.
 			if resp.Action == "create" {
 				ec.cordCtx.Log(metafora.LogLevelDebug, "New task signaled while watching %s: response[action:%v etcdIndex:%v nodeKey:%v]",
