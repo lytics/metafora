@@ -8,26 +8,41 @@ import (
 	"github.com/coreos/go-etcd/etcd"
 )
 
-type testCAS struct {
-	swap chan string
-	del  chan string
+type fakeEtcd struct {
+	add chan string
+	del chan string
+	cas chan string
+	cad chan string
 }
 
-func (t testCAS) CompareAndDelete(k, pv string, _ uint64) (*etcd.Response, error) {
-	t.del <- k
+func (f fakeEtcd) Create(key, value string, ttl uint64) (*etcd.Response, error) {
+	f.add <- key
 	return nil, nil
 }
-func (t testCAS) CompareAndSwap(k, v string, ttl uint64, pv string, _ uint64) (*etcd.Response, error) {
-	if k == "path/to/testlost" {
+
+func (f fakeEtcd) Delete(key string, recursive bool) (*etcd.Response, error) {
+	f.del <- key
+	return nil, nil
+}
+
+func (f fakeEtcd) CompareAndDelete(k, pv string, _ uint64) (*etcd.Response, error) {
+	f.cad <- k
+	return nil, nil
+}
+
+func (f fakeEtcd) CompareAndSwap(k, v string, ttl uint64, pv string, _ uint64) (*etcd.Response, error) {
+	if k == "testns/testlost/owner" {
 		return nil, fmt.Errorf("test error")
 	}
-	t.swap <- k
+	f.cas <- k
 	return nil, nil
 }
-func newCAS() testCAS {
-	return testCAS{
-		swap: make(chan string, 10),
-		del:  make(chan string, 10),
+func newFakeEtcd() fakeEtcd {
+	return fakeEtcd{
+		add: make(chan string, 10),
+		del: make(chan string, 10),
+		cas: make(chan string, 10),
+		cad: make(chan string, 10),
 	}
 }
 
@@ -37,16 +52,16 @@ func TestTaskRefreshing(t *testing.T) {
 		t.Skip("Skipping due to -short")
 	}
 
-	cas := newCAS()
+	client := newFakeEtcd()
 	const ttl = 2
-	mgr := newManager(newCtx(t, "mgr"), cas, ttl)
+	mgr := newManager(newCtx(t, "mgr"), client, "testns", "testnode", ttl)
 	defer mgr.stop()
-	mgr.add("tid", "path/to/tid", "value")
+	mgr.add("tid")
 	for i := 0; i < 2; i++ {
 		select {
-		case <-cas.swap:
+		case <-client.cas:
 			t.Log("Task refreshed.")
-		case <-cas.del:
+		case <-client.cad:
 			t.Errorf("Task deleted?! This isn't right at all.")
 		case <-time.After(4 * time.Second):
 			t.Errorf("Task wasn't refreshed soon enough.")
@@ -60,21 +75,27 @@ func TestTaskRemoval(t *testing.T) {
 		t.Skip("Skipping due to -short")
 	}
 
-	cas := newCAS()
+	client := newFakeEtcd()
 	const ttl = 2
-	mgr := newManager(newCtx(t, "mgr"), cas, ttl)
+	mgr := newManager(newCtx(t, "mgr"), client, "testns", "testnode", ttl)
 	defer mgr.stop()
-	mgr.add("tid", "path/to/tid", "value")
-	mgr.remove("tid")
+	mgr.add("tid")
+	mgr.remove("tid", false)
 	select {
-	case <-cas.del:
+	case <-client.add:
 		// Yay, everything worked
-	case <-time.After(1 * time.Second):
+	case <-time.After(500 * time.Millisecond):
+		t.Errorf("Task wasn't added soon enough.")
+	}
+	select {
+	case <-client.cad:
+		// Yay, everything worked
+	case <-time.After(500 * time.Millisecond):
 		t.Errorf("Task wasn't removed soon enough.")
 	}
 
 	select {
-	case <-cas.swap:
+	case <-client.cas:
 		t.Errorf("Task shouldn't have lived long enough to be CAS'd")
 	default:
 	}
@@ -86,30 +107,30 @@ func TestFullTaskMgr(t *testing.T) {
 		t.Skip("Skipping due to -short")
 	}
 
-	cas := newCAS()
+	client := newFakeEtcd()
 	const ttl = 2
-	mgr := newManager(newCtx(t, "mgr"), cas, ttl)
+	mgr := newManager(newCtx(t, "mgr"), client, "testns", "testnode", ttl)
 	defer mgr.stop()
 
 	// Add a few tasks and remove one
-	mgr.add("tid1", "path/to/tid1", "value")
-	mgr.add("tid2", "path/to/tid2", "value")
-	mgr.add("tid3", "path/to/tid3", "value")
-	mgr.remove("tid2")
+	mgr.add("tid1")
+	mgr.add("tid2")
+	mgr.add("tid3")
+	mgr.remove("tid2", false)
 
 	delDone := false
-	expectedSwaps := map[string]bool{"path/to/tid1": true, "path/to/tid3": true}
+	expectedSwaps := map[string]bool{mgr.ownerKey("tid1"): true, mgr.ownerKey("tid3"): true}
 
 	// Test that only expected actions occurred (and in a timely manner)
 	for i := 0; i < 3; i++ {
 		select {
-		case path := <-cas.swap:
+		case path := <-client.cas:
 			if !expectedSwaps[path] {
 				t.Errorf("CAS'd unexpected task: %s", path)
 			}
 			delete(expectedSwaps, path)
-		case path := <-cas.del:
-			if path != "path/to/tid2" {
+		case path := <-client.cad:
+			if path != mgr.ownerKey("tid2") {
 				t.Errorf("Deleted unexpected task: %s", path)
 			}
 			if delDone {
@@ -122,12 +143,12 @@ func TestFullTaskMgr(t *testing.T) {
 	}
 
 	// Calling remove and stop concurrently should be safe
-	go mgr.remove("tid3")
+	go mgr.remove("tid3", false)
 	go mgr.stop()
-	expectedDels := map[string]bool{"path/to/tid1": true, "path/to/tid3": true}
+	expectedDels := map[string]bool{mgr.ownerKey("tid1"): true, mgr.ownerKey("tid3"): true}
 	for len(expectedDels) > 0 {
 		select {
-		case path := <-cas.del:
+		case path := <-client.cad:
 			if !expectedDels[path] {
 				t.Errorf("Removed unexpected task: %s", path)
 			}
@@ -139,7 +160,7 @@ func TestFullTaskMgr(t *testing.T) {
 
 	// Stopping more than once is silly but should be a safe noop
 	mgr.stop()
-	if len(cas.del) > 0 {
+	if len(client.cad) > 0 {
 		t.Errorf("Unexpected deletes occurred")
 	}
 }
@@ -151,16 +172,17 @@ func TestTaskLost(t *testing.T) {
 	}
 
 	ctx := newCtx(t, "mgr")
-	cas := newCAS()
+	client := newFakeEtcd()
 	const ttl = 2
-	mgr := newManager(ctx, cas, ttl)
+	mgr := newManager(ctx, client, "testns", "testnode", ttl)
 	defer mgr.stop()
-	mgr.add("testlost", "path/to/testlost", "value")
+
+	mgr.add("testlost")
 
 	// Wait for the CAS to fail
 	time.Sleep(ttl * time.Second)
 
-	if len(cas.swap) > 0 {
+	if len(client.cas) > 0 {
 		t.Error("Unexpected CAS. Should have failed.")
 	}
 	n := len(ctx.lost)
@@ -172,11 +194,11 @@ func TestTaskLost(t *testing.T) {
 	}
 
 	// removing a lost task should be a noop
-	mgr.remove("testlost")
+	mgr.remove("testlost", false)
 	// as should stopping
 	mgr.stop()
 
-	if len(cas.del) > 0 {
+	if len(client.cad) > 0 {
 		t.Error("Unexpectedly deleted non-existant tasks when shutting down.")
 	}
 }

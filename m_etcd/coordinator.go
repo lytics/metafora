@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path"
 	"strings"
 	"sync"
 	"time"
@@ -165,8 +164,8 @@ func NewEtcdCoordinator(nodeId, namespace string, client *etcd.Client) metafora.
 		Client:    client,
 		Namespace: namespace,
 
-		TaskPath: fmt.Sprintf("/%s/%s", namespace, TasksPath), //TODO MAKE A PACKAGE FUNC TO CREATE THIS PATH.
-		ClaimTTL: ClaimTTL,                                    //default to the package constant, but allow it to be overwritten
+		TaskPath: fmt.Sprintf("/%s/%s", namespace, TasksPath),
+		ClaimTTL: ClaimTTL, //default to the package constant, but allow it to be overwritten
 
 		NodeID:      nodeId,
 		CommandPath: fmt.Sprintf("/%s/%s/%s/%s", namespace, NodesPath, nodeId, CommandsPath),
@@ -201,7 +200,7 @@ func (ec *EtcdCoordinator) Init(cordCtx metafora.CoordinatorContext) {
 		client:       ec.Client,
 	}
 
-	ec.taskManager = newManager(cordCtx, ec.Client, ec.ClaimTTL)
+	ec.taskManager = newManager(cordCtx, ec.Client, ec.TaskPath, ec.NodeID, ec.ClaimTTL)
 }
 
 func (ec *EtcdCoordinator) upsertDir(path string, ttl uint64) {
@@ -366,44 +365,23 @@ func (ec *EtcdCoordinator) nodeHasOwnerMarker(node *etcd.Node) bool {
 	return false
 }
 
-func (ec *EtcdCoordinator) ownerKey(taskID string) string {
-	return path.Join(ec.TaskPath, taskID, OwnerMarker)
-}
-
-func (ec *EtcdCoordinator) ownerNode(taskID string) (key, value string) {
-	p, err := json.Marshal(&ownerValue{Node: ec.NodeID})
-	if err != nil {
-		panic(fmt.Sprintf("coordinator: error marshalling node body: %v", err))
-	}
-	return ec.ownerKey(taskID), string(p)
-}
-
 // Claim is called by the Consumer when a Balancer has determined that a task
 // ID can be claimed. Claim returns false if another consumer has already
 // claimed the ID.
 func (ec *EtcdCoordinator) Claim(taskID string) bool {
-	key, value := ec.ownerNode(taskID)
-	res, err := ec.Client.Create(key, value, ec.ClaimTTL)
-	if err != nil {
-		etcdErr, ok := err.(*etcd.EtcdError)
-		if !ok || etcdErr.ErrorCode != EcodeNodeExist {
-			ec.cordCtx.Log(metafora.LogLevelError, "Claim of %s failed with an expected error: %v", key, err)
-		} else {
-			ec.cordCtx.Log(metafora.LogLevelDebug, "Claim of %s failed, already claimed", key)
-		}
-		return false
-	}
-	ec.cordCtx.Log(metafora.LogLevelDebug, "Claim successful: resp %v", res)
-
-	//add a scheduled tasks to refresh the key's ttl until the coordinator is shutdown.
-	ec.taskManager.add(taskID, key, value)
-
-	return true
+	return ec.taskManager.add(taskID)
 }
 
 // Release deletes the claim file.
 func (ec *EtcdCoordinator) Release(taskID string) {
-	ec.taskManager.remove(taskID)
+	const done = false
+	ec.taskManager.remove(taskID, done)
+}
+
+// Done deletes the task.
+func (ec *EtcdCoordinator) Done(taskID string) {
+	const done = true
+	ec.taskManager.remove(taskID, done)
 }
 
 // Command blocks until a command for this node is received from the broker
