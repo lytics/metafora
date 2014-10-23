@@ -58,6 +58,8 @@ func (e *EmbeddedCoordinator) Release(taskID string) {
 	e.inchan <- taskID
 }
 
+func (e *EmbeddedCoordinator) Done(taskID string) {}
+
 func (e *EmbeddedCoordinator) Command() (metafora.Command, error) {
 	select {
 	case cmd, ok := <-e.cmdchan:
