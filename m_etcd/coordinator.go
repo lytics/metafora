@@ -44,14 +44,15 @@ func (w *watcher) watch() {
 		w.m.Unlock()
 	}()
 
+	var index uint64
+
 	// Get existing tasks
 	const sorted = true
 	const recursive = true
 	resp, err := w.client.Get(w.path, sorted, recursive)
 	if err != nil {
 		w.cordCtx.Log(metafora.LogLevelError, "Error getting the existing tasks from the path:%s error:%v", w.path, err)
-		w.errorChan <- err
-		return
+		goto done
 	}
 
 	for _, node := range resp.Node.Nodes {
@@ -63,11 +64,46 @@ func (w *watcher) watch() {
 		}
 	}
 
+	index = resp.EtcdIndex
+
 	// Start blocking watch
-	_, err = w.client.Watch(w.path, resp.EtcdIndex, recursive, w.responseChan, w.stopChan)
-	if err == etcd.ErrWatchStoppedByUser {
-		// This isn't actually an error, return nil
-		err = nil
+	for {
+		// Make a new inner response channel on each loop since Watch() closes the
+		// one passed in.
+		innerRespChan := make(chan *etcd.Response)
+		go func() {
+			for {
+				select {
+				case r, ok := <-innerRespChan:
+					if !ok {
+						// Don't close w.responseChan when the Watch exits
+						return
+					}
+					// Update the last seen index
+					index = r.EtcdIndex
+					w.responseChan <- r
+				case <-w.stopChan:
+				}
+			}
+		}()
+		// Start the blocking watch.
+		_, err = w.client.Watch(w.path, index, recursive, innerRespChan, w.stopChan)
+		if err != nil {
+			if err == etcd.ErrWatchStoppedByUser {
+				// This isn't actually an error, return nil
+				err = nil
+			}
+			if jsonErr, ok := err.(*json.SyntaxError); ok && jsonErr.Offset == 0 {
+				// This is a bug in Go's HTTP transport + go-etcd which causes the
+				// connection to timeout perdiocally and need to be restarted *after*
+				// closing idle connections.
+				w.cordCtx.Log(metafora.LogLevelDebug, "Watched timed out; restarting")
+				transport.CloseIdleConnections()
+				err = nil
+				continue
+			}
+		}
+		goto done
 	}
 done:
 	w.errorChan <- err
@@ -123,6 +159,7 @@ func NewEtcdCoordinator(nodeId, namespace string, client *etcd.Client) metafora.
 
 	nodeId = strings.Trim(nodeId, "/ ")
 
+	client.SetTransport(transport)
 	client.SetConsistency(etcd.STRONG_CONSISTENCY)
 	return &EtcdCoordinator{
 		Client:    client,
@@ -219,6 +256,8 @@ func (ec *EtcdCoordinator) Watch() (taskID string, err error) {
 			if !ok {
 				return "", nil
 			}
+
+			ec.cordCtx.Log(metafora.LogLevelDebug, "%#v -- %#v", resp, resp.Node)
 
 			//The etcd watcher may have received a new task signal.
 			if resp.Action == "create" {
