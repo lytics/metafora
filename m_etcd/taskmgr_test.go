@@ -202,3 +202,30 @@ func TestTaskLost(t *testing.T) {
 		t.Error("Unexpectedly deleted non-existant tasks when shutting down.")
 	}
 }
+
+// Test that marking tests as done calls delete.
+func TestTaskDone(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping due to -short")
+	}
+
+	ctx := newCtx(t, "mgr")
+	client := newFakeEtcd()
+	const ttl = 2
+	mgr := newManager(ctx, client, "testns", "testnode", ttl)
+
+	mgr.add("t1")
+	mgr.add("t2")
+	mgr.remove("t1", true)
+	mgr.stop()
+
+	if len(client.cas) > 0 {
+		t.Errorf("Expected 0 CASs but found %d", len(client.cas))
+	}
+	if len(client.cad) != 1 {
+		t.Errorf("Expected 1 CAD but found %d", len(client.cad))
+	}
+	if len(client.del) != 1 {
+		t.Errorf("Expected 1 delete but found %d", len(client.del))
+	}
+}
