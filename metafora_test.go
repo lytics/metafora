@@ -2,6 +2,7 @@ package metafora
 
 import (
 	"errors"
+	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -243,4 +244,55 @@ func TestHandleTask(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 		t.Fatalf("Took too long to mark task as done")
 	}
+	c.Shutdown()
+}
+
+type ferr bool
+
+func (err ferr) Error() string { return fmt.Sprintf("fatal error=%t", err) }
+func (err ferr) Fatal() bool   { return bool(err) }
+
+type errHandler struct{}
+
+func (errHandler) Run(taskID string) error {
+	if taskID == "panictask" {
+		panic("test panic")
+	}
+	return ferr(taskID == "fataltask")
+}
+func (errHandler) Stop() {}
+
+// TestHandleTaskErr ensures that tasks are either released or marked as done
+// if Run returns an error.
+func TestHandleTaskErr(t *testing.T) {
+	hf := func() Handler { return errHandler{} }
+	coord := newTestCoord()
+	c := NewConsumer(coord, hf, &DumbBalancer{})
+	go c.Run()
+	coord.tasks <- "task1"
+	coord.tasks <- "fataltask"
+	coord.tasks <- "panictask"
+	// 2 dones (1 panic, 1 fatal)
+	for i := 2; i > 0; i-- {
+		select {
+		case task := <-coord.dones:
+			t.Logf("%s done", task)
+		case <-time.After(100 * time.Millisecond):
+			t.Fatalf("Took too long to mark task as done")
+		}
+	}
+
+	// 1 release
+	select {
+	case task := <-coord.releases:
+		t.Logf("%s released", task)
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("Took too long to release task")
+	}
+
+	// nothing else should have happened
+	if len(coord.dones) > 0 || len(coord.releases) > 0 {
+		t.Fatalf("Unexpected extra events: dones=%d releases=%d", len(coord.dones), len(coord.releases))
+	}
+	c.Shutdown()
 }

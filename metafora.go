@@ -266,6 +266,9 @@ func (c *Consumer) claimed(taskID string) {
 		defer func() {
 			if err := recover(); err != nil {
 				c.logger.Log(LogLevelError, "Handler %s panic()'d: %v", taskID, err)
+				// panics are considered fatal errors. Make sure the task isn't
+				// rescheduled.
+				c.coord.Done(taskID)
 			}
 			// **This is the only place tasks should be removed from c.running**
 			c.runL.Lock()
@@ -278,7 +281,14 @@ func (c *Consumer) claimed(taskID string) {
 		// Run the task
 		c.logger.Log(LogLevelDebug, "Calling run for task %s", taskID)
 		if err := h.Run(taskID); err != nil {
-			c.logger.Log(LogLevelError, "Handler for %s exited with error: %v", taskID, err)
+			if ferr, ok := err.(FatalError); ok && ferr.Fatal() {
+				c.logger.Log(LogLevelError, "Handler for %s exited with fatal error: %v", taskID, err)
+			} else {
+				c.logger.Log(LogLevelError, "Handler for %s exited with error: %v", taskID, err)
+				// error was non-fatal, release and let another node try
+				c.coord.Release(taskID)
+				return
+			}
 		}
 		c.coord.Done(taskID)
 	}()
