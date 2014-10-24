@@ -91,8 +91,7 @@ func (w *watcher) watch() {
 			if err == etcd.ErrWatchStoppedByUser {
 				// This isn't actually an error, return nil
 				err = nil
-			}
-			if jsonErr, ok := err.(*json.SyntaxError); ok && jsonErr.Offset == 0 {
+			} else if jsonErr, ok := err.(*json.SyntaxError); ok && jsonErr.Offset == 0 {
 				// This is a bug in Go's HTTP transport + go-etcd which causes the
 				// connection to timeout perdiocally and need to be restarted *after*
 				// closing idle connections.
