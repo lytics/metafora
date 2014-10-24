@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 
 	"github.com/coreos/go-etcd/etcd"
 	"github.com/lytics/metafora"
@@ -86,15 +87,23 @@ func (h *shellHandler) Run(taskID string) error {
 	h.m.Unlock()
 
 	h.log("running")
+	stopping := false
 
 	if err := cmd.Wait(); err != nil {
-		// Metafora doesn't care about internal task failures, so just log it
-		h.log("Exited with error: %v", err)
+		if err.(*exec.ExitError).Sys().(syscall.WaitStatus).Signal() == os.Interrupt {
+			stopping = true
+		} else {
+			// Metafora doesn't care about internal task failures, so just log it
+			h.log("Exited with error: %v", err)
+		}
 	}
 
-	//FIXME Use CompareAndDelete
-	if _, err := h.etcdc.Delete("/koalemos-tasks/"+taskID, recurs); err != nil {
-		h.log("Error deleting task body: %v", err)
+	// Only delete task if we're not stopping
+	if !stopping {
+		//FIXME Use CompareAndDelete
+		if _, err := h.etcdc.Delete("/koalemos-tasks/"+taskID, recurs); err != nil {
+			h.log("Error deleting task body: %v", err)
+		}
 	}
 	h.log("done")
 	return nil
