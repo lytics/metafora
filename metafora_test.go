@@ -12,16 +12,24 @@ import (
 type testCoord struct {
 	tasks    chan string // will be returned in order, "" indicates return an error
 	commands chan Command
+	releases chan string
+	dones    chan string
 }
 
 func newTestCoord() *testCoord {
-	return &testCoord{tasks: make(chan string, 10), commands: make(chan Command, 10)}
+	return &testCoord{
+		tasks:    make(chan string, 10),
+		commands: make(chan Command, 10),
+		releases: make(chan string, 10),
+		dones:    make(chan string, 10),
+	}
 }
 
 func (*testCoord) Init(CoordinatorContext) {}
 func (*testCoord) Claim(string) bool       { return true }
 func (*testCoord) Close()                  { return }
-func (*testCoord) Release(string)          {}
+func (c *testCoord) Release(task string)   { c.releases <- task }
+func (c *testCoord) Done(task string)      { c.dones <- task }
 
 func (c *testCoord) Watch() (string, error) {
 	task := <-c.tasks
@@ -215,5 +223,24 @@ func TestBalancer(t *testing.T) {
 	}
 	if len(c.Tasks()) != 0 {
 		t.Errorf("Shutdown didn't stop all tasks")
+	}
+}
+
+type noopHandler struct{}
+
+func (noopHandler) Run(string) error { return nil }
+func (noopHandler) Stop()            {}
+
+// TestHandleTask ensures that tasks are marked as done once handled.
+func TestHandleTask(t *testing.T) {
+	hf := func() Handler { return noopHandler{} }
+	coord := newTestCoord()
+	c := NewConsumer(coord, hf, &DumbBalancer{})
+	go c.Run()
+	coord.tasks <- "task1"
+	select {
+	case <-coord.dones:
+	case <-time.After(100 * time.Millisecond):
+		t.Fatalf("Took too long to mark task as done")
 	}
 }

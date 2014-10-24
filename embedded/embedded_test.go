@@ -71,11 +71,10 @@ func TestEmbeddedStopTask(t *testing.T) {
 		}
 	}
 
-	time.Sleep(5 * time.Millisecond)
-	if len(testcounter.Runs()) != 4 {
-		t.Fatalf("Expected four runs, got %d", len(testcounter.Runs()))
-	}
 	runner.Shutdown()
+	if len(testcounter.Runs()) != 4 {
+		t.Fatalf("Expected 4 runs, got %d by deadline", len(testcounter.Runs()))
+	}
 }
 
 func newTestCounter() *testcounter {

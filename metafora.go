@@ -219,22 +219,15 @@ func (c *Consumer) Shutdown() {
 	close(c.stop)
 	c.logger.Log(LogLevelDebug, "Closing Coordinator")
 	c.coord.Close()
-	c.logger.Log(LogLevelInfo, "Sending stop signal to handlers")
 
 	// Build list of of currently running tasks
 	tasks := c.Tasks()
+	c.logger.Log(LogLevelInfo, "Sending stop signal to %d handler(s)", len(tasks))
 
 	// Concurrently shutdown handlers as they may take a while to shutdown
-	wg := sync.WaitGroup{}
-	wg.Add(len(tasks))
 	for _, id := range tasks {
-		go func(gid string) {
-			c.release(gid)
-			wg.Done()
-		}(id)
+		go c.release(id)
 	}
-	//TODO timeout?
-	wg.Wait()
 
 	c.logger.Log(LogLevelInfo, "Waiting for handlers to exit")
 	c.hwg.Wait()
@@ -287,6 +280,7 @@ func (c *Consumer) claimed(taskID string) {
 		if err := h.Run(taskID); err != nil {
 			c.logger.Log(LogLevelError, "Handler for %s exited with error: %v", taskID, err)
 		}
+		c.coord.Done(taskID)
 	}()
 }
 
@@ -301,6 +295,7 @@ func (c *Consumer) release(taskID string) {
 	}
 }
 
+// stopTask returns true if the task was running and stopped successfully.
 func (c *Consumer) stopTask(taskID string) bool {
 	c.runL.Lock()
 	task, ok := c.running[taskID]

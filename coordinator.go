@@ -32,6 +32,10 @@ type Coordinator interface {
 	// Release a task for other consumers to claim.
 	Release(taskID string)
 
+	// Done is called by Metafora when a task has been completed and should never
+	// be scheduled to run again (in other words: deleted from the broker).
+	Done(taskID string)
+
 	// Command blocks until a command for this node is received from the broker
 	// by the coordinator. Command must return (nil, nil) when Close is called.
 	Command() (Command, error)
