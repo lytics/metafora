@@ -15,3 +15,17 @@ type Handler interface {
 
 // HandlerFunc is called by the Consumer to create a new Handler for each task.
 type HandlerFunc func() Handler
+
+// FatalError is a custom error interface Handlers may choose to return from
+// their Run methods in order to indicate to Metafora that the task has failed
+// and should not be rescheduled.
+//
+// If an error is returned by Run that does not implement this interface, or
+// Fatal() returns false, the task will be rescheduled.
+type FatalError interface {
+	error
+
+	// Fatal returns true when an error is unrecoverable and should not be
+	// rescheduled.
+	Fatal() bool
+}
