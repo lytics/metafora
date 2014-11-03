@@ -181,6 +181,7 @@ func (ec *EtcdCoordinator) Init(cordCtx metafora.CoordinatorContext) {
 
 	ec.upsertDir("/"+ec.Namespace, ForeverTTL)
 	ec.upsertDir(ec.TaskPath, ForeverTTL)
+	//FIXME Should get cleaned up on shutdown and have a TTL - #61
 	ec.upsertDir(ec.CommandPath, ForeverTTL)
 
 	ec.taskWatcher = &watcher{
