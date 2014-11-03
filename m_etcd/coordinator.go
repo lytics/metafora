@@ -95,7 +95,7 @@ func (w *watcher) watch() {
 				// This is a bug in Go's HTTP transport + go-etcd which causes the
 				// connection to timeout perdiocally and need to be restarted *after*
 				// closing idle connections.
-				w.cordCtx.Log(metafora.LogLevelDebug, "Watched timed out; restarting")
+				w.cordCtx.Log(metafora.LogLevelDebug, "Watch timed out; restarting")
 				transport.CloseIdleConnections()
 				err = nil
 				continue
