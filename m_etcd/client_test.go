@@ -12,11 +12,8 @@ package m_etcd
 // See: https://github.com/lytics/metafora/issues/31
 
 import (
-	"os"
-	"strings"
 	"testing"
 
-	"github.com/coreos/go-etcd/etcd"
 	"github.com/lytics/metafora"
 )
 
@@ -90,30 +87,4 @@ func TestSubmitCommand(t *testing.T) {
 			t.Logf("%v -> %v", i, n)
 		}
 	}
-}
-
-// newEtcdClient creates a new etcd client for use by the metafora client during testing.
-func newEtcdClient(t *testing.T) *etcd.Client {
-	if os.Getenv("ETCDTESTS") == "" {
-		t.Skip("ETCDTESTS unset. Skipping etcd tests.")
-	}
-
-	// This is the same ENV variable that etcdctl uses for peers.
-	peerAddrs := os.Getenv("ETCDCTL_PEERS")
-
-	if peerAddrs == "" {
-		peerAddrs = "127.0.0.1:5001,127.0.0.1:5002,127.0.0.1:5003"
-	}
-
-	peers := strings.Split(peerAddrs, ",")
-
-	eclient := etcd.NewClient(peers)
-
-	if ok := eclient.SyncCluster(); !ok {
-		t.Fatalf("Cannot sync etcd cluster using peers: %v", strings.Join(peers, ", "))
-	}
-
-	eclient.SetConsistency(etcd.STRONG_CONSISTENCY)
-
-	return eclient
 }

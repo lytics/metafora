@@ -2,8 +2,8 @@ package m_etcd
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
+	"path"
 	"strings"
 	"sync"
 	"time"
@@ -163,11 +163,11 @@ func NewEtcdCoordinator(nodeId, namespace string, client *etcd.Client) metafora.
 		Client:    client,
 		Namespace: namespace,
 
-		TaskPath: fmt.Sprintf("/%s/%s", namespace, TasksPath),
+		TaskPath: path.Join(namespace, TasksPath),
 		ClaimTTL: ClaimTTL, //default to the package constant, but allow it to be overwritten
 
 		NodeID:      nodeId,
-		CommandPath: fmt.Sprintf("/%s/%s/%s/%s", namespace, NodesPath, nodeId, CommandsPath),
+		CommandPath: path.Join(namespace, NodesPath, nodeId, CommandsPath),
 	}
 }
 
@@ -179,7 +179,7 @@ func (ec *EtcdCoordinator) Init(cordCtx metafora.CoordinatorContext) {
 
 	ec.cordCtx = cordCtx
 
-	ec.upsertDir("/"+ec.Namespace, ForeverTTL)
+	ec.upsertDir(ec.Namespace, ForeverTTL)
 	ec.upsertDir(ec.TaskPath, ForeverTTL)
 	//FIXME Should get cleaned up on shutdown and have a TTL - #61
 	ec.upsertDir(ec.CommandPath, ForeverTTL)
@@ -419,4 +419,20 @@ func (ec *EtcdCoordinator) Close() {
 	ec.taskWatcher.stop()
 	ec.commandWatcher.stop()
 	ec.taskManager.stop()
+
+	// Finally remove the node entry
+	//TODO Stop node TTL refresher
+	const recursive = true
+	_, err := ec.Client.Delete(path.Join(ec.Namespace, NodesPath, ec.NodeID), recursive)
+	if err != nil {
+		if eerr, ok := err.(*etcd.EtcdError); ok {
+			if eerr.ErrorCode == EcodeKeyNotFound {
+				// This is fine. Either Close() was called twice or the node timed out
+				// before we could delete it.
+				return
+			}
+		}
+		// All other errors are unexpected
+		ec.cordCtx.Log(metafora.LogLevelError, "Error deleting node path %s: %v", ec.CommandPath, err)
+	}
 }
