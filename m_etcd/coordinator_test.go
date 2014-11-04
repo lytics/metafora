@@ -450,6 +450,9 @@ func TestNodeRefresher(t *testing.T) {
 	if ttl == -1 {
 		t.Fatalf("Node path %s not found.", nodePath)
 	}
+	if ttl < 1 || ttl > 3 {
+		t.Fatalf("Expected TTL to be between 1 and 3, found: %d", ttl)
+	}
 
 	// Let it refresh once to make sure that works
 	time.Sleep(time.Duration(ttl) * time.Second)
