@@ -26,11 +26,11 @@ func newTestCoord() *testCoord {
 	}
 }
 
-func (*testCoord) Init(CoordinatorContext) {}
-func (*testCoord) Claim(string) bool       { return true }
-func (*testCoord) Close()                  { return }
-func (c *testCoord) Release(task string)   { c.releases <- task }
-func (c *testCoord) Done(task string)      { c.dones <- task }
+func (*testCoord) Init(CoordinatorContext) error { return nil }
+func (*testCoord) Claim(string) bool             { return true }
+func (*testCoord) Close()                        { return }
+func (c *testCoord) Release(task string)         { c.releases <- task }
+func (c *testCoord) Done(task string)            { c.dones <- task }
 
 func (c *testCoord) Watch() (string, error) {
 	task := <-c.tasks
@@ -98,7 +98,7 @@ func TestConsumer(t *testing.T) {
 	hf, tasksRun := newTestHandlerFunc(t)
 
 	// Create the consumer and run it
-	c := NewConsumer(tc, hf, &DumbBalancer{})
+	c, _ := NewConsumer(tc, hf, &DumbBalancer{})
 	s := make(chan int)
 	start := time.Now()
 	go func() {
@@ -183,7 +183,7 @@ func TestBalancer(t *testing.T) {
 	hf, tasksRun := newTestHandlerFunc(t)
 	tc := newTestCoord()
 	balDone := make(chan struct{})
-	c := NewConsumer(tc, hf, &testBalancer{t: t, done: balDone})
+	c, _ := NewConsumer(tc, hf, &testBalancer{t: t, done: balDone})
 	c.balEvery = 10 * time.Millisecond
 	go c.Run()
 	tc.tasks <- "test1"
@@ -236,7 +236,7 @@ func (noopHandler) Stop()            {}
 func TestHandleTask(t *testing.T) {
 	hf := func() Handler { return noopHandler{} }
 	coord := newTestCoord()
-	c := NewConsumer(coord, hf, &DumbBalancer{})
+	c, _ := NewConsumer(coord, hf, &DumbBalancer{})
 	go c.Run()
 	coord.tasks <- "task1"
 	select {
@@ -267,7 +267,7 @@ func (errHandler) Stop() {}
 func TestHandleTaskErr(t *testing.T) {
 	hf := func() Handler { return errHandler{} }
 	coord := newTestCoord()
-	c := NewConsumer(coord, hf, &DumbBalancer{})
+	c, _ := NewConsumer(coord, hf, &DumbBalancer{})
 	go c.Run()
 	coord.tasks <- "task1"
 	coord.tasks <- "fataltask"

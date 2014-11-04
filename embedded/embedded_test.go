@@ -18,7 +18,7 @@ func TestEmbedded(t *testing.T) {
 	}
 
 	coord, client := NewEmbeddedPair("testnode")
-	runner := metafora.NewConsumer(coord, thfunc, &metafora.DumbBalancer{})
+	runner, _ := metafora.NewConsumer(coord, thfunc, &metafora.DumbBalancer{})
 
 	go func() {
 		runner.Run()
@@ -49,7 +49,7 @@ func TestEmbeddedStopTask(t *testing.T) {
 	}
 
 	coord, client := NewEmbeddedPair("testnode")
-	runner := metafora.NewConsumer(coord, thfunc, &metafora.DumbBalancer{})
+	runner, _ := metafora.NewConsumer(coord, thfunc, &metafora.DumbBalancer{})
 
 	go func() {
 		runner.Run()

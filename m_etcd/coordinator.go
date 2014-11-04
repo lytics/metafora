@@ -13,6 +13,8 @@ import (
 	"github.com/lytics/metafora"
 )
 
+var DefaultNodePathTTL uint64 = 10 // seconds
+
 type ownerValue struct {
 	Node string `json:"node"`
 }
@@ -137,24 +139,33 @@ type EtcdCoordinator struct {
 	taskWatcher *watcher
 	ClaimTTL    uint64 // seconds
 
-	nodeID         string
+	NodeID         string
 	nodePath       string
+	nodePathTTL    uint64
 	commandPath    string
 	commandWatcher *watcher
 
 	taskManager *taskManager
+
+	// Close() sends nodeRefresher a chan to close when it has exited.
+	stopNode chan struct{}
+	closeL   sync.Mutex // only process one Close() call at once
+	closed   bool
 }
 
+// NewEtcdCoordinator creates a new Metafora Coordinator implementation using
+// etcd as the broker. If no node ID is specified, a unique one will be
+// generated.
+//
+// Coordinator methods will be called by the core Metafora Consumer. Calling
+// Init, Close, etc. from your own code will lead to undefined behavior.
 func NewEtcdCoordinator(nodeID, namespace string, client *etcd.Client) metafora.Coordinator {
 	// Namespace should be an absolute path with no trailing slash
 	namespace = "/" + strings.Trim(namespace, "/ ")
 
 	if nodeID == "" {
 		hn, _ := os.Hostname()
-		//Adding the UUID incase we run two nodes on the same box.
-		// TODO lets move this to the Readme as part of the example of calling NewEtcdCoordinator.
-		// Then just remove the Autocreated nodeId.
-		nodeID = hn + uuid.NewRandom().String()
+		nodeID = hn + "-" + uuid.NewRandom().String()
 	}
 
 	nodeID = strings.Trim(nodeID, "/ ")
@@ -168,15 +179,18 @@ func NewEtcdCoordinator(nodeID, namespace string, client *etcd.Client) metafora.
 		taskPath: path.Join(namespace, TasksPath),
 		ClaimTTL: ClaimTTL, //default to the package constant, but allow it to be overwritten
 
-		nodeID:      nodeID,
+		NodeID:      nodeID,
 		nodePath:    path.Join(namespace, NodesPath, nodeID),
+		nodePathTTL: DefaultNodePathTTL,
 		commandPath: path.Join(namespace, NodesPath, nodeID, CommandsPath),
+
+		stopNode: make(chan struct{}),
 	}
 }
 
 // Init is called once by the consumer to provide a Logger to Coordinator
 // implementations.
-func (ec *EtcdCoordinator) Init(cordCtx metafora.CoordinatorContext) {
+func (ec *EtcdCoordinator) Init(cordCtx metafora.CoordinatorContext) error {
 	cordCtx.Log(metafora.LogLevelDebug, "Initializing coordinator with namespace: %s and etcd cluster: %s",
 		ec.namespace, strings.Join(ec.Client.GetCluster(), ", "))
 
@@ -184,7 +198,10 @@ func (ec *EtcdCoordinator) Init(cordCtx metafora.CoordinatorContext) {
 
 	ec.upsertDir(ec.namespace, ForeverTTL)
 	ec.upsertDir(ec.taskPath, ForeverTTL)
-	//FIXME Should get cleaned up on shutdown and have a TTL - #61
+	if _, err := ec.Client.CreateDir(ec.nodePath, ec.nodePathTTL); err != nil {
+		return err
+	}
+	go ec.nodeRefresher()
 	ec.upsertDir(ec.commandPath, ForeverTTL)
 
 	ec.taskWatcher = &watcher{
@@ -203,7 +220,8 @@ func (ec *EtcdCoordinator) Init(cordCtx metafora.CoordinatorContext) {
 		client:       ec.Client,
 	}
 
-	ec.taskManager = newManager(cordCtx, ec.Client, ec.taskPath, ec.nodeID, ec.ClaimTTL)
+	ec.taskManager = newManager(cordCtx, ec.Client, ec.taskPath, ec.NodeID, ec.ClaimTTL)
+	return nil
 }
 
 func (ec *EtcdCoordinator) upsertDir(path string, ttl uint64) {
@@ -235,11 +253,33 @@ func (ec *EtcdCoordinator) upsertDir(path string, ttl uint64) {
 		}{
 			Host:        host,
 			CreatedTime: time.Now().String(),
-			ownerValue:  ownerValue{Node: ec.nodeID},
+			ownerValue:  ownerValue{Node: ec.NodeID},
 		}
 		metadataB, _ := json.Marshal(metadata)
 		metadataStr := string(metadataB)
 		ec.Client.Create(pathMarker, metadataStr, ttl)
+	}
+}
+
+func (ec *EtcdCoordinator) nodeRefresher() {
+	ttl := ec.nodePathTTL - 3 // try to have 3s of leeway before ttl expires
+	if ttl < 1 {
+		ttl = 1
+	}
+	for {
+		select {
+		case <-ec.stopNode:
+			return
+		case <-time.After(time.Duration(ttl) * time.Second):
+			if _, err := ec.Client.UpdateDir(ec.nodePath, ec.nodePathTTL); err != nil {
+				ec.cordCtx.Log(metafora.LogLevelError, "Unexpected error updating node key, shutting down. Error: %v", err)
+
+				// We're in a bad state; shut everything down
+				ec.Close()
+				return
+			}
+
+		}
 	}
 }
 
@@ -399,19 +439,30 @@ func (ec *EtcdCoordinator) Command() (metafora.Command, error) {
 // Close stops the coordinator and causes blocking Watch and Command methods to
 // return zero values.
 func (ec *EtcdCoordinator) Close() {
+	// Gracefully handle multiple close calls mostly to ease testing
+	ec.closeL.Lock()
+	if ec.closed {
+		return
+	}
+	ec.closed = true
+	ec.closeL.Unlock()
+
 	ec.taskWatcher.stop()
 	ec.commandWatcher.stop()
 	ec.taskManager.stop()
 
 	// Finally remove the node entry
-	//TODO Stop node TTL refresher
+	close(ec.stopNode)
+
 	const recursive = true
 	_, err := ec.Client.Delete(ec.nodePath, recursive)
 	if err != nil {
 		if eerr, ok := err.(*etcd.EtcdError); ok {
 			if eerr.ErrorCode == EcodeKeyNotFound {
-				// This is fine. Either Close() was called twice or the node timed out
-				// before we could delete it.
+				// The node's TTL was up before we were able to delete it or there was
+				// another problem that's already being handled.
+				// The first is unlikely, the latter is already being handled, so
+				// there's nothing to do here.
 				return
 			}
 		}

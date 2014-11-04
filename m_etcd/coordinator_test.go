@@ -3,10 +3,12 @@ package m_etcd
 import (
 	"path"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/coreos/go-etcd/etcd"
+	"github.com/lytics/metafora"
 )
 
 /*
@@ -20,7 +22,9 @@ ETCDTESTS=1 go test -v ./...
 func TestCoordinatorFirstNodeJoiner(t *testing.T) {
 	coordinator1, client := setupEtcd(t)
 	defer coordinator1.Close()
-	coordinator1.Init(newCtx(t, "coordinator1"))
+	if err := coordinator1.Init(newCtx(t, "coordinator1")); err != nil {
+		t.Fatalf("Unexpected error initialzing coordinator: %v", err)
+	}
 
 	const sorted = false
 	const recursive = false
@@ -39,7 +43,9 @@ func TestCoordinatorFirstNodeJoiner(t *testing.T) {
 //
 func TestCoordinatorTC1(t *testing.T) {
 	coordinator1, client := setupEtcd(t)
-	coordinator1.Init(newCtx(t, "coordinator1"))
+	if err := coordinator1.Init(newCtx(t, "coordinator1")); err != nil {
+		t.Fatalf("Unexpected error initialzing coordinator: %v", err)
+	}
 	defer coordinator1.Close()
 
 	watchRes := make(chan string)
@@ -73,7 +79,9 @@ func TestCoordinatorTC1(t *testing.T) {
 //
 func TestCoordinatorTC2(t *testing.T) {
 	coordinator1, client := setupEtcd(t)
-	coordinator1.Init(newCtx(t, "coordinator1"))
+	if err := coordinator1.Init(newCtx(t, "coordinator1")); err != nil {
+		t.Fatalf("Unexpected error initialzing coordinator: %v", err)
+	}
 	defer coordinator1.Close()
 
 	test_finished := make(chan bool)
@@ -121,10 +129,14 @@ func TestCoordinatorTC2(t *testing.T) {
 //
 func TestCoordinatorTC3(t *testing.T) {
 	coordinator1, client := setupEtcd(t)
-	coordinator1.Init(newCtx(t, "coordinator1"))
+	if err := coordinator1.Init(newCtx(t, "coordinator1")); err != nil {
+		t.Fatalf("Unexpected error initialzing coordinator: %v", err)
+	}
 	defer coordinator1.Close()
 	coordinator2 := NewEtcdCoordinator("node2", namespace, client).(*EtcdCoordinator)
-	coordinator2.Init(newCtx(t, "coordinator2"))
+	if err := coordinator2.Init(newCtx(t, "coordinator2")); err != nil {
+		t.Fatalf("Unexpected error initialzing coordinator: %v", err)
+	}
 	defer coordinator2.Close()
 
 	test_finished := make(chan bool)
@@ -206,7 +218,9 @@ func TestCoordinatorTC4(t *testing.T) {
 	}
 
 	// Don't start up the coordinator until after the metafora client has submitted work.
-	coordinator1.Init(newCtx(t, "coordinator1"))
+	if err := coordinator1.Init(newCtx(t, "coordinator1")); err != nil {
+		t.Fatalf("Unexpected error initialzing coordinator: %v", err)
+	}
 	defer coordinator1.Close()
 
 	coord1Watch := func() {
@@ -256,7 +270,9 @@ func TestClaimRefreshExpire(t *testing.T) {
 	coordinator1, client := setupEtcd(t)
 	coordinator1.ClaimTTL = 1
 	defer coordinator1.Close()
-	coordinator1.Init(newCtx(t, "coordinator1"))
+	if err := coordinator1.Init(newCtx(t, "coordinator1")); err != nil {
+		t.Fatalf("Unexpected error initialzing coordinator: %v", err)
+	}
 	coord1ResultChannel := make(chan string)
 
 	mclient := NewClientWithLogger(namespace, client, testLogger{"metafora-client1", t})
@@ -293,7 +309,9 @@ func TestClaimRefreshExpire(t *testing.T) {
 	coordinator2 := NewEtcdCoordinator("node2", namespace, client).(*EtcdCoordinator)
 	coordinator2.ClaimTTL = 1
 	defer coordinator2.Close()
-	coordinator2.Init(newCtx(t, "coordinator2"))
+	if err := coordinator2.Init(newCtx(t, "coordinator2")); err != nil {
+		t.Fatalf("Unexpected error initialzing coordinator: %v", err)
+	}
 	coord2ResultChannel := make(chan string)
 	go func() {
 		//Watch blocks, so we need to test it in its own go routine.
@@ -341,9 +359,13 @@ func TestClaimRefreshExpire(t *testing.T) {
 // upon exit.
 func TestNodeCleanup(t *testing.T) {
 	c1, client := setupEtcd(t)
-	c1.Init(newCtx(t, "coordinator1"))
+	if err := c1.Init(newCtx(t, "coordinator1")); err != nil {
+		t.Fatalf("Unexpected error initialzing coordinator: %v", err)
+	}
 	c2 := NewEtcdCoordinator("node2", namespace, client).(*EtcdCoordinator)
-	c2.Init(newCtx(t, "coordinator2"))
+	if err := c2.Init(newCtx(t, "coordinator2")); err != nil {
+		t.Fatalf("Unexpected error initialzing coordinator: %v", err)
+	}
 	defer c1.Close()
 	defer c2.Close()
 
@@ -388,5 +410,72 @@ func TestNodeCleanup(t *testing.T) {
 	}
 	if !resp.Node.Dir {
 		t.Error(resp.Node.Key + " isn't a directory!")
+	}
+}
+
+// TestNodeRefresher ensures the node refresher properly updates the TTL on the
+// node directory in etcd and shuts down the entire consumer on error.
+func TestNodeRefresher(t *testing.T) {
+	// make -race happy by using atomic to fiddle with ttl
+	orig := atomic.LoadUint64(&DefaultNodePathTTL)
+	atomic.StoreUint64(&DefaultNodePathTTL, 3)
+	defer atomic.StoreUint64(&DefaultNodePathTTL, orig)
+
+	coord, client := setupEtcd(t)
+	bal := &metafora.DumbBalancer{}
+	hf := metafora.HandlerFunc(nil) // we won't be handling any tasks
+	consumer, err := metafora.NewConsumer(coord, hf, bal)
+	if err != nil {
+		t.Fatalf("Error creating consumer: %+v", err)
+	}
+
+	defer consumer.Shutdown()
+	runDone := make(chan struct{})
+	go func() {
+		consumer.Run()
+		close(runDone)
+	}()
+
+	nodePath := path.Join(namespace, "nodes", coord.NodeID)
+	ttl := int64(-1)
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		resp, _ := client.Get(nodePath, false, false)
+		if resp != nil && resp.Node.Dir {
+			ttl = resp.Node.TTL
+			break
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	if ttl == -1 {
+		t.Fatalf("Node path %s not found.", nodePath)
+	}
+
+	// Let it refresh once to make sure that works
+	time.Sleep(time.Duration(ttl) * time.Second)
+	ttl = -1
+	deadline = time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		resp, _ := client.Get(nodePath, false, false)
+		if resp != nil && resp.Node.Dir {
+			ttl = resp.Node.TTL
+			break
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	if ttl == -1 {
+		t.Fatalf("Node path %s not found.", nodePath)
+	}
+
+	// Now remove the node out from underneath the refresher to cause it to fail
+	if _, err := client.Delete(nodePath, true); err != nil {
+		t.Fatalf("Unexpected error deleting %s: %+v", nodePath, err)
+	}
+
+	select {
+	case <-runDone:
+		// success! run exited
+	case <-time.After(5 * time.Second):
+		t.Fatal("Consumer didn't exit even though node directory disappeared!")
 	}
 }

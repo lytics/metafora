@@ -43,7 +43,10 @@ func main() {
 	hfunc := makeHandlerFunc(etcdc)
 	coord := m_etcd.NewEtcdCoordinator(*name, *namespace, etcdc).(*m_etcd.EtcdCoordinator)
 	bal := &metafora.DumbBalancer{}
-	c := metafora.NewConsumer(coord, hfunc, bal)
+	c, err := metafora.NewConsumer(coord, hfunc, bal)
+	if err != nil {
+		log.Fatalf("Error creating consumer: %v", err)
+	}
 	c.SetLogger(logger, mlvl)
 	log.Printf(
 		"Starting koalsmosd with etcd=%s; namespace=%s; name=%s; loglvl=%s",
