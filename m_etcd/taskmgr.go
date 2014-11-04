@@ -86,7 +86,7 @@ func (m *taskManager) add(taskID string) bool {
 	if err != nil {
 		etcdErr, ok := err.(*etcd.EtcdError)
 		if !ok || etcdErr.ErrorCode != EcodeNodeExist {
-			m.ctx.Log(metafora.LogLevelError, "Claim of %s failed with an expected error: %v", key, err)
+			m.ctx.Log(metafora.LogLevelError, "Claim of %s failed with an unexpected error: %v", key, err)
 		} else {
 			m.ctx.Log(metafora.LogLevelInfo, "Claim of %s failed, already claimed", key)
 		}
