@@ -1,6 +1,7 @@
 package m_etcd
 
 import (
+	"path"
 	"strings"
 	"testing"
 	"time"
@@ -21,10 +22,6 @@ func TestCoordinatorFirstNodeJoiner(t *testing.T) {
 	defer coordinator1.Close()
 	coordinator1.Init(newCtx(t, "coordinator1"))
 
-	if coordinator1.TaskPath != namespace+"/tasks" {
-		t.Fatalf("TestFailed: TaskPath should be \"/%s/tasks\" but we got \"%s\"", namespace, coordinator1.TaskPath)
-	}
-
 	const sorted = false
 	const recursive = false
 	_, err := client.Get(namespace+"/tasks", sorted, recursive)
@@ -42,13 +39,12 @@ func TestCoordinatorFirstNodeJoiner(t *testing.T) {
 //
 func TestCoordinatorTC1(t *testing.T) {
 	coordinator1, client := setupEtcd(t)
-	defer coordinator1.Close()
-
 	coordinator1.Init(newCtx(t, "coordinator1"))
+	defer coordinator1.Close()
 
 	watchRes := make(chan string)
 	task001 := "test-task0001"
-	fullTask001Path := coordinator1.TaskPath + "/" + task001
+	taskPath := path.Join(namespace, TasksPath, task001)
 
 	go func() {
 		//Watch blocks, so we need to test it in its own go routine.
@@ -61,7 +57,7 @@ func TestCoordinatorTC1(t *testing.T) {
 		watchRes <- taskId
 	}()
 
-	client.CreateDir(fullTask001Path, 5)
+	client.CreateDir(taskPath, 5)
 
 	select {
 	case taskId := <-watchRes:
@@ -352,7 +348,7 @@ func TestNodeCleanup(t *testing.T) {
 	defer c2.Close()
 
 	// Make sure node directories were created
-	resp, err := client.Get(namespace+"/nodes/"+c1.NodeID, false, false)
+	resp, err := client.Get(namespace+"/nodes/"+nodeID, false, false)
 	if err != nil {
 		t.Fatalf("Error retrieving node key from etcd: %v", err)
 	}
@@ -360,7 +356,7 @@ func TestNodeCleanup(t *testing.T) {
 		t.Error(resp.Node.Key + " isn't a directory!")
 	}
 
-	resp, err = client.Get(namespace+"/nodes/"+c2.NodeID, false, false)
+	resp, err = client.Get(namespace+"/nodes/node2", false, false)
 	if err != nil {
 		t.Fatalf("Error retrieving node key from etcd: %v", err)
 	}
@@ -371,7 +367,7 @@ func TestNodeCleanup(t *testing.T) {
 	// Shutdown one and make sure its node directory is gone
 	c1.Close()
 
-	resp, err = client.Get(namespace+"/nodes/"+c1.NodeID, false, false)
+	resp, err = client.Get(namespace+"/nodes/"+nodeID, false, false)
 	if err != nil {
 		if eerr, ok := err.(*etcd.EtcdError); !ok {
 			t.Errorf("Unexpected error %T retrieving node key from etcd: %v", err, err)
@@ -386,7 +382,7 @@ func TestNodeCleanup(t *testing.T) {
 	}
 
 	// Make sure c2 is untouched
-	resp, err = client.Get(namespace+"/nodes/"+c2.NodeID, false, false)
+	resp, err = client.Get(namespace+"/nodes/node2", false, false)
 	if err != nil {
 		t.Fatalf("Error retrieving node key from etcd: %v", err)
 	}
