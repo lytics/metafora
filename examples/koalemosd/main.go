@@ -19,7 +19,7 @@ var logger = log.New(os.Stdout, "", lflags)
 func main() {
 	mlvl := metafora.LogLevelInfo
 
-	peers := flag.String("etcd", "127.0.0.1:5001", "comma delimited etcd peer list")
+	peers := flag.String("etcd", "127.0.0.1:4001", "comma delimited etcd peer list")
 	namespace := flag.String("namespace", "koalemos", "metafora namespace")
 	name := flag.String("name", "", "node name or empty for automatic")
 	loglvl := flag.String("log", mlvl.String(), "set log level: [debug], info, warn, error")

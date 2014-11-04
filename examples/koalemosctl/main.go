@@ -14,7 +14,7 @@ import (
 )
 
 func main() {
-	peers := flag.String("etcd", "127.0.0.1:5001", "comma delimited etcd peer list")
+	peers := flag.String("etcd", "127.0.0.1:4001", "comma delimited etcd peer list")
 	namespace := flag.String("namespace", "koalemos", "metafora namespace")
 	flag.Parse()
 
