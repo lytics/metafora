@@ -441,11 +441,11 @@ func (ec *EtcdCoordinator) Command() (metafora.Command, error) {
 func (ec *EtcdCoordinator) Close() {
 	// Gracefully handle multiple close calls mostly to ease testing
 	ec.closeL.Lock()
+	defer ec.closeL.Unlock()
 	if ec.closed {
 		return
 	}
 	ec.closed = true
-	ec.closeL.Unlock()
 
 	ec.taskWatcher.stop()
 	ec.commandWatcher.stop()
