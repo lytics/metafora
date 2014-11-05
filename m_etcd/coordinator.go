@@ -2,8 +2,8 @@ package m_etcd
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
+	"path"
 	"strings"
 	"sync"
 	"time"
@@ -12,6 +12,8 @@ import (
 	"github.com/coreos/go-etcd/etcd"
 	"github.com/lytics/metafora"
 )
+
+var DefaultNodePathTTL uint64 = 10 // seconds
 
 type ownerValue struct {
 	Node string `json:"node"`
@@ -131,62 +133,80 @@ func (w *watcher) stop() {
 type EtcdCoordinator struct {
 	Client    *etcd.Client
 	cordCtx   metafora.CoordinatorContext
-	Namespace string
-	TaskPath  string
+	namespace string
+	taskPath  string
 
 	taskWatcher *watcher
 	ClaimTTL    uint64 // seconds
 
 	NodeID         string
-	CommandPath    string
+	nodePath       string
+	nodePathTTL    uint64
+	commandPath    string
 	commandWatcher *watcher
 
 	taskManager *taskManager
+
+	// Close() sends nodeRefresher a chan to close when it has exited.
+	stopNode chan struct{}
+	closeL   sync.Mutex // only process one Close() call at once
+	closed   bool
 }
 
-func NewEtcdCoordinator(nodeId, namespace string, client *etcd.Client) metafora.Coordinator {
-	namespace = strings.Trim(namespace, "/ ")
+// NewEtcdCoordinator creates a new Metafora Coordinator implementation using
+// etcd as the broker. If no node ID is specified, a unique one will be
+// generated.
+//
+// Coordinator methods will be called by the core Metafora Consumer. Calling
+// Init, Close, etc. from your own code will lead to undefined behavior.
+func NewEtcdCoordinator(nodeID, namespace string, client *etcd.Client) metafora.Coordinator {
+	// Namespace should be an absolute path with no trailing slash
+	namespace = "/" + strings.Trim(namespace, "/ ")
 
-	if nodeId == "" {
+	if nodeID == "" {
 		hn, _ := os.Hostname()
-		//Adding the UUID incase we run two nodes on the same box.
-		// TODO lets move this to the Readme as part of the example of calling NewEtcdCoordinator.
-		// Then just remove the Autocreated nodeId.
-		nodeId = hn + uuid.NewRandom().String()
+		nodeID = hn + "-" + uuid.NewRandom().String()
 	}
 
-	nodeId = strings.Trim(nodeId, "/ ")
+	nodeID = strings.Trim(nodeID, "/ ")
 
 	client.SetTransport(transport)
 	client.SetConsistency(etcd.STRONG_CONSISTENCY)
 	return &EtcdCoordinator{
 		Client:    client,
-		Namespace: namespace,
+		namespace: namespace,
 
-		TaskPath: fmt.Sprintf("/%s/%s", namespace, TasksPath),
+		taskPath: path.Join(namespace, TasksPath),
 		ClaimTTL: ClaimTTL, //default to the package constant, but allow it to be overwritten
 
-		NodeID:      nodeId,
-		CommandPath: fmt.Sprintf("/%s/%s/%s/%s", namespace, NodesPath, nodeId, CommandsPath),
+		NodeID:      nodeID,
+		nodePath:    path.Join(namespace, NodesPath, nodeID),
+		nodePathTTL: DefaultNodePathTTL,
+		commandPath: path.Join(namespace, NodesPath, nodeID, CommandsPath),
+
+		stopNode: make(chan struct{}),
 	}
 }
 
 // Init is called once by the consumer to provide a Logger to Coordinator
 // implementations.
-func (ec *EtcdCoordinator) Init(cordCtx metafora.CoordinatorContext) {
+func (ec *EtcdCoordinator) Init(cordCtx metafora.CoordinatorContext) error {
 	cordCtx.Log(metafora.LogLevelDebug, "Initializing coordinator with namespace: %s and etcd cluster: %s",
-		ec.Namespace, strings.Join(ec.Client.GetCluster(), ", "))
+		ec.namespace, strings.Join(ec.Client.GetCluster(), ", "))
 
 	ec.cordCtx = cordCtx
 
-	ec.upsertDir("/"+ec.Namespace, ForeverTTL)
-	ec.upsertDir(ec.TaskPath, ForeverTTL)
-	//FIXME Should get cleaned up on shutdown and have a TTL - #61
-	ec.upsertDir(ec.CommandPath, ForeverTTL)
+	ec.upsertDir(ec.namespace, ForeverTTL)
+	ec.upsertDir(ec.taskPath, ForeverTTL)
+	if _, err := ec.Client.CreateDir(ec.nodePath, ec.nodePathTTL); err != nil {
+		return err
+	}
+	go ec.nodeRefresher()
+	ec.upsertDir(ec.commandPath, ForeverTTL)
 
 	ec.taskWatcher = &watcher{
 		cordCtx:      cordCtx,
-		path:         ec.TaskPath,
+		path:         ec.taskPath,
 		responseChan: make(chan *etcd.Response),
 		errorChan:    make(chan error),
 		client:       ec.Client,
@@ -194,13 +214,14 @@ func (ec *EtcdCoordinator) Init(cordCtx metafora.CoordinatorContext) {
 
 	ec.commandWatcher = &watcher{
 		cordCtx:      cordCtx,
-		path:         ec.CommandPath,
+		path:         ec.commandPath,
 		responseChan: make(chan *etcd.Response),
 		errorChan:    make(chan error),
 		client:       ec.Client,
 	}
 
-	ec.taskManager = newManager(cordCtx, ec.Client, ec.TaskPath, ec.NodeID, ec.ClaimTTL)
+	ec.taskManager = newManager(cordCtx, ec.Client, ec.taskPath, ec.NodeID, ec.ClaimTTL)
+	return nil
 }
 
 func (ec *EtcdCoordinator) upsertDir(path string, ttl uint64) {
@@ -240,6 +261,28 @@ func (ec *EtcdCoordinator) upsertDir(path string, ttl uint64) {
 	}
 }
 
+func (ec *EtcdCoordinator) nodeRefresher() {
+	ttl := ec.nodePathTTL - 3 // try to have 3s of leeway before ttl expires
+	if ttl < 1 {
+		ttl = 1
+	}
+	for {
+		select {
+		case <-ec.stopNode:
+			return
+		case <-time.After(time.Duration(ttl) * time.Second):
+			if _, err := ec.Client.UpdateDir(ec.nodePath, ec.nodePathTTL); err != nil {
+				ec.cordCtx.Log(metafora.LogLevelError, "Unexpected error updating node key, shutting down. Error: %v", err)
+
+				// We're in a bad state; shut everything down
+				ec.Close()
+				return
+			}
+
+		}
+	}
+}
+
 // Watch will do a blocking etcd watch() on taskPath until a taskId is returned.
 // The return taskId isn't guaranteed to be claimable.
 //
@@ -258,10 +301,9 @@ func (ec *EtcdCoordinator) Watch() (taskID string, err error) {
 
 			//The etcd watcher may have received a new task signal.
 			if resp.Action == "create" {
-				ec.cordCtx.Log(metafora.LogLevelDebug, "New task signaled while watching %s: response[action:%v etcdIndex:%v nodeKey:%v]",
-					ec.TaskPath, resp.Action, resp.EtcdIndex, resp.Node.Key)
-				taskId, skip := ec.parseTaskIdFromTaskNode(resp.Node)
-				if !skip {
+				ec.cordCtx.Log(metafora.LogLevelDebug, "New task while watching %s: action=%v etcdIndex=%v nodeKey=%v]",
+					ec.taskPath, resp.Action, resp.EtcdIndex, resp.Node.Key)
+				if taskId, ok := ec.parseTaskIdFromTaskNode(resp.Node); ok {
 					return taskId, nil
 				}
 			}
@@ -272,7 +314,7 @@ func (ec *EtcdCoordinator) Watch() (taskID string, err error) {
 				ec.nodeIsTheOwnerMarker(resp.Node) {
 
 				ec.cordCtx.Log(metafora.LogLevelDebug, "Released task signaled while watching %s: response[action:%v etcdIndex:%v nodeKey:%v]",
-					ec.TaskPath, resp.Action, resp.EtcdIndex, resp.Node.Key)
+					ec.taskPath, resp.Action, resp.EtcdIndex, resp.Node.Key)
 
 				taskId, skip := ec.parseTaskIdFromOwnerNode(resp.Node.Key)
 				if !skip {
@@ -288,7 +330,7 @@ func (ec *EtcdCoordinator) Watch() (taskID string, err error) {
 
 func (ec *EtcdCoordinator) parseTaskIdFromOwnerNode(nodePath string) (taskID string, skip bool) {
 	//remove ec.TaskPath
-	res := strings.Replace(nodePath, ec.TaskPath+"/", "", 1)
+	res := strings.Replace(nodePath, ec.taskPath+"/", "", 1)
 	//remove OwnerMarker
 	res2 := strings.Replace(res, "/"+OwnerMarker, "", 1)
 	//if remainder doens't contain "/", then we've found the taskid
@@ -299,46 +341,27 @@ func (ec *EtcdCoordinator) parseTaskIdFromOwnerNode(nodePath string) (taskID str
 	}
 }
 
-//Determines if its a task by removing the [ec.TaskPath + "/"] from the path
-// and if there are still slashes then we know its a child of the the task
-// not the task it's self.
-func (ec *EtcdCoordinator) isATaskNode(nodePath string) bool {
-	possibleTaskId := strings.Replace(nodePath, ec.TaskPath+"/", "", 1)
-	if strings.Contains(possibleTaskId, "/") {
-		return false
-	} else {
-		return true
-	}
-}
-
-func (ec *EtcdCoordinator) parseTaskIdFromTaskNode(node *etcd.Node) (taskID string, skip bool) {
-	taskId := ""
-
-	if !ec.isATaskNode(node.Key) {
-		return "", true
+func (ec *EtcdCoordinator) parseTaskIdFromTaskNode(node *etcd.Node) (taskID string, ok bool) {
+	if !strings.HasPrefix(node.Key, ec.taskPath) {
+		return
 	}
 
 	if ec.nodeHasOwnerMarker(node) {
-		return "", true
+		return
 	}
 
-	taskpath := strings.Split(node.Key, "/")
-	if len(taskpath) == 0 {
-		//TODO log
-		return "", true
-	}
 	if !node.Dir {
-		return "", true
+		return
 	}
 
-	taskId = taskpath[len(taskpath)-1]
+	taskID = path.Base(node.Key)
 
-	if taskId == "tasks" {
-		return "", true
+	if taskID == "tasks" {
+		return
 	}
 
-	ec.cordCtx.Log(metafora.LogLevelDebug, "A claimable task was found. task:%s key:%s", taskId, node.Key)
-	return taskId, false
+	ec.cordCtx.Log(metafora.LogLevelDebug, "A claimable task was found. task:%s key:%s", taskID, node.Key)
+	return taskID, true
 }
 
 func (ec *EtcdCoordinator) nodeIsTheOwnerMarker(node *etcd.Node) bool {
@@ -416,7 +439,34 @@ func (ec *EtcdCoordinator) Command() (metafora.Command, error) {
 // Close stops the coordinator and causes blocking Watch and Command methods to
 // return zero values.
 func (ec *EtcdCoordinator) Close() {
+	// Gracefully handle multiple close calls mostly to ease testing
+	ec.closeL.Lock()
+	defer ec.closeL.Unlock()
+	if ec.closed {
+		return
+	}
+	ec.closed = true
+
 	ec.taskWatcher.stop()
 	ec.commandWatcher.stop()
 	ec.taskManager.stop()
+
+	// Finally remove the node entry
+	close(ec.stopNode)
+
+	const recursive = true
+	_, err := ec.Client.Delete(ec.nodePath, recursive)
+	if err != nil {
+		if eerr, ok := err.(*etcd.EtcdError); ok {
+			if eerr.ErrorCode == EcodeKeyNotFound {
+				// The node's TTL was up before we were able to delete it or there was
+				// another problem that's already being handled.
+				// The first is unlikely, the latter is already being handled, so
+				// there's nothing to do here.
+				return
+			}
+		}
+		// All other errors are unexpected
+		ec.cordCtx.Log(metafora.LogLevelError, "Error deleting node path %s: %v", ec.nodePath, err)
+	}
 }

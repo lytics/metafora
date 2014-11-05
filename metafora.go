@@ -50,7 +50,7 @@ type Consumer struct {
 }
 
 // NewConsumer returns a new consumer and calls Init on the Balancer and Coordinator.
-func NewConsumer(coord Coordinator, h HandlerFunc, b Balancer) *Consumer {
+func NewConsumer(coord Coordinator, h HandlerFunc, b Balancer) (*Consumer, error) {
 	c := &Consumer{
 		running:  make(map[string]runningTask),
 		handler:  h,
@@ -68,8 +68,10 @@ func NewConsumer(coord Coordinator, h HandlerFunc, b Balancer) *Consumer {
 		Logger
 	}{Consumer: c, Logger: c.logger})
 
-	coord.Init(&coordinatorContext{Consumer: c, Logger: c.logger})
-	return c
+	if err := coord.Init(&coordinatorContext{Consumer: c, Logger: c.logger}); err != nil {
+		return nil, err
+	}
+	return c, nil
 }
 
 // SetLogger assigns the logger to use as well as a level
@@ -87,7 +89,7 @@ func (c *Consumer) SetLogger(l logOutputter, lvl LogLevel) {
 // Run is the core run loop of Metafora. It is responsible for calling into the
 // Coordinator to claim work and Balancer to rebalance work.
 //
-// Run blocks until Shutdown is called.
+// Run blocks until Shutdown is called or an internal error occurs.
 func (c *Consumer) Run() {
 	c.logger.Log(LogLevelDebug, "Starting consumer")
 
@@ -114,6 +116,7 @@ func (c *Consumer) Run() {
 
 	// Watch for new commands in a goroutine
 	go func() {
+		defer close(cmdChan)
 		for {
 			cmd, err := c.coord.Command()
 			if err != nil {
@@ -139,6 +142,9 @@ func (c *Consumer) Run() {
 		}
 	}()
 
+	// Make sure Run() cleans up on exit (stops coordinator, releases tasks, etc)
+	defer c.shutdown()
+
 	// Main Loop ensures events are processed synchronously
 	for {
 		if c.frozen() {
@@ -147,7 +153,11 @@ func (c *Consumer) Run() {
 			case <-c.stop:
 				// Shutdown has been called.
 				return
-			case cmd := <-cmdChan:
+			case cmd, ok := <-cmdChan:
+				if !ok {
+					c.logger.Log(LogLevelDebug, "Command channel closed. Exiting main loop.")
+					return
+				}
 				c.logger.Log(LogLevelDebug, "Received command: %s", cmd)
 				c.handleCommand(cmd)
 			}
@@ -160,7 +170,11 @@ func (c *Consumer) Run() {
 			return
 		case <-balance:
 			c.balance()
-		case task := <-c.watch:
+		case task, ok := <-c.watch:
+			if !ok {
+				c.logger.Log(LogLevelDebug, "Watch channel closed. Exiting main loop.")
+				return
+			}
 			if !c.bal.CanClaim(task) {
 				c.logger.Log(LogLevelInfo, "Balancer rejected task %s", task)
 				break
@@ -170,13 +184,18 @@ func (c *Consumer) Run() {
 				break
 			}
 			c.claimed(task)
-		case cmd := <-cmdChan:
+		case cmd, ok := <-cmdChan:
+			if !ok {
+				c.logger.Log(LogLevelDebug, "Command channel closed. Exiting main loop.")
+				return
+			}
 			c.handleCommand(cmd)
 		}
 	}
 }
 
 func (c *Consumer) watcher() {
+	defer close(c.watch)
 	c.logger.Log(LogLevelDebug, "Consumer watching")
 
 	for {
@@ -211,12 +230,8 @@ func (c *Consumer) balance() {
 	}
 }
 
-// Shutdown stops the main Run loop, calls Stop on all handlers, and calls
-// Close on the Coordinator. Running tasks will be released for other nodes to
-// claim.
-func (c *Consumer) Shutdown() {
-	c.logger.Log(LogLevelDebug, "Stopping Run loop")
-	close(c.stop)
+// shutdown is the actual shutdown logic called when Run() exits.
+func (c *Consumer) shutdown() {
 	c.logger.Log(LogLevelDebug, "Closing Coordinator")
 	c.coord.Close()
 
@@ -231,6 +246,20 @@ func (c *Consumer) Shutdown() {
 
 	c.logger.Log(LogLevelInfo, "Waiting for handlers to exit")
 	c.hwg.Wait()
+}
+
+// Shutdown stops the main Run loop, calls Stop on all handlers, and calls
+// Close on the Coordinator. Running tasks will be released for other nodes to
+// claim.
+func (c *Consumer) Shutdown() {
+	select {
+	case <-c.stop:
+		// already stopped
+	default:
+		c.logger.Log(LogLevelDebug, "Stopping Run loop")
+		close(c.stop)
+		c.hwg.Wait()
+	}
 }
 
 // Tasks returns a sorted list of running Task IDs.

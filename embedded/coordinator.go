@@ -32,8 +32,9 @@ type EmbeddedCoordinator struct {
 	stopchan chan struct{}
 }
 
-func (e *EmbeddedCoordinator) Init(c metafora.CoordinatorContext) {
+func (e *EmbeddedCoordinator) Init(c metafora.CoordinatorContext) error {
 	e.ctx = c
+	return nil
 }
 
 func (e *EmbeddedCoordinator) Watch() (taskID string, err error) {

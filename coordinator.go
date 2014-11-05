@@ -16,8 +16,8 @@ type CoordinatorContext interface {
 // tasks as well as receive commands.
 type Coordinator interface {
 	// Init is called once by the consumer to provide a Logger to Coordinator
-	// implementations.
-	Init(CoordinatorContext)
+	// implementations. NewConsumer will return Init's return value.
+	Init(CoordinatorContext) error
 
 	// Watch should do a blocking watch on the broker and return a task ID that
 	// can be claimed. Watch must return ("", nil) when Close or Freeze are

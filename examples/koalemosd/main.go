@@ -19,7 +19,7 @@ var logger = log.New(os.Stdout, "", lflags)
 func main() {
 	mlvl := metafora.LogLevelInfo
 
-	peers := flag.String("etcd", "127.0.0.1:5001", "comma delimited etcd peer list")
+	peers := flag.String("etcd", "127.0.0.1:4001", "comma delimited etcd peer list")
 	namespace := flag.String("namespace", "koalemos", "metafora namespace")
 	name := flag.String("name", "", "node name or empty for automatic")
 	loglvl := flag.String("log", mlvl.String(), "set log level: [debug], info, warn, error")
@@ -43,7 +43,10 @@ func main() {
 	hfunc := makeHandlerFunc(etcdc)
 	coord := m_etcd.NewEtcdCoordinator(*name, *namespace, etcdc).(*m_etcd.EtcdCoordinator)
 	bal := &metafora.DumbBalancer{}
-	c := metafora.NewConsumer(coord, hfunc, bal)
+	c, err := metafora.NewConsumer(coord, hfunc, bal)
+	if err != nil {
+		log.Fatalf("Error creating consumer: %v", err)
+	}
 	c.SetLogger(logger, mlvl)
 	log.Printf(
 		"Starting koalsmosd with etcd=%s; namespace=%s; name=%s; loglvl=%s",
