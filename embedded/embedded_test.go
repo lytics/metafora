@@ -31,7 +31,7 @@ func TestEmbedded(t *testing.T) {
 		}
 	}
 
-	time.Sleep(10 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 	runner.Shutdown()
 
 	runs := tc.Runs()
