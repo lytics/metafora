@@ -292,6 +292,8 @@ func (c *Consumer) claimed(taskID string) {
 	c.hwg.Add(1)
 	// Start handler in its own goroutine
 	go func() {
+		c.logger.Log(LogLevelInfo, "Task started: %s", taskID)
+		defer c.logger.Log(LogLevelInfo, "Task exited: %s", taskID)
 		defer func() {
 			if err := recover(); err != nil {
 				c.logger.Log(LogLevelError, "Handler %s panic()'d: %v", taskID, err)
