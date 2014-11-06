@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/coreos/go-etcd/etcd"
 	"github.com/lytics/metafora"
@@ -54,7 +55,7 @@ func main() {
 	go c.Run()
 
 	sigC := make(chan os.Signal, 1)
-	signal.Notify(sigC, os.Interrupt, os.Kill)
+	signal.Notify(sigC, os.Interrupt, os.Kill, syscall.SIGTERM)
 	s := <-sigC
 	log.Printf("Received signal %s, shutting down", s)
 	c.Shutdown()
