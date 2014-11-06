@@ -6,6 +6,7 @@ import (
 	"path"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"code.google.com/p/go-uuid/uuid"
@@ -81,14 +82,14 @@ func (w *watcher) watch() {
 						return
 					}
 					// Update the last seen index
-					index = r.EtcdIndex
+					atomic.StoreUint64(&index, r.EtcdIndex)
 					w.responseChan <- r
 				case <-w.stopChan:
 				}
 			}
 		}()
 		// Start the blocking watch.
-		_, err = w.client.Watch(w.path, index, recursive, innerRespChan, w.stopChan)
+		_, err = w.client.Watch(w.path, atomic.LoadUint64(&index), recursive, innerRespChan, w.stopChan)
 		if err != nil {
 			if err == etcd.ErrWatchStoppedByUser {
 				// This isn't actually an error, return nil
