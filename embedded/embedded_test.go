@@ -12,9 +12,15 @@ import (
 func TestEmbedded(t *testing.T) {
 
 	tc := newTestCounter()
+	adds := make(chan string, 4)
+
+	addFunc := func(s string) {
+		tc.Add(s)
+		adds <- s
+	}
 
 	thfunc := func() metafora.Handler {
-		return newTestHandler(tc.Add)
+		return newTestHandler(addFunc)
 	}
 
 	coord, client := NewEmbeddedPair("testnode")
@@ -31,7 +37,16 @@ func TestEmbedded(t *testing.T) {
 		}
 	}
 
-	time.Sleep(10 * time.Millisecond)
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if len(adds) == 4 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if len(adds) != 4 {
+		t.Errorf("Handlers didn't run in expected amount of time")
+	}
 	runner.Shutdown()
 
 	runs := tc.Runs()
