@@ -25,7 +25,7 @@ func newEtcdClient(t *testing.T) *etcd.Client {
 	peerAddrs := os.Getenv("ETCD_PEERS")
 
 	if peerAddrs == "" {
-		peerAddrs = "127.0.0.1:5001,127.0.0.1:5002,127.0.0.1:5003"
+		peerAddrs = "127.0.0.1:4001"
 	}
 
 	peers := strings.Split(peerAddrs, ",")
