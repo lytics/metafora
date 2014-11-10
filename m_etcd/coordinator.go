@@ -6,7 +6,6 @@ import (
 	"path"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"code.google.com/p/go-uuid/uuid"
@@ -39,75 +38,84 @@ func (w *watcher) watch() {
 	w.stopChan = make(chan bool)
 	w.m.Unlock()
 
-	// Teardown watch state when watch() returns
+	var err error
+
+	// Teardown watch state when watch() returns and send err
 	defer func() {
 		w.m.Lock()
 		w.running = false
 		w.m.Unlock()
+		w.errorChan <- err
 	}()
-
-	var index uint64
 
 	// Get existing tasks
 	const sorted = true
 	const recursive = true
-	resp, err := w.client.Get(w.path, sorted, recursive)
+	var resp *etcd.Response
+	resp, err = w.client.Get(w.path, sorted, recursive)
 	if err != nil {
 		w.cordCtx.Log(metafora.LogLevelError, "Error getting the existing tasks from the path:%s error:%v", w.path, err)
-		goto done
+		return
 	}
 
 	for _, node := range resp.Node.Nodes {
 		// Act like these are newly created nodes
 		select {
 		case <-w.stopChan:
-			goto done
+			return
 		case w.responseChan <- &etcd.Response{Action: "create", Node: node, EtcdIndex: resp.EtcdIndex}:
 		}
 	}
 
-	index = resp.EtcdIndex
+	var rawResp *etcd.RawResponse
 
 	// Start blocking watch
 	for {
-		// Make a new inner response channel on each loop since Watch() closes the
-		// one passed in.
-		innerRespChan := make(chan *etcd.Response)
-		go func() {
-			for {
-				select {
-				case r, ok := <-innerRespChan:
-					if !ok {
-						// Don't close w.responseChan when the Watch exits
-						return
-					}
-					// Update the last seen index
-					atomic.StoreUint64(&index, r.EtcdIndex)
-					w.responseChan <- r
-				case <-w.stopChan:
-				}
-			}
-		}()
-		// Start the blocking watch.
-		_, err = w.client.Watch(w.path, atomic.LoadUint64(&index), recursive, innerRespChan, w.stopChan)
+		// Start the blocking watch from the last response's index.
+		w.cordCtx.Log(metafora.LogLevelDebug, "--> watch %v %v", w.path, resp.Node.ModifiedIndex+1)
+		rawResp, err = w.client.RawWatch(w.path, resp.EtcdIndex, recursive, nil, w.stopChan)
+		w.cordCtx.Log(metafora.LogLevelDebug, "<-- watch\n%s\n%+v %+v", string(rawResp.Body), rawResp.Header, err)
 		if err != nil {
 			if err == etcd.ErrWatchStoppedByUser {
-				// This isn't actually an error, return nil
+				// This isn't actually an error, the stopChan was closed. Time to stop!
 				err = nil
-			} else if jsonErr, ok := err.(*json.SyntaxError); ok && jsonErr.Offset == 0 {
-				// This is a bug in Go's HTTP transport + go-etcd which causes the
-				// connection to timeout perdiocally and need to be restarted *after*
-				// closing idle connections.
-				w.cordCtx.Log(metafora.LogLevelDebug, "Watch timed out; restarting")
-				transport.CloseIdleConnections()
-				err = nil
-				continue
+				return
+			} else {
+				// RawWatch errors should be treated as fatal since it internally
+				// retries on network problems, and recoverable Etcd errors aren't
+				// parsed until rawResp.Unmarshal is called later.
+				w.cordCtx.Log(metafora.LogLevelError, "Unrecoverable watch error: %v", err)
+				return
 			}
 		}
-		goto done
+
+		select {
+		case <-w.stopChan:
+			return // stopped, exit now
+		default:
+		}
+
+		if len(rawResp.Body) == 0 {
+			// This is a bug in Go's HTTP transport + go-etcd which causes the
+			// connection to timeout perdiocally and need to be restarted *after*
+			// closing idle connections.
+			w.cordCtx.Log(metafora.LogLevelDebug, "Watch response empty; restarting watch. Status: %d Headers: %+v",
+				rawResp.StatusCode, rawResp.Header)
+			transport.CloseIdleConnections()
+			continue
+		}
+
+		if resp, err = rawResp.Unmarshal(); err != nil {
+			w.cordCtx.Log(metafora.LogLevelError, "Unexpected error unmarshalling etcd response: %+v", err)
+			return
+		}
+
+		select {
+		case w.responseChan <- resp:
+		case <-w.stopChan:
+			return
+		}
 	}
-done:
-	w.errorChan <- err
 }
 
 // watching is a safe way for concurrent goroutines to check if the watcher is
