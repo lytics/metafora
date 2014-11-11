@@ -72,9 +72,7 @@ func (w *watcher) watch() {
 	// Start blocking watch
 	for {
 		// Start the blocking watch from the last response's index.
-		w.cordCtx.Log(metafora.LogLevelDebug, "--> watch %v %v", w.path, resp.Node.ModifiedIndex+1)
-		rawResp, err = w.client.RawWatch(w.path, resp.EtcdIndex, recursive, nil, w.stopChan)
-		w.cordCtx.Log(metafora.LogLevelDebug, "<-- watch\n%s\n%+v %+v", string(rawResp.Body), rawResp.Header, err)
+		rawResp, err = w.client.RawWatch(w.path, resp.Node.ModifiedIndex+1, recursive, nil, w.stopChan)
 		if err != nil {
 			if err == etcd.ErrWatchStoppedByUser {
 				// This isn't actually an error, the stopChan was closed. Time to stop!
