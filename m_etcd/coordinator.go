@@ -79,7 +79,7 @@ func (w *watcher) watch() {
 		select {
 		case <-w.stopChan:
 			return
-		case w.responseChan <- &etcd.Response{Action: "create", Node: node, EtcdIndex: resp.EtcdIndex}:
+		case w.responseChan <- &etcd.Response{Action: actionCreated, Node: node, EtcdIndex: resp.EtcdIndex}:
 		}
 	}
 
