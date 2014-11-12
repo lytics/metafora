@@ -31,11 +31,10 @@ type shellHandler struct {
 }
 
 type FatalError struct {
-	Err error
+	error
 }
 
-func (e *FatalError) Error() string { return e.Err.Error() }
-func (*FatalError) Fatal() bool     { return true }
+func (*FatalError) Fatal() bool { return true }
 
 // Run retrieves task information from etcd and executes it.
 func (h *shellHandler) Run(taskID string) error {
@@ -45,7 +44,7 @@ func (h *shellHandler) Run(taskID string) error {
 	resp, err := h.etcdc.Get("/koalemos-tasks/"+taskID, sort, recurs)
 	if err != nil {
 		h.log("Fatal error: Failed retrieving task from etcd: %v", err)
-		return &FatalError{Err: err}
+		return &FatalError{err}
 	}
 
 	task := struct{ Args []string }{}
