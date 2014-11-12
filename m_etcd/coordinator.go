@@ -298,7 +298,7 @@ func (ec *EtcdCoordinator) upsertDir(path string, ttl uint64) {
 }
 
 func (ec *EtcdCoordinator) nodeRefresher() {
-	ttl := ec.nodePathTTL - 3 // try to have 3s of leeway before ttl expires
+	ttl := ec.nodePathTTL - 5 // try to have some leeway before ttl expires
 	if ttl < 1 {
 		ttl = 1
 	}
