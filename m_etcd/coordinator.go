@@ -14,6 +14,7 @@ import (
 )
 
 const (
+	// etcd/Response.Action values
 	actionCreated = "create"
 	actionExpire  = "expire"
 	actionDelete  = "delete"
@@ -58,71 +59,84 @@ func (w *watcher) watch() {
 		w.errorChan <- err
 	}()
 
-	// Get existing tasks
 	const sorted = true
 	const recursive = true
 	var resp *etcd.Response
-	resp, err = w.client.Get(w.path, sorted, recursive)
-	if err != nil {
-		w.cordCtx.Log(metafora.LogLevelError, "Error getting the existing tasks from the path:%s error:%v", w.path, err)
-		return
-	}
-
-	index := resp.Node.ModifiedIndex
-
-	// Act like these are newly created nodes
-	for _, node := range resp.Node.Nodes {
-		if node.ModifiedIndex > index {
-			// Record the max modified index to keep Watch from picking up redundant events
-			index = node.ModifiedIndex
-		}
-		select {
-		case <-w.stopChan:
-			return
-		case w.responseChan <- &etcd.Response{Action: actionCreated, Node: node, EtcdIndex: resp.EtcdIndex}:
-		}
-	}
-
 	var rawResp *etcd.RawResponse
 
-	// Start blocking watch
+startWatch:
 	for {
-		// Start the blocking watch after the last response's index.
-		rawResp, err = w.client.RawWatch(w.path, index+1, recursive, nil, w.stopChan)
+		// Get existing tasks
+		resp, err = w.client.Get(w.path, sorted, recursive)
 		if err != nil {
-			if err == etcd.ErrWatchStoppedByUser {
-				// This isn't actually an error, the stopChan was closed. Time to stop!
-				err = nil
-			} else {
-				// RawWatch errors should be treated as fatal since it internally
-				// retries on network problems, and recoverable Etcd errors aren't
-				// parsed until rawResp.Unmarshal is called later.
-				w.cordCtx.Log(metafora.LogLevelError, "Unrecoverable watch error: %v", err)
+			w.cordCtx.Log(metafora.LogLevelError, "%s Error getting the existing tasks: %v", w.path, err)
+			return
+		}
+
+		// Start watching at the index the Get retrieved since we've retrieved all
+		// tasks up to that point.
+		index := resp.EtcdIndex
+
+		// Act like existing keys are newly created
+		for _, node := range resp.Node.Nodes {
+			if node.ModifiedIndex > index {
+				// Record the max modified index to keep Watch from picking up redundant events
+				index = node.ModifiedIndex
 			}
-			return
+			select {
+			case <-w.stopChan:
+				return
+			case w.responseChan <- &etcd.Response{Action: "create", Node: node}:
+			}
 		}
 
-		if len(rawResp.Body) == 0 {
-			// This is a bug in Go's HTTP + go-etcd + etcd which causes the
-			// connection to timeout perdiocally and need to be restarted *after*
-			// closing idle connections.
-			w.cordCtx.Log(metafora.LogLevelDebug, "Watch response empty; restarting watch")
-			transport.CloseIdleConnections()
-			continue
-		}
+		// Start blocking watch
+		for {
+			// Start the blocking watch after the last response's index.
+			rawResp, err = w.client.RawWatch(w.path, index+1, recursive, nil, w.stopChan)
+			if err != nil {
+				if err == etcd.ErrWatchStoppedByUser {
+					// This isn't actually an error, the stopChan was closed. Time to stop!
+					err = nil
+				} else {
+					// RawWatch errors should be treated as fatal since it internally
+					// retries on network problems, and recoverable Etcd errors aren't
+					// parsed until rawResp.Unmarshal is called later.
+					w.cordCtx.Log(metafora.LogLevelError, "%s Unrecoverable watch error: %v", w.path, err)
+				}
+				return
+			}
 
-		if resp, err = rawResp.Unmarshal(); err != nil {
-			w.cordCtx.Log(metafora.LogLevelError, "Unexpected error unmarshalling etcd response: %+v", err)
-			return
-		}
+			if len(rawResp.Body) == 0 {
+				// This is a bug in Go's HTTP + go-etcd + etcd which causes the
+				// connection to timeout perdiocally and need to be restarted *after*
+				// closing idle connections.
+				w.cordCtx.Log(metafora.LogLevelDebug, "%s Watch response empty; restarting watch", w.path)
+				transport.CloseIdleConnections()
+				continue
+			}
 
-		select {
-		case w.responseChan <- resp:
-		case <-w.stopChan:
-			return
-		}
+			if resp, err = rawResp.Unmarshal(); err != nil {
+				if ee, ok := err.(*etcd.EtcdError); ok {
+					if ee.ErrorCode == EcodeExpiredIndex {
+						w.cordCtx.Log(metafora.LogLevelDebug, "%s Too many events have happened since index was updated. Restarting watch.", w.path)
+						// We need to retrieve all existing tasks to update our index
+						// without potentially missing some events.
+						continue startWatch
+					}
+				}
+				w.cordCtx.Log(metafora.LogLevelError, "%s Unexpected error unmarshalling etcd response: %+v", w.path, err)
+				return
+			}
 
-		index = resp.Node.ModifiedIndex
+			select {
+			case w.responseChan <- resp:
+			case <-w.stopChan:
+				return
+			}
+
+			index = resp.Node.ModifiedIndex
+		}
 	}
 }
 
