@@ -359,8 +359,7 @@ watchLoop:
 				return parts[2], nil
 			}
 
-			// Ignore everything else
-			ec.cordCtx.Log(metafora.LogLevelDebug, "Ignoring key in tasks: %s", resp.Node.Key)
+			// Ignore any other key events (_metafora keys, task deletion, etc.)
 		case err := <-ec.taskWatcher.errorChan:
 			return "", err
 		}
