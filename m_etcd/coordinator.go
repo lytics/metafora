@@ -6,7 +6,6 @@ import (
 	"path"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"code.google.com/p/go-uuid/uuid"
@@ -14,7 +13,23 @@ import (
 	"github.com/lytics/metafora"
 )
 
-var DefaultNodePathTTL uint64 = 10 // seconds
+const (
+	actionCreated = "create"
+	actionExpire  = "expire"
+	actionDelete  = "delete"
+	actionCAD     = "compareAndDelete"
+)
+
+var (
+	DefaultNodePathTTL uint64 = 20 // seconds
+
+	// etcd actions signifying a claim key was released
+	releaseActions = map[string]bool{
+		actionExpire: true,
+		actionDelete: true,
+		actionCAD:    true,
+	}
+)
 
 type ownerValue struct {
 	Node string `json:"node"`
@@ -33,95 +48,101 @@ type watcher struct {
 
 // watch emits etcd responses over responseChan until stopChan is closed.
 func (w *watcher) watch() {
-	// Setup watch state
-	w.m.Lock()
-	w.running = true
-	w.stopChan = make(chan bool)
-	w.m.Unlock()
+	var err error
 
-	// Teardown watch state when watch() returns
+	// Teardown watch state when watch() returns and send err
 	defer func() {
 		w.m.Lock()
 		w.running = false
 		w.m.Unlock()
+		w.errorChan <- err
 	}()
-
-	var index uint64
 
 	// Get existing tasks
 	const sorted = true
 	const recursive = true
-	resp, err := w.client.Get(w.path, sorted, recursive)
+	var resp *etcd.Response
+	resp, err = w.client.Get(w.path, sorted, recursive)
 	if err != nil {
 		w.cordCtx.Log(metafora.LogLevelError, "Error getting the existing tasks from the path:%s error:%v", w.path, err)
-		goto done
+		return
 	}
 
+	index := resp.Node.ModifiedIndex
+
+	// Act like these are newly created nodes
 	for _, node := range resp.Node.Nodes {
-		// Act like these are newly created nodes
+		if node.ModifiedIndex > index {
+			// Record the max modified index to keep Watch from picking up redundant events
+			index = node.ModifiedIndex
+		}
 		select {
 		case <-w.stopChan:
-			goto done
-		case w.responseChan <- &etcd.Response{Action: "create", Node: node, EtcdIndex: resp.EtcdIndex}:
+			return
+		case w.responseChan <- &etcd.Response{Action: actionCreated, Node: node, EtcdIndex: resp.EtcdIndex}:
 		}
 	}
 
-	index = resp.EtcdIndex
+	var rawResp *etcd.RawResponse
 
 	// Start blocking watch
 	for {
-		// Make a new inner response channel on each loop since Watch() closes the
-		// one passed in.
-		innerRespChan := make(chan *etcd.Response)
-		go func() {
-			for {
-				select {
-				case r, ok := <-innerRespChan:
-					if !ok {
-						// Don't close w.responseChan when the Watch exits
-						return
-					}
-					// Update the last seen index
-					atomic.StoreUint64(&index, r.EtcdIndex)
-					w.responseChan <- r
-				case <-w.stopChan:
-				}
-			}
-		}()
-		// Start the blocking watch.
-		_, err = w.client.Watch(w.path, atomic.LoadUint64(&index), recursive, innerRespChan, w.stopChan)
+		// Start the blocking watch after the last response's index.
+		rawResp, err = w.client.RawWatch(w.path, index+1, recursive, nil, w.stopChan)
 		if err != nil {
 			if err == etcd.ErrWatchStoppedByUser {
-				// This isn't actually an error, return nil
+				// This isn't actually an error, the stopChan was closed. Time to stop!
 				err = nil
-			} else if jsonErr, ok := err.(*json.SyntaxError); ok && jsonErr.Offset == 0 {
-				// This is a bug in Go's HTTP transport + go-etcd which causes the
-				// connection to timeout perdiocally and need to be restarted *after*
-				// closing idle connections.
-				w.cordCtx.Log(metafora.LogLevelDebug, "Watch timed out; restarting")
-				transport.CloseIdleConnections()
-				err = nil
-				continue
+			} else {
+				// RawWatch errors should be treated as fatal since it internally
+				// retries on network problems, and recoverable Etcd errors aren't
+				// parsed until rawResp.Unmarshal is called later.
+				w.cordCtx.Log(metafora.LogLevelError, "Unrecoverable watch error: %v", err)
 			}
+			return
 		}
-		goto done
+
+		if len(rawResp.Body) == 0 {
+			// This is a bug in Go's HTTP + go-etcd + etcd which causes the
+			// connection to timeout perdiocally and need to be restarted *after*
+			// closing idle connections.
+			w.cordCtx.Log(metafora.LogLevelDebug, "Watch response empty; restarting watch")
+			transport.CloseIdleConnections()
+			continue
+		}
+
+		if resp, err = rawResp.Unmarshal(); err != nil {
+			w.cordCtx.Log(metafora.LogLevelError, "Unexpected error unmarshalling etcd response: %+v", err)
+			return
+		}
+
+		select {
+		case w.responseChan <- resp:
+		case <-w.stopChan:
+			return
+		}
+
+		index = resp.Node.ModifiedIndex
 	}
-done:
-	w.errorChan <- err
 }
 
-// watching is a safe way for concurrent goroutines to check if the watcher is
-// running.
-func (w *watcher) watching() bool {
+// ensureWatching starts watching etcd in a goroutine if it's not already running.
+func (w *watcher) ensureWatching() {
 	w.m.Lock()
-	r := w.running
-	w.m.Unlock()
-	return r
+	defer w.m.Unlock()
+	if !w.running {
+		// Initialize watch state here; will be updated by watch()
+		w.running = true
+		w.stopChan = make(chan bool)
+		go w.watch()
+	}
 }
 
 // stops the watching goroutine.
 func (w *watcher) stop() {
-	if w.watching() {
+	w.m.Lock()
+	defer w.m.Unlock()
+	if w.running {
 		select {
 		case <-w.stopChan:
 			// already stopped, let's avoid panic()s
@@ -279,20 +300,16 @@ func (ec *EtcdCoordinator) nodeRefresher() {
 				ec.Close()
 				return
 			}
-
 		}
 	}
 }
 
 // Watch will do a blocking etcd watch() on taskPath until a taskId is returned.
 // The return taskId isn't guaranteed to be claimable.
-//
 func (ec *EtcdCoordinator) Watch() (taskID string, err error) {
-	if !ec.taskWatcher.watching() {
-		// Watcher hasn't been started, so start it now
-		go ec.taskWatcher.watch()
-	}
+	ec.taskWatcher.ensureWatching()
 
+watchLoop:
 	for {
 		select {
 		case resp, ok := <-ec.taskWatcher.responseChan:
@@ -300,91 +317,40 @@ func (ec *EtcdCoordinator) Watch() (taskID string, err error) {
 				return "", nil
 			}
 
-			//The etcd watcher may have received a new task signal.
-			if resp.Action == "create" {
-				ec.cordCtx.Log(metafora.LogLevelDebug, "New task while watching %s: action=%v etcdIndex=%v nodeKey=%v]",
-					ec.taskPath, resp.Action, resp.EtcdIndex, resp.Node.Key)
-				if taskId, ok := ec.parseTaskIdFromTaskNode(resp.Node); ok {
-					return taskId, nil
-				}
+			// Sanity check / test path invariant
+			if !strings.HasPrefix(resp.Node.Key, ec.taskPath) {
+				ec.cordCtx.Log(metafora.LogLevelError, "Received task from outside task path: %s", resp.Node.Key)
+				continue
 			}
 
-			//The etcd watcher may have received a released task or an owner may have left the cluster.
-			//Ref: etcd event types : https://github.com/coreos/etcd/blob/master/store/event.go#L4
-			if (resp.Action == "expire" || resp.Action == "delete" || resp.Action == "compareAndDelete") &&
-				ec.nodeIsTheOwnerMarker(resp.Node) {
+			key := strings.Trim(resp.Node.Key, "/") // strip leading and trailing /s
+			parts := strings.Split(key, "/")
 
-				ec.cordCtx.Log(metafora.LogLevelDebug, "Released task signaled while watching %s: response[action:%v etcdIndex:%v nodeKey:%v]",
-					ec.taskPath, resp.Action, resp.EtcdIndex, resp.Node.Key)
-
-				taskId, skip := ec.parseTaskIdFromOwnerNode(resp.Node.Key)
-				if !skip {
-					return taskId, nil
+			// Pickup new tasks
+			if resp.Action == actionCreated && len(parts) == 3 && resp.Node.Dir {
+				// Make sure it's not already claimed before returning it
+				for _, n := range resp.Node.Nodes {
+					if strings.HasSuffix(n.Key, OwnerMarker) {
+						ec.cordCtx.Log(metafora.LogLevelDebug, "Ignoring task as it's already claimed: %s", parts[2])
+						continue watchLoop
+					}
 				}
+				ec.cordCtx.Log(metafora.LogLevelDebug, "Received new task: %s", parts[2])
+				return parts[2], nil
 			}
 
+			// If a claim key is removed, try to claim the task
+			if releaseActions[resp.Action] && len(parts) == 4 && parts[3] == OwnerMarker {
+				ec.cordCtx.Log(metafora.LogLevelDebug, "Received released task: %s", parts[2])
+				return parts[2], nil
+			}
+
+			// Ignore everything else
+			ec.cordCtx.Log(metafora.LogLevelDebug, "Ignoring key in tasks: %s", resp.Node.Key)
 		case err := <-ec.taskWatcher.errorChan:
 			return "", err
 		}
 	}
-}
-
-func (ec *EtcdCoordinator) parseTaskIdFromOwnerNode(nodePath string) (taskID string, skip bool) {
-	//remove ec.TaskPath
-	res := strings.Replace(nodePath, ec.taskPath+"/", "", 1)
-	//remove OwnerMarker
-	res2 := strings.Replace(res, "/"+OwnerMarker, "", 1)
-	//if remainder doens't contain "/", then we've found the taskid
-	if !strings.Contains(res2, "/") {
-		return res2, false
-	} else {
-		return "", true
-	}
-}
-
-func (ec *EtcdCoordinator) parseTaskIdFromTaskNode(node *etcd.Node) (taskID string, ok bool) {
-	if !strings.HasPrefix(node.Key, ec.taskPath) {
-		return
-	}
-
-	if ec.nodeHasOwnerMarker(node) {
-		return
-	}
-
-	if !node.Dir {
-		return
-	}
-
-	taskID = path.Base(node.Key)
-
-	if taskID == "tasks" {
-		return
-	}
-
-	ec.cordCtx.Log(metafora.LogLevelDebug, "A claimable task was found. task:%s key:%s", taskID, node.Key)
-	return taskID, true
-}
-
-func (ec *EtcdCoordinator) nodeIsTheOwnerMarker(node *etcd.Node) bool {
-	//If the node is the owner marker, it most likely means the recursive watch picked
-	// this node's creation up.
-	if strings.Contains(node.Key, OwnerMarker) {
-		return true
-	}
-	return false
-}
-
-func (ec *EtcdCoordinator) nodeHasOwnerMarker(node *etcd.Node) bool {
-	//If its a task with an owner marker (Child), then most likely this node came from
-	// the prefetch code which found an existing task.
-	if node.Nodes != nil && len(node.Nodes) > 0 {
-		for _, n := range node.Nodes {
-			if strings.Contains(n.Key, OwnerMarker) {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 // Claim is called by the Consumer when a Balancer has determined that a task
@@ -409,9 +375,7 @@ func (ec *EtcdCoordinator) Done(taskID string) {
 // Command blocks until a command for this node is received from the broker
 // by the coordinator.
 func (ec *EtcdCoordinator) Command() (metafora.Command, error) {
-	if !ec.commandWatcher.watching() {
-		go ec.commandWatcher.watch()
-	}
+	ec.commandWatcher.ensureWatching()
 
 	for {
 		select {

@@ -14,8 +14,5 @@ the tests will be skipped.
 An example of running the integration tests is given in the command line below:
 
 ```
-ETCDTESTS=true IP="127.0.0.1" ETCDCTL_PEERS="$IP:5001,$IP:5002,$IP:5003"  go test -v
+ETCDTESTS=1 IP="127.0.0.1" ETCDCTL_PEERS="$IP:5001,$IP:5002,$IP:5003"  go test -v
 ```
-
-
-  
