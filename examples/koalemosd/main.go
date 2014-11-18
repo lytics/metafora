@@ -52,12 +52,20 @@ func main() {
 	log.Printf(
 		"Starting koalsmosd with etcd=%s; namespace=%s; name=%s; loglvl=%s",
 		*peers, *namespace, coord.NodeID, mlvl)
-	go c.Run()
+	consumerRunning := make(chan struct{})
+	go func() {
+		defer close(consumerRunning)
+		c.Run()
+	}()
 
 	sigC := make(chan os.Signal, 1)
 	signal.Notify(sigC, os.Interrupt, os.Kill, syscall.SIGTERM)
-	s := <-sigC
-	log.Printf("Received signal %s, shutting down", s)
+	select {
+	case s := <-sigC:
+		log.Printf("Received signal %s, shutting down", s)
+	case <-consumerRunning:
+		log.Printf("Consumer exited. Shutting down.")
+	}
 	c.Shutdown()
 	log.Printf("Shutdown")
 }
