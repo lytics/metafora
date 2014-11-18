@@ -321,6 +321,10 @@ func (ec *EtcdCoordinator) nodeRefresher() {
 // Watch will do a blocking etcd watch() on taskPath until a taskId is returned.
 // The return taskId isn't guaranteed to be claimable.
 func (ec *EtcdCoordinator) Watch() (taskID string, err error) {
+	if ec.alreadyClosed() {
+		// already closed, don't restart watch
+		return "", nil
+	}
 	ec.taskWatcher.ensureWatching()
 
 watchLoop:
@@ -388,6 +392,10 @@ func (ec *EtcdCoordinator) Done(taskID string) {
 // Command blocks until a command for this node is received from the broker
 // by the coordinator.
 func (ec *EtcdCoordinator) Command() (metafora.Command, error) {
+	if ec.alreadyClosed() {
+		// already closed, don't restart watch
+		return nil, nil
+	}
 	ec.commandWatcher.ensureWatching()
 
 	for {
@@ -412,6 +420,16 @@ func (ec *EtcdCoordinator) Command() (metafora.Command, error) {
 			return nil, err
 		}
 	}
+}
+
+// alreadyClosed should be checked by Watch and Command before they attempt to
+// start watching. Otherwise they could restart watching after the coordinator
+// has already closed.
+func (ec *EtcdCoordinator) alreadyClosed() bool {
+	ec.closeL.Lock()
+	c := ec.closed
+	ec.closeL.Unlock()
+	return c
 }
 
 // Close stops the coordinator and causes blocking Watch and Command methods to
