@@ -106,7 +106,13 @@ func (c *Consumer) Run() {
 				// Shutdown has been called.
 				return
 			case <-time.After(c.balEvery + time.Duration(randInt(balanceJitterMax))):
-				balance <- true
+				select {
+				case balance <- true:
+					// Ticked balance
+				case <-c.stop:
+					// Shutdown has been called.
+					return
+				}
 			}
 		}
 	}()
