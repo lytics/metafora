@@ -2,10 +2,10 @@ package m_etcd
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path"
 	"strings"
-	"sync"
 	"time"
 
 	"code.google.com/p/go-uuid/uuid"
@@ -30,140 +30,12 @@ var (
 		actionDelete: true,
 		actionCAD:    true,
 	}
+
+	restartWatchError = errors.New("index too old, need to restart watch")
 )
 
 type ownerValue struct {
 	Node string `json:"node"`
-}
-
-type watcher struct {
-	cordCtx      metafora.CoordinatorContext
-	path         string
-	responseChan chan *etcd.Response // coordinator watches for changes
-	errorChan    chan error          // coordinator watches for errors
-	stopChan     chan bool           // closed to signal etcd's Watch to stop
-	client       *etcd.Client
-	running      bool       // only set in watch(); only read by watching()
-	m            sync.Mutex // running requires synchronization
-}
-
-// watch emits etcd responses over responseChan until stopChan is closed.
-func (w *watcher) watch() {
-	var err error
-
-	// Teardown watch state when watch() returns and send err
-	defer func() {
-		w.m.Lock()
-		w.running = false
-		w.m.Unlock()
-		w.errorChan <- err
-	}()
-
-	const sorted = true
-	const recursive = true
-	var resp *etcd.Response
-	var rawResp *etcd.RawResponse
-
-startWatch:
-	for {
-		// Get existing tasks
-		resp, err = w.client.Get(w.path, sorted, recursive)
-		if err != nil {
-			w.cordCtx.Log(metafora.LogLevelError, "%s Error getting the existing tasks: %v", w.path, err)
-			return
-		}
-
-		// Start watching at the index the Get retrieved since we've retrieved all
-		// tasks up to that point.
-		index := resp.EtcdIndex
-
-		// Act like existing keys are newly created
-		for _, node := range resp.Node.Nodes {
-			if node.ModifiedIndex > index {
-				// Record the max modified index to keep Watch from picking up redundant events
-				index = node.ModifiedIndex
-			}
-			select {
-			case <-w.stopChan:
-				return
-			case w.responseChan <- &etcd.Response{Action: "create", Node: node}:
-			}
-		}
-
-		// Start blocking watch
-		for {
-			// Start the blocking watch after the last response's index.
-			rawResp, err = w.client.RawWatch(w.path, index+1, recursive, nil, w.stopChan)
-			if err != nil {
-				if err == etcd.ErrWatchStoppedByUser {
-					// This isn't actually an error, the stopChan was closed. Time to stop!
-					err = nil
-				} else {
-					// RawWatch errors should be treated as fatal since it internally
-					// retries on network problems, and recoverable Etcd errors aren't
-					// parsed until rawResp.Unmarshal is called later.
-					w.cordCtx.Log(metafora.LogLevelError, "%s Unrecoverable watch error: %v", w.path, err)
-				}
-				return
-			}
-
-			if len(rawResp.Body) == 0 {
-				// This is a bug in Go's HTTP + go-etcd + etcd which causes the
-				// connection to timeout perdiocally and need to be restarted *after*
-				// closing idle connections.
-				w.cordCtx.Log(metafora.LogLevelDebug, "%s Watch response empty; restarting watch", w.path)
-				transport.CloseIdleConnections()
-				continue
-			}
-
-			if resp, err = rawResp.Unmarshal(); err != nil {
-				if ee, ok := err.(*etcd.EtcdError); ok {
-					if ee.ErrorCode == EcodeExpiredIndex {
-						w.cordCtx.Log(metafora.LogLevelDebug, "%s Too many events have happened since index was updated. Restarting watch.", w.path)
-						// We need to retrieve all existing tasks to update our index
-						// without potentially missing some events.
-						continue startWatch
-					}
-				}
-				w.cordCtx.Log(metafora.LogLevelError, "%s Unexpected error unmarshalling etcd response: %+v", w.path, err)
-				return
-			}
-
-			select {
-			case w.responseChan <- resp:
-			case <-w.stopChan:
-				return
-			}
-
-			index = resp.Node.ModifiedIndex
-		}
-	}
-}
-
-// ensureWatching starts watching etcd in a goroutine if it's not already running.
-func (w *watcher) ensureWatching() {
-	w.m.Lock()
-	defer w.m.Unlock()
-	if !w.running {
-		// Initialize watch state here; will be updated by watch()
-		w.running = true
-		w.stopChan = make(chan bool)
-		go w.watch()
-	}
-}
-
-// stops the watching goroutine.
-func (w *watcher) stop() {
-	w.m.Lock()
-	defer w.m.Unlock()
-	if w.running {
-		select {
-		case <-w.stopChan:
-			// already stopped, let's avoid panic()s
-		default:
-			close(w.stopChan)
-		}
-	}
 }
 
 type EtcdCoordinator struct {
@@ -172,21 +44,26 @@ type EtcdCoordinator struct {
 	namespace string
 	taskPath  string
 
-	taskWatcher *watcher
-	ClaimTTL    uint64 // seconds
+	ClaimTTL uint64 // seconds
 
-	NodeID         string
-	nodePath       string
-	nodePathTTL    uint64
-	commandPath    string
-	commandWatcher *watcher
+	NodeID      string
+	nodePath    string
+	nodePathTTL uint64
+	commandPath string
 
 	taskManager *taskManager
 
-	// Close() sends nodeRefresher a chan to close when it has exited.
-	stopNode chan struct{}
-	closeL   sync.Mutex // only process one Close() call at once
-	closed   bool
+	// Close() closes stop channel to signal to watchers to exit
+	stop chan bool
+}
+
+func (ec *EtcdCoordinator) closed() bool {
+	select {
+	case <-ec.stop:
+		return true
+	default:
+		return false
+	}
 }
 
 // NewEtcdCoordinator creates a new Metafora Coordinator implementation using
@@ -220,7 +97,7 @@ func NewEtcdCoordinator(nodeID, namespace string, client *etcd.Client) metafora.
 		nodePathTTL: DefaultNodePathTTL,
 		commandPath: path.Join(namespace, NodesPath, nodeID, CommandsPath),
 
-		stopNode: make(chan struct{}),
+		stop: make(chan bool),
 	}
 }
 
@@ -240,28 +117,11 @@ func (ec *EtcdCoordinator) Init(cordCtx metafora.CoordinatorContext) error {
 	go ec.nodeRefresher()
 	ec.upsertDir(ec.commandPath, ForeverTTL)
 
-	ec.taskWatcher = &watcher{
-		cordCtx:      cordCtx,
-		path:         ec.taskPath,
-		responseChan: make(chan *etcd.Response),
-		errorChan:    make(chan error),
-		client:       ec.Client,
-	}
-
-	ec.commandWatcher = &watcher{
-		cordCtx:      cordCtx,
-		path:         ec.commandPath,
-		responseChan: make(chan *etcd.Response),
-		errorChan:    make(chan error),
-		client:       ec.Client,
-	}
-
 	ec.taskManager = newManager(cordCtx, ec.Client, ec.taskPath, ec.NodeID, ec.ClaimTTL)
 	return nil
 }
 
 func (ec *EtcdCoordinator) upsertDir(path string, ttl uint64) {
-
 	//hidden etcd key that isn't visible to ls commands on the directory,
 	//  you have to know about it to find it :).  I'm using it to add some
 	//  info about when the cluster's schema was setup.
@@ -304,7 +164,7 @@ func (ec *EtcdCoordinator) nodeRefresher() {
 	}
 	for {
 		select {
-		case <-ec.stopNode:
+		case <-ec.stop:
 			return
 		case <-time.After(time.Duration(ttl) * time.Second):
 			if _, err := ec.Client.UpdateDir(ec.nodePath, ec.nodePathTTL); err != nil {
@@ -318,56 +178,97 @@ func (ec *EtcdCoordinator) nodeRefresher() {
 	}
 }
 
-// Watch will do a blocking etcd watch() on taskPath until a taskId is returned.
-// The return taskId isn't guaranteed to be claimable.
+// Watch will do a blocking etcd watch on taskPath until a claimable task is
+// found or Close() is called.
+//
+// Watch will return ("", nil) if the coordinator is closed.
 func (ec *EtcdCoordinator) Watch() (taskID string, err error) {
-	if ec.alreadyClosed() {
+	if ec.closed() {
 		// already closed, don't restart watch
 		return "", nil
 	}
-	ec.taskWatcher.ensureWatching()
 
-watchLoop:
+	const sorted = true
+	const recursive = true
+
+startWatch:
 	for {
-		select {
-		case resp, ok := <-ec.taskWatcher.responseChan:
-			if !ok {
-				return "", nil
-			}
-
-			// Sanity check / test path invariant
-			if !strings.HasPrefix(resp.Node.Key, ec.taskPath) {
-				ec.cordCtx.Log(metafora.LogLevelError, "Received task from outside task path: %s", resp.Node.Key)
-				continue
-			}
-
-			key := strings.Trim(resp.Node.Key, "/") // strip leading and trailing /s
-			parts := strings.Split(key, "/")
-
-			// Pickup new tasks
-			if resp.Action == actionCreated && len(parts) == 3 && resp.Node.Dir {
-				// Make sure it's not already claimed before returning it
-				for _, n := range resp.Node.Nodes {
-					if strings.HasSuffix(n.Key, OwnerMarker) {
-						ec.cordCtx.Log(metafora.LogLevelDebug, "Ignoring task as it's already claimed: %s", parts[2])
-						continue watchLoop
-					}
-				}
-				ec.cordCtx.Log(metafora.LogLevelDebug, "Received new task: %s", parts[2])
-				return parts[2], nil
-			}
-
-			// If a claim key is removed, try to claim the task
-			if releaseActions[resp.Action] && len(parts) == 4 && parts[3] == OwnerMarker {
-				ec.cordCtx.Log(metafora.LogLevelDebug, "Received released task: %s", parts[2])
-				return parts[2], nil
-			}
-
-			// Ignore any other key events (_metafora keys, task deletion, etc.)
-		case err := <-ec.taskWatcher.errorChan:
+		// Get existing tasks
+		resp, err := ec.Client.Get(ec.taskPath, sorted, recursive)
+		if err != nil {
+			ec.cordCtx.Log(metafora.LogLevelError, "%s Error getting the existing tasks: %v", ec.taskPath, err)
 			return "", err
 		}
+
+		// Start watching at the index the Get retrieved since we've retrieved all
+		// tasks up to that point.
+		index := resp.EtcdIndex
+
+		// Act like existing keys are newly created
+		for _, node := range resp.Node.Nodes {
+			if node.ModifiedIndex > index {
+				// Record the max modified index to keep Watch from picking up redundant events
+				index = node.ModifiedIndex
+			}
+			if task, ok := ec.parseTask(&etcd.Response{Action: "create", Node: node}); ok {
+				return task, nil
+			}
+		}
+
+		// Start blocking watch
+		for {
+			resp, err := ec.watch(ec.taskPath, index, recursive)
+			if err != nil {
+				if err == restartWatchError {
+					continue startWatch
+				}
+				if err == etcd.ErrWatchStoppedByUser {
+					return "", nil
+				}
+			}
+
+			// Found a claimable task! Return it.
+			if task, ok := ec.parseTask(resp); ok {
+				return task, nil
+			}
+
+			// Task wasn't claimable, start next watch from where the last watch ended
+			index = resp.EtcdIndex
+		}
 	}
+}
+
+func (ec *EtcdCoordinator) parseTask(resp *etcd.Response) (task string, ok bool) {
+	// Sanity check / test path invariant
+	if !strings.HasPrefix(resp.Node.Key, ec.taskPath) {
+		ec.cordCtx.Log(metafora.LogLevelError, "Received task from outside task path: %s", resp.Node.Key)
+		return "", false
+	}
+
+	key := strings.Trim(resp.Node.Key, "/") // strip leading and trailing /s
+	parts := strings.Split(key, "/")
+
+	// Pickup new tasks
+	if resp.Action == actionCreated && len(parts) == 3 && resp.Node.Dir {
+		// Make sure it's not already claimed before returning it
+		for _, n := range resp.Node.Nodes {
+			if strings.HasSuffix(n.Key, OwnerMarker) {
+				ec.cordCtx.Log(metafora.LogLevelDebug, "Ignoring task as it's already claimed: %s", parts[2])
+				return "", false
+			}
+		}
+		ec.cordCtx.Log(metafora.LogLevelDebug, "Received new task: %s", parts[2])
+		return parts[2], true
+	}
+
+	// If a claim key is removed, try to claim the task
+	if releaseActions[resp.Action] && len(parts) == 4 && parts[3] == OwnerMarker {
+		ec.cordCtx.Log(metafora.LogLevelDebug, "Received released task: %s", parts[2])
+		return parts[2], true
+	}
+
+	// Ignore any other key events (_metafora keys, task deletion, etc.)
+	return "", false
 }
 
 // Claim is called by the Consumer when a Balancer has determined that a task
@@ -392,63 +293,88 @@ func (ec *EtcdCoordinator) Done(taskID string) {
 // Command blocks until a command for this node is received from the broker
 // by the coordinator.
 func (ec *EtcdCoordinator) Command() (metafora.Command, error) {
-	if ec.alreadyClosed() {
+	if ec.closed() {
 		// already closed, don't restart watch
 		return nil, nil
 	}
-	ec.commandWatcher.ensureWatching()
 
+	const sorted = true
+	const recursive = false
 	for {
-		select {
-		case resp, ok := <-ec.commandWatcher.responseChan:
-			if !ok {
+		// Get existing commands
+		resp, err := ec.Client.Get(ec.commandPath, sorted, recursive)
+		if err != nil {
+			ec.cordCtx.Log(metafora.LogLevelError, "%s Error getting the existing commands: %v", ec.commandPath, err)
+			return nil, err
+		}
+
+		// Start watching at the index the Get retrieved since we've retrieved all
+		// tasks up to that point.
+		index := resp.EtcdIndex
+
+		// Act like existing keys are newly created
+		for _, node := range resp.Node.Nodes {
+			if node.ModifiedIndex > index {
+				// Record the max modified index to keep Watch from picking up redundant events
+				index = node.ModifiedIndex
+			}
+			if cmd := ec.parseCommand(&etcd.Response{Action: "create", Node: node}); cmd != nil {
+				return cmd, nil
+			}
+		}
+
+		for {
+			resp, err := ec.watch(ec.commandPath, index, recursive)
+			if err != nil {
+				return nil, err
+			}
+			if resp == nil {
 				return nil, nil
 			}
 
-			if strings.HasSuffix(resp.Node.Key, MetadataKey) {
-				// Skip metadata marker
-				continue
+			if cmd := ec.parseCommand(resp); cmd != nil {
+				return cmd, nil
 			}
 
-			const recurse = false
-			if _, err := ec.Client.Delete(resp.Node.Key, recurse); err != nil {
-				ec.cordCtx.Log(metafora.LogLevelError, "Error deleting handled command %s: %v", resp.Node.Key, err)
-			}
-
-			return metafora.UnmarshalCommand([]byte(resp.Node.Value))
-		case err := <-ec.commandWatcher.errorChan:
-			return nil, err
+			index = resp.EtcdIndex
 		}
 	}
 }
 
-// alreadyClosed should be checked by Watch and Command before they attempt to
-// start watching. Otherwise they could restart watching after the coordinator
-// has already closed.
-func (ec *EtcdCoordinator) alreadyClosed() bool {
-	ec.closeL.Lock()
-	c := ec.closed
-	ec.closeL.Unlock()
-	return c
+func (ec *EtcdCoordinator) parseCommand(resp *etcd.Response) metafora.Command {
+	if strings.HasSuffix(resp.Node.Key, MetadataKey) {
+		// Skip metadata marker
+		return nil
+	}
+
+	const recurse = false
+	if _, err := ec.Client.Delete(resp.Node.Key, recurse); err != nil {
+		ec.cordCtx.Log(metafora.LogLevelError, "Error deleting handled command %s: %v", resp.Node.Key, err)
+	}
+
+	cmd, err := metafora.UnmarshalCommand([]byte(resp.Node.Value))
+	if err != nil {
+		ec.cordCtx.Log(metafora.LogLevelError, "Invalid command %s: %v", resp.Node.Key, err)
+		return nil
+	}
+	return cmd
 }
 
 // Close stops the coordinator and causes blocking Watch and Command methods to
 // return zero values.
 func (ec *EtcdCoordinator) Close() {
-	// Gracefully handle multiple close calls mostly to ease testing
-	ec.closeL.Lock()
-	defer ec.closeL.Unlock()
-	if ec.closed {
+	// Gracefully handle multiple close calls mostly to ease testing. This block
+	// isn't threadsafe, so you shouldn't try to call Close() concurrently.
+	select {
+	case <-ec.stop:
 		return
+	default:
 	}
-	ec.closed = true
 
-	ec.taskWatcher.stop()
-	ec.commandWatcher.stop()
 	ec.taskManager.stop()
 
 	// Finally remove the node entry
-	close(ec.stopNode)
+	close(ec.stop)
 
 	const recursive = true
 	_, err := ec.Client.Delete(ec.nodePath, recursive)
@@ -464,5 +390,55 @@ func (ec *EtcdCoordinator) Close() {
 		}
 		// All other errors are unexpected
 		ec.cordCtx.Log(metafora.LogLevelError, "Error deleting node path %s: %v", ec.nodePath, err)
+	}
+}
+
+// watch will return either an etcd Response or an error. Two errors returned
+// by this method should be treated specially:
+//
+//   1. etcd.ErrWatchStoppedByUser - the coordinator has closed, exit
+//                                   accordingly
+//
+//   2. restartWatchError - the specified index is too old, try again with a
+//                          newer index
+func (ec *EtcdCoordinator) watch(path string, index uint64, recursive bool) (*etcd.Response, error) {
+	for {
+		// Start the blocking watch after the last response's index.
+		rawResp, err := ec.Client.RawWatch(path, index+1, recursive, nil, ec.stop)
+		if err != nil {
+			if err == etcd.ErrWatchStoppedByUser {
+				// This isn't actually an error, the stop chan was closed. Time to stop!
+				return nil, err
+			}
+			// RawWatch errors should be treated as fatal since it internally
+			// retries on network problems, and recoverable Etcd errors aren't
+			// parsed until rawResp.Unmarshal is called later.
+			ec.cordCtx.Log(metafora.LogLevelError, "%s Unrecoverable watch error: %v", ec.taskPath, err)
+			return nil, err
+		}
+
+		if len(rawResp.Body) == 0 {
+			// This is a bug in Go's HTTP + go-etcd + etcd which causes the
+			// connection to timeout perdiocally and need to be restarted *after*
+			// closing idle connections.
+			ec.cordCtx.Log(metafora.LogLevelDebug, "%s Watch response empty; restarting watch", ec.taskPath)
+			transport.CloseIdleConnections()
+			continue
+		}
+
+		resp, err := rawResp.Unmarshal()
+		if err != nil {
+			if ee, ok := err.(*etcd.EtcdError); ok {
+				if ee.ErrorCode == EcodeExpiredIndex {
+					ec.cordCtx.Log(metafora.LogLevelDebug, "%s Too many events have happened since index was updated. Restarting watch.", ec.taskPath)
+					// We need to retrieve all existing tasks to update our index
+					// without potentially missing some events.
+					return nil, restartWatchError
+				}
+			}
+			ec.cordCtx.Log(metafora.LogLevelError, "%s Unexpected error unmarshalling etcd response: %+v", ec.taskPath, err)
+			return nil, err
+		}
+		return resp, nil
 	}
 }
