@@ -421,7 +421,6 @@ func (ec *EtcdCoordinator) watch(path string, index uint64, recursive bool) (*et
 			// This is a bug in Go's HTTP + go-etcd + etcd which causes the
 			// connection to timeout perdiocally and need to be restarted *after*
 			// closing idle connections.
-			ec.cordCtx.Log(metafora.LogLevelDebug, "%s Watch response empty; restarting watch", ec.taskPath)
 			transport.CloseIdleConnections()
 			continue
 		}
