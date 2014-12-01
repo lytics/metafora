@@ -10,6 +10,7 @@ var (
 )
 
 func TestFairBalancerOneNode(t *testing.T) {
+	t.Parallel()
 	// Single node should never release tasks
 	clusterstate := &TestClusterState{
 		Current: map[string]int{"node1": 5},
@@ -34,6 +35,7 @@ func TestFairBalancerOneNode(t *testing.T) {
 }
 
 func TestFairBalanceOver(t *testing.T) {
+	t.Parallel()
 	clusterstate := &TestClusterState{
 		Current: map[string]int{
 			"node1": 10,
@@ -61,6 +63,7 @@ func TestFairBalanceOver(t *testing.T) {
 }
 
 func TestFairBalanceNothing(t *testing.T) {
+	t.Parallel()
 	clusterstate := &TestClusterState{
 		Current: map[string]int{
 			"node1": 2,

@@ -83,6 +83,8 @@ func newTestHandlerFunc(t *testing.T) (HandlerFunc, chan string) {
 // TestConsumer ensures the consumers main loop properly handles tasks as well
 // as errors and Shutdown.
 func TestConsumer(t *testing.T) {
+	t.Parallel()
+
 	//FIXME hack retry delay for quicker error testing
 	origCRD := consumerRetryDelay
 	consumerRetryDelay = 10 * time.Millisecond
