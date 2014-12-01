@@ -300,6 +300,7 @@ func (ec *EtcdCoordinator) Command() (metafora.Command, error) {
 
 	const sorted = true
 	const recursive = false
+startWatch:
 	for {
 		// Get existing commands
 		resp, err := ec.Client.Get(ec.commandPath, sorted, recursive)
@@ -326,10 +327,12 @@ func (ec *EtcdCoordinator) Command() (metafora.Command, error) {
 		for {
 			resp, err := ec.watch(ec.commandPath, index, recursive)
 			if err != nil {
-				return nil, err
-			}
-			if resp == nil {
-				return nil, nil
+				if err == restartWatchError {
+					continue startWatch
+				}
+				if err == etcd.ErrWatchStoppedByUser {
+					return nil, nil
+				}
 			}
 
 			if cmd := ec.parseCommand(resp); cmd != nil {
@@ -373,9 +376,9 @@ func (ec *EtcdCoordinator) Close() {
 
 	ec.taskManager.stop()
 
-	// Finally remove the node entry
 	close(ec.stop)
 
+	// Finally remove the node entry
 	const recursive = true
 	_, err := ec.Client.Delete(ec.nodePath, recursive)
 	if err != nil {
@@ -413,7 +416,7 @@ func (ec *EtcdCoordinator) watch(path string, index uint64, recursive bool) (*et
 			// RawWatch errors should be treated as fatal since it internally
 			// retries on network problems, and recoverable Etcd errors aren't
 			// parsed until rawResp.Unmarshal is called later.
-			ec.cordCtx.Log(metafora.LogLevelError, "%s Unrecoverable watch error: %v", ec.taskPath, err)
+			ec.cordCtx.Log(metafora.LogLevelError, "%s Unrecoverable watch error: %v", path, err)
 			return nil, err
 		}
 
