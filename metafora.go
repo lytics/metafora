@@ -193,7 +193,11 @@ func (c *Consumer) Run() {
 				c.handleCommand(cmd)
 			}
 			// Must send tick whenever main loop restarts
-			c.tick <- 1
+			select {
+			case <-c.stop:
+				return
+			case c.tick <- 1:
+			}
 			continue
 		}
 
@@ -225,7 +229,11 @@ func (c *Consumer) Run() {
 			c.handleCommand(cmd)
 		}
 		// Signal that main loop is restarting after handling an event
-		c.tick <- 1
+		select {
+		case <-c.stop:
+			return
+		case c.tick <- 1:
+		}
 	}
 }
 
