@@ -14,7 +14,7 @@ func NewEmbeddedCoordinator(nodeid string, taskchan chan string, cmdchan chan *N
 			select {
 			case e.nodechan <- []string{e.nodeid}:
 			case <-e.stopchan:
-				break
+				return
 			}
 		}
 	}()
