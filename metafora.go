@@ -103,9 +103,7 @@ func (c *Consumer) Run() {
 	cmdChan := make(chan Command)
 
 	// Balance is called by the main loop when the balance channel is ticked
-	c.hwg.Add(1)
 	go func() {
-		defer c.hwg.Done()
 		randInt := rand.New(rand.NewSource(time.Now().UnixNano())).Int63n
 		for {
 			select {
@@ -132,16 +130,11 @@ func (c *Consumer) Run() {
 	}()
 
 	// Watch for new tasks in a goroutine
-	c.hwg.Add(1)
 	go c.watcher()
 
 	// Watch for new commands in a goroutine
-	c.hwg.Add(1)
 	go func() {
-		defer func() {
-			close(cmdChan)
-			c.hwg.Done()
-		}()
+		defer close(cmdChan)
 		for {
 			cmd, err := c.coord.Command()
 			if err != nil {
@@ -238,10 +231,7 @@ func (c *Consumer) Run() {
 }
 
 func (c *Consumer) watcher() {
-	defer func() {
-		close(c.watch)
-		c.hwg.Done()
-	}()
+	defer close(c.watch)
 	c.logger.Log(LogLevelDebug, "Consumer watching")
 
 	for {
