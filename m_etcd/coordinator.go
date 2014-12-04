@@ -16,6 +16,7 @@ import (
 const (
 	// etcd/Response.Action values
 	actionCreated = "create"
+	actionSet     = "set"
 	actionExpire  = "expire"
 	actionDelete  = "delete"
 	actionCAD     = "compareAndDelete"
@@ -29,6 +30,12 @@ var (
 		actionExpire: true,
 		actionDelete: true,
 		actionCAD:    true,
+	}
+
+	// etcd actions signifying a new key
+	newActions = map[string]bool{
+		actionCreated: true,
+		actionSet:     true,
 	}
 
 	restartWatchError = errors.New("index too old, need to restart watch")
@@ -217,7 +224,7 @@ startWatch:
 
 		// Start blocking watch
 		for {
-			resp, err := ec.watch(ec.taskPath, index, recursive)
+			resp, err := ec.watch(ec.taskPath, index)
 			if err != nil {
 				if err == restartWatchError {
 					continue startWatch
@@ -249,7 +256,7 @@ func (ec *EtcdCoordinator) parseTask(resp *etcd.Response) (task string, ok bool)
 	parts := strings.Split(key, "/")
 
 	// Pickup new tasks
-	if resp.Action == actionCreated && len(parts) == 3 && resp.Node.Dir {
+	if newActions[resp.Action] && len(parts) == 3 && resp.Node.Dir {
 		// Make sure it's not already claimed before returning it
 		for _, n := range resp.Node.Nodes {
 			if strings.HasSuffix(n.Key, OwnerMarker) {
@@ -299,7 +306,7 @@ func (ec *EtcdCoordinator) Command() (metafora.Command, error) {
 	}
 
 	const sorted = true
-	const recursive = false
+	const recursive = true
 startWatch:
 	for {
 		// Get existing commands
@@ -325,7 +332,7 @@ startWatch:
 		}
 
 		for {
-			resp, err := ec.watch(ec.commandPath, index, recursive)
+			resp, err := ec.watch(ec.commandPath, index)
 			if err != nil {
 				if err == restartWatchError {
 					continue startWatch
@@ -404,7 +411,8 @@ func (ec *EtcdCoordinator) Close() {
 //
 //   2. restartWatchError - the specified index is too old, try again with a
 //                          newer index
-func (ec *EtcdCoordinator) watch(path string, index uint64, recursive bool) (*etcd.Response, error) {
+func (ec *EtcdCoordinator) watch(path string, index uint64) (*etcd.Response, error) {
+	const recursive = true
 	for {
 		// Start the blocking watch after the last response's index.
 		rawResp, err := ec.Client.RawWatch(path, index+1, recursive, nil, ec.stop)
