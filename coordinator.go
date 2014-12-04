@@ -19,9 +19,10 @@ type Coordinator interface {
 	// implementations. NewConsumer will return Init's return value.
 	Init(CoordinatorContext) error
 
-	// Watch should do a blocking watch on the broker and return a task ID that
-	// can be claimed. Watch must return ("", nil) when Close or Freeze are
-	// called.
+	// Watch the broker for claimable tasks. Returned tasks are passed to the
+	// Balancer to check if a claim should be attempted.
+	//
+	// Watch returns ("", nil) when the Coordinator has been Closed.
 	Watch() (taskID string, err error)
 
 	// Claim is called by the Consumer when a Balancer has determined that a task

@@ -34,6 +34,7 @@ func testCmd(t *testing.T, cmd Command, name string, params map[string]interface
 }
 
 func TestCommands(t *testing.T) {
+	t.Parallel()
 	testCmd(t, CommandFreeze(), "freeze", nil)
 	testCmd(t, CommandUnfreeze(), "unfreeze", nil)
 	testCmd(t, CommandBalance(), "balance", nil)

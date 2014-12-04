@@ -33,7 +33,7 @@ type Consumer struct {
 	// Mutex to protect access to running
 	runL sync.Mutex
 
-	// WaitGroup for running handlers
+	// WaitGroup for running handlers and consumer goroutines
 	hwg sync.WaitGroup
 
 	bal      Balancer
@@ -41,6 +41,10 @@ type Consumer struct {
 	coord    Coordinator
 	logger   *logger
 	stop     chan struct{} // closed by Shutdown to cause Run to exit
+
+	// ticked on each loop of the main loop to enforce sequential interaction
+	// with coordinator and balancer
+	tick chan int
 
 	watch chan string // channel for watcher to send tasks to main loop
 
@@ -59,6 +63,7 @@ func NewConsumer(coord Coordinator, h HandlerFunc, b Balancer) (*Consumer, error
 		coord:    coord,
 		logger:   stdoutLogger(),
 		stop:     make(chan struct{}),
+		tick:     make(chan int),
 		watch:    make(chan string),
 	}
 
@@ -106,6 +111,7 @@ func (c *Consumer) Run() {
 				// Shutdown has been called.
 				return
 			case <-time.After(c.balEvery + time.Duration(randInt(balanceJitterMax))):
+				c.logger.Log(LogLevelInfo, "Balancing")
 				select {
 				case balance <- true:
 					// Ticked balance
@@ -113,6 +119,12 @@ func (c *Consumer) Run() {
 					// Shutdown has been called.
 					return
 				}
+			}
+			// Wait for main loop to signal balancing is done
+			select {
+			case <-c.stop:
+				return
+			case <-c.tick:
 			}
 		}
 	}()
@@ -145,6 +157,12 @@ func (c *Consumer) Run() {
 				return
 			case cmdChan <- cmd:
 			}
+			// Wait for main loop to signal command has been handled
+			select {
+			case <-c.stop:
+				return
+			case <-c.tick:
+			}
 		}
 	}()
 
@@ -166,6 +184,12 @@ func (c *Consumer) Run() {
 				}
 				c.logger.Log(LogLevelDebug, "Received command: %s", cmd)
 				c.handleCommand(cmd)
+			}
+			// Must send tick whenever main loop restarts
+			select {
+			case <-c.stop:
+				return
+			case c.tick <- 1:
 			}
 			continue
 		}
@@ -197,6 +221,12 @@ func (c *Consumer) Run() {
 			}
 			c.handleCommand(cmd)
 		}
+		// Signal that main loop is restarting after handling an event
+		select {
+		case <-c.stop:
+			return
+		case c.tick <- 1:
+		}
 	}
 }
 
@@ -217,7 +247,7 @@ func (c *Consumer) watcher() {
 			continue
 		}
 		if task == "" {
-			c.logger.Log(LogLevelDebug, "Coordinator has closed, exiting watch loop")
+			c.logger.Log(LogLevelInfo, "Coordinator has closed, no longer watching for tasks.")
 			return
 		}
 		// Send task to watcher (or shutdown)
@@ -225,6 +255,12 @@ func (c *Consumer) watcher() {
 		case <-c.stop:
 			return
 		case c.watch <- task:
+		}
+		// Wait for main loop to signal task has been handled
+		select {
+		case <-c.stop:
+			return
+		case <-c.tick:
 		}
 	}
 }
@@ -264,8 +300,8 @@ func (c *Consumer) Shutdown() {
 	default:
 		c.logger.Log(LogLevelDebug, "Stopping Run loop")
 		close(c.stop)
-		c.hwg.Wait()
 	}
+	c.hwg.Wait()
 }
 
 // Tasks returns a sorted list of running Task IDs.
