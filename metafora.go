@@ -37,6 +37,9 @@ type Consumer struct {
 	// WaitGroup for running handlers and consumer goroutines
 	hwg sync.WaitGroup
 
+	// WaitGroup so Shutdown() can block on Run() exiting fully
+	runwg sync.WaitGroup
+
 	bal      Balancer
 	balEvery time.Duration
 	coord    Coordinator
@@ -98,6 +101,10 @@ func (c *Consumer) SetLogger(l logOutputter, lvl LogLevel) {
 // Run blocks until Shutdown is called or an internal error occurs.
 func (c *Consumer) Run() {
 	c.logger.Log(LogLevelDebug, "Starting consumer")
+
+	// Increment run wait group so Shutdown() can block on Run() exiting fully.
+	c.runwg.Add(1)
+	defer c.runwg.Done()
 
 	// chans for core goroutines to communicate with main loop
 	balance := make(chan bool)
@@ -302,7 +309,13 @@ func (c *Consumer) Shutdown() {
 		c.logger.Log(LogLevelDebug, "Stopping Run loop")
 		close(c.stop)
 	}
+
+	// Wait for task handlers to exit.
 	c.hwg.Wait()
+
+	// Make sure Run() exits, otherwise coord.Close() might not finish before
+	// exiting.
+	c.runwg.Wait()
 }
 
 // Tasks returns a sorted list of running Task IDs.
