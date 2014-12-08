@@ -42,7 +42,8 @@ type Coordinator interface {
 	Command() (Command, error)
 
 	// Close indicates the Coordinator should stop watching and receiving
-	// commands. It is called during Consumer.Shutdown().
+	// commands. It is called during Consumer.Shutdown() and shutdown will block
+	// until Close() exits.
 	Close()
 }
 
