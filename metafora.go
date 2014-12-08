@@ -2,6 +2,7 @@ package metafora
 
 import (
 	"math/rand"
+	"runtime"
 	"sort"
 	"sync"
 	"time"
@@ -338,7 +339,9 @@ func (c *Consumer) claimed(taskID string) {
 		defer c.logger.Log(LogLevelInfo, "Task exited: %s", taskID)
 		defer func() {
 			if err := recover(); err != nil {
-				c.logger.Log(LogLevelError, "Handler %s panic()'d: %v", taskID, err)
+				stack := make([]byte, 50*1024)
+				sz := runtime.Stack(stack, false)
+				c.logger.Log(LogLevelError, "Handler %s panic()'d: %v\n%s", taskID, err, stack[:sz])
 				// panics are considered fatal errors. Make sure the task isn't
 				// rescheduled.
 				c.coord.Done(taskID)
@@ -395,7 +398,9 @@ func (c *Consumer) stopTask(taskID string) bool {
 	func() {
 		defer func() {
 			if err := recover(); err != nil {
-				c.logger.Log(LogLevelError, "Handler %s panic()'d on Stop: %v", taskID, err)
+				stack := make([]byte, 50*1024)
+				sz := runtime.Stack(stack, false)
+				c.logger.Log(LogLevelError, "Handler %s panic()'d on Stop: %v\n%s", taskID, err, stack[:sz])
 			}
 		}()
 
