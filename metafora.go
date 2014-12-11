@@ -346,10 +346,10 @@ func (c *Consumer) claimed(taskID string) {
 	// Associate handler with taskID
 	// **This is the only place tasks should be added to c.running**
 	c.runL.Lock()
+	defer c.runL.Unlock()
 	select {
 	case <-c.stop:
 		// We're closing, don't bother starting this task
-		c.runL.Unlock()
 		return
 	default:
 	}
@@ -357,12 +357,14 @@ func (c *Consumer) claimed(taskID string) {
 		// If a coordinator returns an already claimed task from Watch(), then it's
 		// a coordinator (or broker) bug.
 		c.logger.Log(LogLevelWarn, "Attempted to claim already running task %s", taskID)
-		c.runL.Unlock()
 		return
 	}
 	c.running[taskID] = runningTask{h: h, c: make(chan struct{})}
+
+	// This must be done in the runL lock after the stop chan check so Shutdown
+	// doesn't close(stop) and start Wait()ing concurrently.
+	// See "Note" http://golang.org/pkg/sync/#WaitGroup.Add
 	c.hwg.Add(1)
-	c.runL.Unlock()
 
 	// Start handler in its own goroutine
 	go func() {
