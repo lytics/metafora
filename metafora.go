@@ -354,7 +354,9 @@ func (c *Consumer) claimed(taskID string) {
 	default:
 	}
 	if _, ok := c.running[taskID]; ok {
-		c.logger.Log(LogLevelWarn, "Coordinator bug: Attempted to claim already running task %s", taskID)
+		// If a coordinator returns an already claimed task from Watch(), then it's
+		// a coordinator (or broker) bug.
+		c.logger.Log(LogLevelWarn, "Attempted to claim already running task %s", taskID)
 		c.runL.Unlock()
 		return
 	}
