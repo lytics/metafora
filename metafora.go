@@ -302,6 +302,9 @@ func (c *Consumer) shutdown() {
 // Close on the Coordinator. Running tasks will be released for other nodes to
 // claim.
 func (c *Consumer) Shutdown() {
+	// acquire the runL lock to make sure we don't race with claimed()'s <-c.stop
+	// check
+	c.runL.Lock()
 	select {
 	case <-c.stop:
 		// already stopped
@@ -309,6 +312,7 @@ func (c *Consumer) Shutdown() {
 		c.logger.Log(LogLevelDebug, "Stopping Run loop")
 		close(c.stop)
 	}
+	c.runL.Unlock()
 
 	// Wait for task handlers to exit.
 	c.hwg.Wait()
@@ -342,10 +346,22 @@ func (c *Consumer) claimed(taskID string) {
 	// Associate handler with taskID
 	// **This is the only place tasks should be added to c.running**
 	c.runL.Lock()
+	select {
+	case <-c.stop:
+		// We're closing, don't bother starting this task
+		c.runL.Unlock()
+		return
+	default:
+	}
+	if _, ok := c.running[taskID]; ok {
+		c.logger.Log(LogLevelWarn, "Coordinator bug: Attempted to claim already running task %s", taskID)
+		c.runL.Unlock()
+		return
+	}
 	c.running[taskID] = runningTask{h: h, c: make(chan struct{})}
+	c.hwg.Add(1)
 	c.runL.Unlock()
 
-	c.hwg.Add(1)
 	// Start handler in its own goroutine
 	go func() {
 		c.logger.Log(LogLevelInfo, "Task started: %s", taskID)
