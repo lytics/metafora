@@ -368,17 +368,7 @@ func (c *Consumer) claimed(taskID string) {
 
 	// Start handler in its own goroutine
 	go func() {
-		c.logger.Log(LogLevelInfo, "Task started: %s", taskID)
-		defer c.logger.Log(LogLevelInfo, "Task exited: %s", taskID)
 		defer func() {
-			if err := recover(); err != nil {
-				stack := make([]byte, 50*1024)
-				sz := runtime.Stack(stack, false)
-				c.logger.Log(LogLevelError, "Handler %s panic()'d: %v\n%s", taskID, err, stack[:sz])
-				// panics are considered fatal errors. Make sure the task isn't
-				// rescheduled.
-				c.coord.Done(taskID)
-			}
 			// **This is the only place tasks should be removed from c.running**
 			c.runL.Lock()
 			close(c.running[taskID].c)
@@ -388,19 +378,35 @@ func (c *Consumer) claimed(taskID string) {
 		}()
 
 		// Run the task
-		c.logger.Log(LogLevelDebug, "Calling run for task %s", taskID)
-		if err := h.Run(taskID); err != nil {
-			if ferr, ok := err.(FatalError); ok && ferr.Fatal() {
-				c.logger.Log(LogLevelError, "Handler for %s exited with fatal error: %v", taskID, err)
-			} else {
-				c.logger.Log(LogLevelError, "Handler for %s exited with error: %v", taskID, err)
-				// error was non-fatal, release and let another node try
-				c.coord.Release(taskID)
-				return
-			}
+		c.logger.Log(LogLevelInfo, "Task started: %s", taskID)
+		done := c.runTask(h.Run, taskID)
+		if done {
+			c.logger.Log(LogLevelInfo, "Task exited: %s (marking done)", taskID)
+			c.coord.Done(taskID)
+		} else {
+			c.logger.Log(LogLevelInfo, "Task exited: %s (releasing)", taskID)
+			c.coord.Release(taskID)
 		}
-		c.coord.Done(taskID)
 	}()
+}
+
+// runTask executes a handler's Run method and recovers from panic()s.
+func (c *Consumer) runTask(run func(string) bool, task string) bool {
+	done := false
+	func() {
+		defer func() {
+			if err := recover(); err != nil {
+				stack := make([]byte, 50*1024)
+				sz := runtime.Stack(stack, false)
+				c.logger.Log(LogLevelError, "Handler %s panic()'d: %v\n%s", task, err, stack[:sz])
+				// panics are considered fatal errors. Make sure the task isn't
+				// rescheduled.
+				done = true
+			}
+		}()
+		done = run(task)
+	}()
+	return done
 }
 
 // release stops and Coordinator.Release()s a task if it's running.

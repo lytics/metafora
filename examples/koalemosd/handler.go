@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -17,10 +16,6 @@ import (
 	"github.com/lytics/metafora"
 )
 
-var (
-	NoArgs = errors.New("koalemosd: no args in task")
-)
-
 type shellHandler struct {
 	etcdc *etcd.Client
 	id    string
@@ -30,31 +25,25 @@ type shellHandler struct {
 	stop  bool
 }
 
-type FatalError struct {
-	error
-}
-
-func (*FatalError) Fatal() bool { return true }
-
 // Run retrieves task information from etcd and executes it.
-func (h *shellHandler) Run(taskID string) error {
+func (h *shellHandler) Run(taskID string) (done bool) {
 	h.id = taskID
 
 	const sort, recurs = false, false
 	resp, err := h.etcdc.Get("/koalemos-tasks/"+taskID, sort, recurs)
 	if err != nil {
 		h.log("Fatal error: Failed retrieving task from etcd: %v", err)
-		return &FatalError{err}
+		return false
 	}
 
 	task := struct{ Args []string }{}
 	if err := json.Unmarshal([]byte(resp.Node.Value), &task); err != nil {
 		h.log("Failed to unmarshal command body: %v", err)
-		return err
+		return true
 	}
 	if len(task.Args) == 0 {
 		h.log("No Args in task: %s", resp.Node.Value)
-		return NoArgs
+		return true
 	}
 
 	cmd := exec.Command(task.Args[0], task.Args[1:]...)
@@ -63,7 +52,7 @@ func (h *shellHandler) Run(taskID string) error {
 	stdout, stderr, err := outFiles(taskID)
 	if err != nil {
 		h.log("Could not create log files: %v", err)
-		return err
+		return false
 	}
 	defer stdout.Close()
 	defer stderr.Close()
@@ -77,14 +66,14 @@ func (h *shellHandler) Run(taskID string) error {
 	if h.stop {
 		h.log("Task stopped before it even started.")
 		h.m.Unlock()
-		return nil
+		return false
 	}
 
 	h.log("Running task: %s", strings.Join(task.Args, " "))
 	if err := cmd.Start(); err != nil {
 		h.m.Unlock()
 		h.log("Error starting task: %v", err)
-		return nil // don't return the error, metafora doesn't care
+		return true
 	}
 	h.p = cmd.Process
 	h.ps = cmd.ProcessState
@@ -93,26 +82,25 @@ func (h *shellHandler) Run(taskID string) error {
 	h.m.Unlock()
 
 	h.log("running")
-	stopping := false
 
 	if err := cmd.Wait(); err != nil {
 		if err.(*exec.ExitError).Sys().(syscall.WaitStatus).Signal() == os.Interrupt {
-			stopping = true
+			h.log("Stopping")
 		} else {
-			// Metafora doesn't care about internal task failures, so just log it
 			h.log("Exited with error: %v", err)
+			done = true // don't retry commands that error'd
 		}
 	}
 
-	// Only delete task if we're not stopping
-	if !stopping {
+	// Only delete task if command is done
+	if done {
 		//FIXME Use CompareAndDelete
 		if _, err := h.etcdc.Delete("/koalemos-tasks/"+taskID, recurs); err != nil {
 			h.log("Error deleting task body: %v", err)
 		}
 	}
-	h.log("done")
-	return nil
+	h.log("done? %t", done)
+	return done
 }
 
 // Stop sends the Interrupt signal to the running process.

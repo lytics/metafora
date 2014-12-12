@@ -4,28 +4,49 @@ package metafora
 // Handler for each claimed task, call Run once and only once, and call Stop
 // when the task should persist its progress and exit.
 type Handler interface {
-	// Run should block until a task is complete. If it returns nil, the task is
-	// considered complete. If error is non-nil, ...well... log it? FIXME
-	Run(taskID string) error
+	// Run handles a task and blocks until completion or Stop is called.
+	//
+	// If Run returns true, Metafora will mark the task as Done via the
+	// Coordinator. The task will not be rescheduled.
+	//
+	// If Run returns false, Metafora will Release the task via the Coordinator.
+	// The task will be scheduled to run again.
+	//
+	// Panics are treated the same as returning true.
+	Run(taskID string) (done bool)
 
-	// Stop should signal to the handler to shutdown gracefully. Stop
-	// implementations should not block until Run exits.
+	// Stop signals to the handler to shutdown gracefully. Stop implementations
+	// should not block until Run exits.
+	//
+	// Run probably wants to return false when stop is called, but this is left
+	// up to the implementation as races between Run finishing and Stop being
+	// called can happen.
 	Stop()
 }
 
 // HandlerFunc is called by the Consumer to create a new Handler for each task.
 type HandlerFunc func() Handler
 
-// FatalError is a custom error interface Handlers may choose to return from
-// their Run methods in order to indicate to Metafora that the task has failed
-// and should not be rescheduled.
-//
-// If an error is returned by Run that does not implement this interface, or
-// Fatal() returns false, the task will be rescheduled.
-type FatalError interface {
-	error
+// SimpleHander creates a HandlerFunc for a simple function that accepts a stop
+// channel. The channel will be closed when Stop is called.
+func SimpleHandler(f func(task string, stop <-chan bool) bool) HandlerFunc {
+	return func() Handler {
+		return &simpleHandler{
+			stop: make(chan bool),
+			f:    f,
+		}
+	}
+}
 
-	// Fatal returns true when an error is unrecoverable and should not be
-	// rescheduled.
-	Fatal() bool
+type simpleHandler struct {
+	stop chan bool
+	f    func(string, <-chan bool) bool
+}
+
+func (h *simpleHandler) Run(task string) bool {
+	return h.f(task, h.stop)
+}
+
+func (h *simpleHandler) Stop() {
+	close(h.stop)
 }
