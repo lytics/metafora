@@ -33,7 +33,7 @@ func (h *shellHandler) Run(taskID string) (done bool) {
 	resp, err := h.etcdc.Get("/koalemos-tasks/"+taskID, sort, recurs)
 	if err != nil {
 		h.log("Fatal error: Failed retrieving task from etcd: %v", err)
-		return true
+		return false
 	}
 
 	task := struct{ Args []string }{}
