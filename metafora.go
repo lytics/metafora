@@ -179,7 +179,7 @@ func (c *Consumer) Run() {
 
 	// Main Loop ensures events are processed synchronously
 	for {
-		if c.frozen() {
+		if c.Frozen() {
 			// Only recv commands while frozen
 			select {
 			case <-c.stop:
@@ -275,7 +275,8 @@ func (c *Consumer) watcher() {
 
 func (c *Consumer) balance() {
 	for _, task := range c.bal.Balance() {
-		//TODO Release tasks asynchronously as their shutdown might be slow?
+		//FIXME Release tasks asynchronously as their shutdown might be slow or
+		//      block indefinitely.
 		c.release(task)
 	}
 }
@@ -452,7 +453,12 @@ func (c *Consumer) stopTask(taskID string) bool {
 	return true
 }
 
-func (c *Consumer) frozen() bool {
+// Frozen returns true if Metafora is no longer watching for new tasks or
+// rebalancing.
+//
+// Metafora will remain frozen until receiving an Unfreeze command or it is
+// restarted (frozen state is not persisted).
+func (c *Consumer) Frozen() bool {
 	c.freezeL.Lock()
 	r := c.freeze
 	c.freezeL.Unlock()
@@ -462,7 +468,7 @@ func (c *Consumer) frozen() bool {
 func (c *Consumer) handleCommand(cmd Command) {
 	switch cmd.Name() {
 	case cmdFreeze:
-		if c.frozen() {
+		if c.Frozen() {
 			c.logger.Log(LogLevelInfo, "Ignoring freeze command: already frozen")
 			return
 		}
@@ -471,7 +477,7 @@ func (c *Consumer) handleCommand(cmd Command) {
 		c.freeze = true
 		c.freezeL.Unlock()
 	case cmdUnfreeze:
-		if !c.frozen() {
+		if !c.Frozen() {
 			c.logger.Log(LogLevelInfo, "Ignoring unfreeze command: not frozen")
 			return
 		}

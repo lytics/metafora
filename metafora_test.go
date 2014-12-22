@@ -101,7 +101,7 @@ func TestConsumer(t *testing.T) {
 	hf, tasksRun := newTestHandlerFunc(t)
 
 	// Create the consumer and run it
-	c, _ := NewConsumer(tc, hf, &DumbBalancer{})
+	c, _ := NewConsumer(tc, hf, bal)
 	s := make(chan int)
 	start := time.Now()
 	go func() {
