@@ -2,6 +2,7 @@ package metafora
 
 import (
 	"testing"
+	"time"
 )
 
 var (
@@ -111,4 +112,47 @@ type TestConsumerState struct {
 
 func (tc *TestConsumerState) Tasks() []string {
 	return tc.Current
+}
+
+// Sleepy Balancer Tests
+
+type sbCtx struct {
+	t     *testing.T
+	tasks []string
+}
+
+func (ctx *sbCtx) Tasks() []string {
+	return ctx.tasks
+}
+func (ctx *sbCtx) Log(l LogLevel, v string, args ...interface{}) {
+	ctx.t.Logf(l.String()+" "+v, args)
+}
+
+func TestSleepBalancer(t *testing.T) {
+	t.Parallel()
+	c := &sbCtx{t: t, tasks: make([]string, 0, 10)}
+
+	b := &SleepBalancer{}
+	b.Init(c)
+
+	task := "test-task"
+	pre := time.Now()
+	total := 0
+	for i := 0; i < 10; i++ {
+		total += i
+		b.CanClaim(task)
+		c.tasks = append(c.tasks, task)
+	}
+	post := time.Now()
+	minimum := pre.Add(time.Duration(total) * sleepBalLen)
+
+	// Sleep balancer should never finish before the minimum timeout threshold
+	if post.Before(minimum) {
+		t.Fatalf("SleepBalancer finished too early: %s < %s", post, minimum)
+	}
+
+	// Sleep balancer shouldn't experience much overhead
+	if post.After(minimum.Add(50 * time.Millisecond)) {
+		t.Fatalf("SleepBalancer went a worrying amount over the expected time: %s > %s", post, minimum)
+	}
 }
