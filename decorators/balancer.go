@@ -24,7 +24,14 @@ func init() {
 //                 MetadataClient for etcd can read them out.
 
 /*
-	Selectors are associated with tasks
+	Selectors are associated with task ids, to allow that task to be
+	picky about which nodes it'll accept.
+
+	Example Selectors :
+	   eq(fastnetwork,"1") AND eq(highmemory,"1") AND contains(binary_version, 2.12)
+	   eq(freemium_node,"1")
+	   contains(host_name,"prod")
+	   contains(allowed_accounts,"123")
 */
 type Selector string
 
