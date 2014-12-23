@@ -1,18 +1,11 @@
 package metafora
 
 import (
+	"net/url"
 	"testing"
 
 	"github.com/lytics/metafora"
 )
-
-//TODO Add support for boolean options between selectors.
-//
-// For cases like:
-//   labels contains(highmemory && fastnetwork)
-// The current code only supports:
-//   labels contains(highmemory || fastnetwork)
-// With the || being implicit
 
 func TestSelectDecoratorWithFairBalancerOneNode(t *testing.T) {
 	const NodeId = "node1"
@@ -25,19 +18,23 @@ func TestSelectDecoratorWithFairBalancerOneNode(t *testing.T) {
 		Current: map[string]int{NodeId: 5},
 	}
 
+	//Labels for this node
+	labels := make(url.Values)
+	labels.Set("node_name", "graywind")
+	labels.Set("binary_version", "2.12.66")
+	labels.Set("fastnetwork", "1")
+	labels.Set("highmemory", "1")
+
+	//selectors by taskid. These are associated with a task, to insure the task lands on a node of your choice.
+	selectors := map[string]Selector{
+		taskIdWithSels:                       `eq(fastnetwork,"1") AND eq(highmemory,"1") AND contains(binary_version,2.12)`,
+		taskIdWithSelsThatDontMatchAnyLabels: `eq(nvidia_gpus,"1") AND eq(highmemory,"1") AND contains(binary_version,2.12)`,
+	}
+
 	mclient := &testMetadataClient{
-		sels: map[string]SelectorSet{
-			taskIdWithSels: SelectorSet{
-				"fastnetwork": nil,
-			},
-			taskIdWithSelsThatDontMatchAnyLabels: SelectorSet{
-				"highmemory": nil,
-			},
-		},
-		labs: map[string]LabelSet{
-			NodeId: LabelSet{
-				"fastnetwork": nil,
-			},
+		sels: selectors,
+		labs: map[string]url.Values{
+			NodeId: labels,
 		},
 	}
 
@@ -51,16 +48,20 @@ func TestSelectDecoratorWithFairBalancerOneNode(t *testing.T) {
 
 	sb := WrapBalancerAsSelectable(NodeId, fb, clusterstate, mclient)
 
+	//
+	//Test that this tasks return the correct Claim:
+	//
 	if !sb.CanClaim(taskIdNoSels) {
-		t.Fatal("Expected claim to be true")
+		t.Fatal("Expected claim to be true, the task had no selectors")
 	}
 
 	if !sb.CanClaim(taskIdWithSels) {
-		t.Fatal("Expected claim to be true")
+		t.Fatal("Expected claim to be true, the task had selectors that all match")
 	}
 
 	if sb.CanClaim(taskIdWithSelsThatDontMatchAnyLabels) {
-		t.Fatal("Expected claim to be false")
+		//nvidia_gpus should have failed.
+		t.Fatal("Expected claim to be false, this task has selectors that shouldn't have matched any values.")
 	}
 
 }
@@ -71,14 +72,14 @@ func TestSelectDecoratorWithFairBalancerOneNode(t *testing.T) {
 ///////////////////////////////////////
 // decorators.MetadataClient
 type testMetadataClient struct {
-	sels map[string]SelectorSet
-	labs map[string]LabelSet
+	sels map[string]Selector
+	labs map[string]url.Values
 }
 
-func (md *testMetadataClient) Selectors(taskid string) SelectorSet {
+func (md *testMetadataClient) Selector(taskid string) Selector {
 	return md.sels[taskid]
 }
-func (md *testMetadataClient) Labels(nodeid string) LabelSet {
+func (md *testMetadataClient) Labels(nodeid string) url.Values {
 	return md.labs[nodeid]
 }
 
