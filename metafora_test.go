@@ -2,11 +2,12 @@ package metafora
 
 import (
 	"errors"
-	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
 )
+
+var bal = &DumbBalancer{}
 
 // Handler/Consumer test
 
@@ -55,13 +56,13 @@ type testHandler struct {
 	tasksRun chan string
 }
 
-func (h *testHandler) Run(id string) error {
+func (h *testHandler) Run(id string) bool {
 	h.tasksRun <- id
 	h.id = id
 	h.t.Logf("Run(%s)", id)
 	<-h.stop
 	h.t.Logf("Stop received for %s", id)
-	return nil
+	return true
 }
 
 func (h *testHandler) Stop() {
@@ -100,7 +101,7 @@ func TestConsumer(t *testing.T) {
 	hf, tasksRun := newTestHandlerFunc(t)
 
 	// Create the consumer and run it
-	c, _ := NewConsumer(tc, hf, &DumbBalancer{})
+	c, _ := NewConsumer(tc, hf, bal)
 	s := make(chan int)
 	start := time.Now()
 	go func() {
@@ -231,8 +232,8 @@ func TestBalancer(t *testing.T) {
 
 type noopHandler struct{}
 
-func (noopHandler) Run(string) error { return nil }
-func (noopHandler) Stop()            {}
+func (noopHandler) Run(string) bool { return true }
+func (noopHandler) Stop()           {}
 
 // TestHandleTask ensures that tasks are marked as done once handled.
 func TestHandleTask(t *testing.T) {
@@ -242,6 +243,8 @@ func TestHandleTask(t *testing.T) {
 	go c.Run()
 	coord.tasks <- "task1"
 	select {
+	case <-coord.releases:
+		t.Errorf("Release called, expected Done!")
 	case <-coord.dones:
 	case <-time.After(100 * time.Millisecond):
 		t.Fatalf("Took too long to mark task as done")
@@ -249,52 +252,57 @@ func TestHandleTask(t *testing.T) {
 	c.Shutdown()
 }
 
-type ferr bool
-
-func (err ferr) Error() string { return fmt.Sprintf("fatal error=%t", err) }
-func (err ferr) Fatal() bool   { return bool(err) }
-
-type errHandler struct{}
-
-func (errHandler) Run(taskID string) error {
-	if taskID == "panictask" {
-		panic("test panic")
-	}
-	return ferr(taskID == "fataltask")
-}
-func (errHandler) Stop() {}
-
-// TestHandleTaskErr ensures that tasks are either released or marked as done
-// if Run returns an error.
-func TestHandleTaskErr(t *testing.T) {
-	hf := func() Handler { return errHandler{} }
+// TestTaskPanic ensures panics from Run methods are turned into Done calls.
+func TestTaskPanic(t *testing.T) {
+	t.Parallel()
+	hf := SimpleHandler(func(string, <-chan bool) bool {
+		panic("TestTaskPanic")
+	})
 	coord := newTestCoord()
-	c, _ := NewConsumer(coord, hf, &DumbBalancer{})
+	c, _ := NewConsumer(coord, hf, bal)
 	go c.Run()
-	coord.tasks <- "task1"
-	coord.tasks <- "fataltask"
-	coord.tasks <- "panictask"
-	// 2 dones (1 panic, 1 fatal)
-	for i := 2; i > 0; i-- {
+	coord.tasks <- "1"
+	coord.tasks <- "2"
+	coord.tasks <- "3"
+	for i := 3; i > 0; i-- {
 		select {
 		case task := <-coord.dones:
 			t.Logf("%s done", task)
-		case <-time.After(100 * time.Millisecond):
-			t.Fatalf("Took too long to mark task as done")
+		case task := <-coord.releases:
+			t.Errorf("%s released when it should have been marked Done!", task)
+		case <-time.After(200 * time.Millisecond):
+			t.Fatalf("Took too long to mark task(s) as done.")
 		}
 	}
+	c.Shutdown()
+}
 
-	// 1 release
-	select {
-	case task := <-coord.releases:
-		t.Logf("%s released", task)
-	case <-time.After(100 * time.Millisecond):
-		t.Fatal("Took too long to release task")
-	}
-
-	// nothing else should have happened
-	if len(coord.dones) > 0 || len(coord.releases) > 0 {
-		t.Fatalf("Unexpected extra events: dones=%d releases=%d", len(coord.dones), len(coord.releases))
+// TestShutdown ensures Shutdown causes Run() to exit cleanly.
+func TestShutdown(t *testing.T) {
+	t.Parallel()
+	hf := SimpleHandler(func(_ string, c <-chan bool) bool {
+		<-c
+		return false
+	})
+	coord := newTestCoord()
+	c, _ := NewConsumer(coord, hf, bal)
+	go c.Run()
+	coord.tasks <- "1"
+	coord.tasks <- "2"
+	coord.tasks <- "3"
+	time.Sleep(100 * time.Millisecond)
+	if len(coord.dones)+len(coord.releases) > 0 {
+		t.Fatalf("Didn't expect any tasks to exit before Shutdown was called.")
 	}
 	c.Shutdown()
+	for i := 3; i > 0; i-- {
+		select {
+		case task := <-coord.dones:
+			t.Errorf("%s makred done when it should have been Released!", task)
+		case task := <-coord.releases:
+			t.Logf("%s relased", task)
+		case <-time.After(200 * time.Millisecond):
+			t.Fatalf("Took too long to mark task(s) as released.")
+		}
+	}
 }

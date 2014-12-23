@@ -179,7 +179,7 @@ func (c *Consumer) Run() {
 
 	// Main Loop ensures events are processed synchronously
 	for {
-		if c.frozen() {
+		if c.Frozen() {
 			// Only recv commands while frozen
 			select {
 			case <-c.stop:
@@ -275,7 +275,8 @@ func (c *Consumer) watcher() {
 
 func (c *Consumer) balance() {
 	for _, task := range c.bal.Balance() {
-		//TODO Release tasks asynchronously as their shutdown might be slow?
+		//FIXME Release tasks asynchronously as their shutdown might be slow or
+		//      block indefinitely.
 		c.release(task)
 	}
 }
@@ -302,6 +303,9 @@ func (c *Consumer) shutdown() {
 // Close on the Coordinator. Running tasks will be released for other nodes to
 // claim.
 func (c *Consumer) Shutdown() {
+	// acquire the runL lock to make sure we don't race with claimed()'s <-c.stop
+	// check
+	c.runL.Lock()
 	select {
 	case <-c.stop:
 		// already stopped
@@ -309,6 +313,7 @@ func (c *Consumer) Shutdown() {
 		c.logger.Log(LogLevelDebug, "Stopping Run loop")
 		close(c.stop)
 	}
+	c.runL.Unlock()
 
 	// Wait for task handlers to exit.
 	c.hwg.Wait()
@@ -342,23 +347,29 @@ func (c *Consumer) claimed(taskID string) {
 	// Associate handler with taskID
 	// **This is the only place tasks should be added to c.running**
 	c.runL.Lock()
+	defer c.runL.Unlock()
+	select {
+	case <-c.stop:
+		// We're closing, don't bother starting this task
+		return
+	default:
+	}
+	if _, ok := c.running[taskID]; ok {
+		// If a coordinator returns an already claimed task from Watch(), then it's
+		// a coordinator (or broker) bug.
+		c.logger.Log(LogLevelWarn, "Attempted to claim already running task %s", taskID)
+		return
+	}
 	c.running[taskID] = runningTask{h: h, c: make(chan struct{})}
-	c.runL.Unlock()
 
+	// This must be done in the runL lock after the stop chan check so Shutdown
+	// doesn't close(stop) and start Wait()ing concurrently.
+	// See "Note" http://golang.org/pkg/sync/#WaitGroup.Add
 	c.hwg.Add(1)
+
 	// Start handler in its own goroutine
 	go func() {
-		c.logger.Log(LogLevelInfo, "Task started: %s", taskID)
-		defer c.logger.Log(LogLevelInfo, "Task exited: %s", taskID)
 		defer func() {
-			if err := recover(); err != nil {
-				stack := make([]byte, 50*1024)
-				sz := runtime.Stack(stack, false)
-				c.logger.Log(LogLevelError, "Handler %s panic()'d: %v\n%s", taskID, err, stack[:sz])
-				// panics are considered fatal errors. Make sure the task isn't
-				// rescheduled.
-				c.coord.Done(taskID)
-			}
 			// **This is the only place tasks should be removed from c.running**
 			c.runL.Lock()
 			close(c.running[taskID].c)
@@ -368,19 +379,35 @@ func (c *Consumer) claimed(taskID string) {
 		}()
 
 		// Run the task
-		c.logger.Log(LogLevelDebug, "Calling run for task %s", taskID)
-		if err := h.Run(taskID); err != nil {
-			if ferr, ok := err.(FatalError); ok && ferr.Fatal() {
-				c.logger.Log(LogLevelError, "Handler for %s exited with fatal error: %v", taskID, err)
-			} else {
-				c.logger.Log(LogLevelError, "Handler for %s exited with error: %v", taskID, err)
-				// error was non-fatal, release and let another node try
-				c.coord.Release(taskID)
-				return
-			}
+		c.logger.Log(LogLevelInfo, "Task started: %s", taskID)
+		done := c.runTask(h.Run, taskID)
+		if done {
+			c.logger.Log(LogLevelInfo, "Task exited: %s (marking done)", taskID)
+			c.coord.Done(taskID)
+		} else {
+			c.logger.Log(LogLevelInfo, "Task exited: %s (releasing)", taskID)
+			c.coord.Release(taskID)
 		}
-		c.coord.Done(taskID)
 	}()
+}
+
+// runTask executes a handler's Run method and recovers from panic()s.
+func (c *Consumer) runTask(run func(string) bool, task string) bool {
+	done := false
+	func() {
+		defer func() {
+			if err := recover(); err != nil {
+				stack := make([]byte, 50*1024)
+				sz := runtime.Stack(stack, false)
+				c.logger.Log(LogLevelError, "Handler %s panic()'d: %v\n%s", task, err, stack[:sz])
+				// panics are considered fatal errors. Make sure the task isn't
+				// rescheduled.
+				done = true
+			}
+		}()
+		done = run(task)
+	}()
+	return done
 }
 
 // release stops and Coordinator.Release()s a task if it's running.
@@ -426,7 +453,12 @@ func (c *Consumer) stopTask(taskID string) bool {
 	return true
 }
 
-func (c *Consumer) frozen() bool {
+// Frozen returns true if Metafora is no longer watching for new tasks or
+// rebalancing.
+//
+// Metafora will remain frozen until receiving an Unfreeze command or it is
+// restarted (frozen state is not persisted).
+func (c *Consumer) Frozen() bool {
 	c.freezeL.Lock()
 	r := c.freeze
 	c.freezeL.Unlock()
@@ -436,7 +468,7 @@ func (c *Consumer) frozen() bool {
 func (c *Consumer) handleCommand(cmd Command) {
 	switch cmd.Name() {
 	case cmdFreeze:
-		if c.frozen() {
+		if c.Frozen() {
 			c.logger.Log(LogLevelInfo, "Ignoring freeze command: already frozen")
 			return
 		}
@@ -445,7 +477,7 @@ func (c *Consumer) handleCommand(cmd Command) {
 		c.freeze = true
 		c.freezeL.Unlock()
 	case cmdUnfreeze:
-		if !c.frozen() {
+		if !c.Frozen() {
 			c.logger.Log(LogLevelInfo, "Ignoring unfreeze command: not frozen")
 			return
 		}

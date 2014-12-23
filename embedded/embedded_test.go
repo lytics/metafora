@@ -1,7 +1,6 @@
 package embedded
 
 import (
-	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -122,9 +121,9 @@ type testhandler struct {
 	addfunc func(r string)
 }
 
-func (th *testhandler) Run(taskId string) error {
+func (th *testhandler) Run(taskId string) (done bool) {
 	th.addfunc(taskId)
-	return nil
+	return true
 }
 
 func (th *testhandler) Stop() {
@@ -136,14 +135,14 @@ type blockingtesthandler struct {
 	tc       *testcounter
 }
 
-func (bh *blockingtesthandler) Run(taskId string) error {
+func (bh *blockingtesthandler) Run(taskId string) (done bool) {
 	select {
 	case <-bh.stopchan:
 		bh.tc.Add(taskId)
 	case <-time.After(time.Second * 3):
-		return fmt.Errorf("Not stopped before three seconds")
+		return false
 	}
-	return nil
+	return true
 }
 
 func (bh *blockingtesthandler) Stop() {
