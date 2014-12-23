@@ -3,10 +3,10 @@ metafora
 
 [![Build Status](https://travis-ci.org/lytics/metafora.svg?branch=master)](https://travis-ci.org/lytics/metafora) [![GoDoc](https://godoc.org/github.com/lytics/metafora?status.svg)](https://godoc.org/github.com/lytics/metafora)
 
-Ordasity inspired distributed task runner.
-
 Metafora is a [Go](https://golang.org) library designed to run long-running
 (minutes to permanent) tasks in a cluster.
+
+Metafora was inspired by [Ordasity](https://github.com/boundary/ordasity).
 
 Features
 --------
@@ -16,9 +16,9 @@ Features
 * **Fault tolerant** (work is reassigned if nodes disappear)
 * **Simple** (few states, no checkpointing, no configuration management)
 * **Extensible** (well defined interfaces for implementing balancing and
-  coordinating)
+  coordination)
 
-Many aspects of task running are left up to the *Handler* implementation such
+Many aspects of task running are left up to the `Handler` implementation such
 as checkpointing work progress, configuration management, and more complex
 state transitions than Metafora provides (such as Paused, Sleep, etc.).
 
@@ -56,19 +56,19 @@ FAQ
 
 **Q. Is it ready for production use?**
 
-No. Check back soon.
+Depends. See [Documentation/production.md](Documentation/production.md).
 
 **Q. Where is the metaforad daemon?**
 
 It doesn't exist. Metafora is library for you to import and use in a service
 you write. Metafora handles task management but leaves implementation details
-such as task implementation and daemonization up to the user.
+such as handler implementation and daemonization up to the user.
 
 **Q. Why not use [Ordasity](https://github.com/boundary/ordasity)?**
 
-[We](http://lytics.io) have an existing work running system written in Go and
-needed a new distribution library for it. There's over 25k lines of Go we'd
-like to reuse and couldn't with Ordasity as it runs on the JVM.
+[We](http://lytics.io) have an existing work system written in Go and needed a
+new distribution library for it. There's over 25k lines of Go we'd like to
+reuse and couldn't with Ordasity as it runs on the JVM.
 
 **Q. Why not use [donut](https://github.com/dforsyth/donut)?**
 
@@ -77,23 +77,23 @@ While we've been inspired by many of its basic interfaces there really wasn't
 much code we were interested in reusing. At ~600 lines of code in donut,
 starting from scratch didn't seem like it would lose us much.
 
-That being said we're very appreciative of donut! It heavily influenced our
-design.
+That being said we're very appreciative of donut! It influenced our design.
 
 **Q. Why not use [goworker](http://www.goworker.org/)?**
 
-goworker does not support rebalancing and appears to be more focused on a high
-rate (>1/s) of short lived work items. Metafora is designed for a low rate
-(<1/s) of long lived work items. This means rebalancing running work is
-critical.
+goworker does not support rebalancing and is more focused on a high rate (>1/s)
+of short lived work items. Metafora is designed for a low rate (<1/s) of long
+lived work items. This means rebalancing running work is critical.
 
 **Q. Why not use a cluster management framework like
 [Mesos](http://mesos.apache.org/) or [Kubernetes](http://kubernetes.io/)?**
 
-You can use a cluster management framework to run Metafora, but you *can't* use
-Metafora as a cluster management framework.
+You can use a cluster management framework to run Metafora, but you shouldn't
+use Metafora as a cluster management framework.
 
-While our tasks are long lived, they're often not large or resource intensive.
+While our tasks are long lived, they don't need access to system resources such
+as process privileges/capabilities, the filesystem, binding to TCP/UDP ports,
+etc.
 Cluster management frameworks' smallest unit of work tends to be an operating
 system process. We wanted to run many tasks per process.
 
