@@ -18,6 +18,10 @@ type Handler interface {
 	// Stop signals to the handler to shutdown gracefully. Stop implementations
 	// should not block until Run exits.
 	//
+	// Stop may be called more than once but calls are serialized. Implmentations
+	// may perform different operations on subsequent calls to Stop to implement
+	// graceful vs. forced shutdown conditions.
+	//
 	// Run probably wants to return false when stop is called, but this is left
 	// up to the implementation as races between Run finishing and Stop being
 	// called can happen.
@@ -48,5 +52,9 @@ func (h *simpleHandler) Run(task string) bool {
 }
 
 func (h *simpleHandler) Stop() {
-	close(h.stop)
+	select {
+	case <-h.stop:
+	default:
+		close(h.stop)
+	}
 }
