@@ -140,7 +140,10 @@ func (e *FairBalancer) desiredCount(current map[string]int) int {
 		total += c
 	}
 
-	avg := total / len(current)
+	avg := 0
+	if len(current) > 0 {
+		avg = total / len(current)
+	}
 
 	return int(math.Ceil(float64(float32(avg) * e.releaseThreshold)))
 }
