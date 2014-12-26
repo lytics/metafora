@@ -18,9 +18,15 @@ var (
 	consumerRetryDelay = 10 * time.Second
 )
 
+// runningTask is the per-task state Metafora tracks internally.
 type runningTask struct {
+	// handler on which Run and Stop are called
 	h Handler
+
+	// channel that's closed after Run() exits
 	c chan struct{}
+
+	stopL sync.Mutex
 }
 
 // Consumer is the core Metafora task runner.
@@ -38,7 +44,8 @@ type Consumer struct {
 	hwg sync.WaitGroup
 
 	// WaitGroup so Shutdown() can block on Run() exiting fully
-	runwg sync.WaitGroup
+	runwg  sync.WaitGroup
+	runwgL sync.Mutex
 
 	bal      Balancer
 	balEvery time.Duration
@@ -103,7 +110,9 @@ func (c *Consumer) Run() {
 	c.logger.Log(LogLevelDebug, "Starting consumer")
 
 	// Increment run wait group so Shutdown() can block on Run() exiting fully.
+	c.runwgL.Lock()
 	c.runwg.Add(1)
+	c.runwgL.Unlock()
 	defer c.runwg.Done()
 
 	// chans for core goroutines to communicate with main loop
@@ -275,9 +284,7 @@ func (c *Consumer) watcher() {
 
 func (c *Consumer) balance() {
 	for _, task := range c.bal.Balance() {
-		//FIXME Release tasks asynchronously as their shutdown might be slow or
-		//      block indefinitely.
-		c.release(task)
+		go c.release(task)
 	}
 }
 
@@ -320,7 +327,9 @@ func (c *Consumer) Shutdown() {
 
 	// Make sure Run() exits, otherwise coord.Close() might not finish before
 	// exiting.
+	c.runwgL.Lock()
 	c.runwg.Wait()
+	c.runwgL.Unlock()
 }
 
 // Tasks returns a sorted list of running Task IDs.
@@ -444,11 +453,15 @@ func (c *Consumer) stopTask(taskID string) bool {
 			}
 		}()
 
+		// Serialize calls to Stop as a convenience to handler implementors.
+		task.stopL.Lock()
+		defer task.stopL.Unlock()
 		task.h.Stop()
 	}()
 
-	// Once the handler is stopped...
-	//FIXME should there be a timeout here?
+	// Block until the handler finishes - even if it blocks indefinitely.
+	// Otherwise we may release a task that is still running which would allow it
+	// to run on multiple nodes concurrently.
 	<-task.c
 	return true
 }

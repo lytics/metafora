@@ -19,7 +19,7 @@ func TestFairBalancerOneNode(t *testing.T) {
 
 	consumerstate := &TestConsumerState{
 		[]string{"1", "2", "3", "4", "5"},
-		&logger{},
+		LogT(t),
 	}
 
 	fb := NewDefaultFairBalancer("node1", clusterstate)
@@ -46,7 +46,7 @@ func TestFairBalanceOver(t *testing.T) {
 
 	consumerstate := &TestConsumerState{
 		[]string{"1", "2", "3", "4", "5"},
-		&logger{},
+		LogT(t),
 	}
 
 	fb := NewDefaultFairBalancer("node1", clusterstate)
@@ -74,7 +74,7 @@ func TestFairBalanceNothing(t *testing.T) {
 
 	consumerstate := &TestConsumerState{
 		[]string{"1", "2", "3", "4", "5"},
-		&logger{},
+		LogT(t),
 	}
 
 	fb := NewDefaultFairBalancer("node1", clusterstate)
