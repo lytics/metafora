@@ -56,7 +56,7 @@ func TestFairBalanceOver(t *testing.T) {
 		t.Fatal("Expected claim to be true")
 	}
 
-	expect := 3
+	expect := 2
 	rebalance := fb.Balance()
 	if len(rebalance) != expect {
 		t.Fatalf("Expected %d rebalanced tasks, received %d", expect, len(rebalance))
