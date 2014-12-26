@@ -43,7 +43,7 @@ func main() {
 
 	hfunc := makeHandlerFunc(etcdc)
 	coord := m_etcd.NewEtcdCoordinator(*name, *namespace, etcdc).(*m_etcd.EtcdCoordinator)
-	bal := &metafora.DumbBalancer{}
+	bal := m_etcd.NewFairBalancer(*name, *namespace, etcdc)
 	c, err := metafora.NewConsumer(coord, hfunc, bal)
 	if err != nil {
 		log.Fatalf("Error creating consumer: %v", err)
