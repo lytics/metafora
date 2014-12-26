@@ -8,7 +8,7 @@ import (
 
 const (
 	// Default threshold is 120% of cluster average
-	defaultThreshold float32 = 1.2
+	defaultThreshold float64 = 1.2
 )
 
 // BalancerContext is a limited interface exposed to Balancers from the
@@ -69,7 +69,7 @@ func NewDefaultFairBalancer(nodeid string, cs ClusterState) Balancer {
 
 // NewDefaultFairBalancerWithThreshold allows callers to override
 // FairBalancer's default 120% task load release threshold.
-func NewDefaultFairBalancerWithThreshold(nodeid string, cs ClusterState, threshold float32) Balancer {
+func NewDefaultFairBalancerWithThreshold(nodeid string, cs ClusterState, threshold float64) Balancer {
 	return &FairBalancer{
 		nodeid:           nodeid,
 		clusterstate:     cs,
@@ -90,7 +90,7 @@ type FairBalancer struct {
 	bc           BalancerContext
 	clusterstate ClusterState
 
-	releaseThreshold float32
+	releaseThreshold float64
 
 	lastreleased map[string]bool
 }
@@ -124,7 +124,7 @@ func (e *FairBalancer) Balance() []string {
 
 	random := rand.New(rand.NewSource(time.Now().UnixNano()))
 	nodetasks := e.bc.Tasks()
-	for len(releasetasks) <= shouldrelease {
+	for len(releasetasks) < shouldrelease {
 		tid := nodetasks[random.Intn(len(nodetasks))]
 		releasetasks = append(releasetasks, tid)
 		e.lastreleased[tid] = true
@@ -145,5 +145,5 @@ func (e *FairBalancer) desiredCount(current map[string]int) int {
 		avg = total / len(current)
 	}
 
-	return int(math.Ceil(float64(float32(avg) * e.releaseThreshold)))
+	return int(math.Ceil(float64(avg) * e.releaseThreshold))
 }
