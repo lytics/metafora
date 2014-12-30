@@ -56,7 +56,10 @@ func (e *EmbeddedCoordinator) Claim(taskID string) bool {
 }
 
 func (e *EmbeddedCoordinator) Release(taskID string) {
-	e.inchan <- taskID
+	select {
+	case e.inchan <- taskID:
+	case <-e.stopchan:
+	}
 }
 
 func (e *EmbeddedCoordinator) Done(taskID string) {}
