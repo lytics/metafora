@@ -195,6 +195,7 @@ func TestFairBalancerShutdown(t *testing.T) {
 	// one task
 	fmt.Println("Shutting down 2")
 	con2.Shutdown()
+	go con2.Shutdown()
 
 	time.Sleep(500 * time.Millisecond)
 
