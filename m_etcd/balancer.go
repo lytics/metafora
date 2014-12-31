@@ -65,7 +65,12 @@ func (e *etcdClusterState) NodeTaskCount() (map[string]int, error) {
 			if path.Base(claim.Key) == OwnerMarker {
 				val := ownerValue{}
 				if err := json.Unmarshal([]byte(claim.Value), &val); err == nil {
-					state[val.Node]++
+					// We want to only include those nodes which were initially included,
+					// as some nodes may be shutting down, etc, and should not be counted
+					_, ok := state[val.Node]
+					if ok {
+						state[val.Node]++
+					}
 				}
 			}
 		}
