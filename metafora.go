@@ -378,14 +378,7 @@ func (c *Consumer) claimed(taskID string) {
 
 	// Start handler in its own goroutine
 	go func() {
-		defer func() {
-			// **This is the only place tasks should be removed from c.running**
-			c.runL.Lock()
-			close(c.running[taskID].c)
-			delete(c.running, taskID)
-			c.runL.Unlock()
-			c.hwg.Done()
-		}()
+		defer c.hwg.Done() // Must be run after task exit and Done/Release called
 
 		// Run the task
 		c.logger.Log(LogLevelInfo, "Task started: %s", taskID)
@@ -413,6 +406,12 @@ func (c *Consumer) runTask(run func(string) bool, task string) bool {
 				// rescheduled.
 				done = true
 			}
+
+			// **This is the only place tasks should be removed from c.running**
+			c.runL.Lock()
+			close(c.running[task].c)
+			delete(c.running, task)
+			c.runL.Unlock()
 		}()
 		done = run(task)
 	}()
