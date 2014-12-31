@@ -194,8 +194,11 @@ func TestFairBalancerShutdown(t *testing.T) {
 	// Rebalancing the first node should then cause it to pickup all but
 	// one task
 	fmt.Println("Shutting down 2")
-	con2.Shutdown()
-	go con2.Shutdown()
+	c2stop := make(chan struct{})
+	go func() {
+		con2.Shutdown()
+		close(c2stop)
+	}()
 
 	time.Sleep(500 * time.Millisecond)
 
@@ -214,6 +217,8 @@ func TestFairBalancerShutdown(t *testing.T) {
 	close(stop2)
 
 	time.Sleep(500 * time.Millisecond)
+	// Consumer 2 should stop now
+	<-c2stop
 
 	fmt.Printf("Balancing 1\n")
 	cli.SubmitCommand(nodeID, metafora.CommandBalance())
