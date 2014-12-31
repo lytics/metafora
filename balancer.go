@@ -99,11 +99,13 @@ func (e *FairBalancer) Init(s BalancerContext) {
 	e.bc = s
 }
 
-// CanClaim claims any task that wasn't released the last time Balance was
-// called.
+// CanClaim will claim all tasks, but will add a sleep to block claiming
+// released tasks in order to give other nodes a chance to claim them first
 func (e *FairBalancer) CanClaim(taskid string) bool {
-	// Skip those tasks which were last released
-	return !e.lastreleased[taskid]
+	if e.lastreleased[taskid] {
+		time.Sleep(500 * time.Millisecond)
+	}
+	return true
 }
 
 // Balance releases tasks if this node has 120% more tasks than the average

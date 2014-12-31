@@ -283,16 +283,17 @@ func (c *Consumer) watcher() {
 }
 
 func (c *Consumer) balance() {
-	for _, task := range c.bal.Balance() {
+	tasks := c.bal.Balance()
+	if len(tasks) > 0 {
+		c.logger.Log(LogLevelInfo, "Balancer releasing: %v", tasks)
+	}
+	for _, task := range tasks {
 		go c.release(task)
 	}
 }
 
 // shutdown is the actual shutdown logic called when Run() exits.
 func (c *Consumer) shutdown() {
-	c.logger.Log(LogLevelDebug, "Closing Coordinator")
-	c.coord.Close()
-
 	// Build list of of currently running tasks
 	tasks := c.Tasks()
 	c.logger.Log(LogLevelInfo, "Sending stop signal to %d handler(s)", len(tasks))
@@ -304,6 +305,9 @@ func (c *Consumer) shutdown() {
 
 	c.logger.Log(LogLevelInfo, "Waiting for handlers to exit")
 	c.hwg.Wait()
+
+	c.logger.Log(LogLevelDebug, "Closing Coordinator")
+	c.coord.Close()
 }
 
 // Shutdown stops the main Run loop, calls Stop on all handlers, and calls
@@ -378,14 +382,7 @@ func (c *Consumer) claimed(taskID string) {
 
 	// Start handler in its own goroutine
 	go func() {
-		defer func() {
-			// **This is the only place tasks should be removed from c.running**
-			c.runL.Lock()
-			close(c.running[taskID].c)
-			delete(c.running, taskID)
-			c.runL.Unlock()
-			c.hwg.Done()
-		}()
+		defer c.hwg.Done() // Must be run after task exit and Done/Release called
 
 		// Run the task
 		c.logger.Log(LogLevelInfo, "Task started: %s", taskID)
@@ -413,6 +410,12 @@ func (c *Consumer) runTask(run func(string) bool, task string) bool {
 				// rescheduled.
 				done = true
 			}
+
+			// **This is the only place tasks should be removed from c.running**
+			c.runL.Lock()
+			close(c.running[task].c)
+			delete(c.running, task)
+			c.runL.Unlock()
 		}()
 		done = run(task)
 	}()
