@@ -75,7 +75,7 @@ func TestFairBalancer(t *testing.T) {
 	c1Tasks2 := con1.Tasks()
 	c2Tasks2 := con2.Tasks()
 	if len(c1Tasks2) != 4 || len(c2Tasks2) != 2 {
-		t.Fatalf("expected consumers to have 4|2 tasks: %d|%d", len(c1Tasks), len(c2Tasks))
+		t.Fatalf("expected consumers to have 4|2 tasks: %d|%d", len(c1Tasks2), len(c2Tasks2))
 	}
 	for i := 0; i < 4; i++ {
 		if c1Tasks[i] != c1Tasks2[i] {
@@ -177,7 +177,7 @@ func TestFairBalancerShutdown(t *testing.T) {
 	c1Tasks2 := con1.Tasks()
 	c2Tasks2 := con2.Tasks()
 	if len(c1Tasks2) != 4 || len(c2Tasks2) != 2 {
-		t.Fatalf("expected consumers to have 4|2 tasks: %d|%d", len(c1Tasks), len(c2Tasks))
+		t.Fatalf("expected consumers to have 4|2 tasks: %d|%d", len(c1Tasks2), len(c2Tasks2))
 	}
 	for i := 0; i < 4; i++ {
 		if c1Tasks[i] != c1Tasks2[i] {
