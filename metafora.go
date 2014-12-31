@@ -283,7 +283,11 @@ func (c *Consumer) watcher() {
 }
 
 func (c *Consumer) balance() {
-	for _, task := range c.bal.Balance() {
+	tasks := c.bal.Balance()
+	if len(tasks) > 0 {
+		c.logger.Log(LogLevelInfo, "Balancer releasing: %v", tasks)
+	}
+	for _, task := range tasks {
 		go c.release(task)
 	}
 }
