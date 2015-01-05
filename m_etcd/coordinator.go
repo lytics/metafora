@@ -165,7 +165,7 @@ func (ec *EtcdCoordinator) upsertDir(path string, ttl uint64) {
 	}
 }
 
-// nodeRefresher is in chage of keeping the node entry in etcd alive. If it's
+// nodeRefresher is in charge of keeping the node entry in etcd alive. If it's
 // unable to communicate with etcd it must shutdown the coordinator.
 //
 // watch retries on errors and taskmgr calls Lost(task) on tasks it can't

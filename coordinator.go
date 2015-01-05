@@ -56,7 +56,5 @@ type coordinatorContext struct {
 // calling by Coordinator implementations via the CoordinatorContext interface.
 func (ctx *coordinatorContext) Lost(taskID string) {
 	ctx.Log(LogLevelError, "Lost task %s", taskID)
-	if !ctx.stopTask(taskID) {
-		ctx.Log(LogLevelWarn, "Lost task %s wasn't running.", taskID)
-	}
+	ctx.stopTask(taskID)
 }

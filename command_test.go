@@ -38,6 +38,5 @@ func TestCommands(t *testing.T) {
 	testCmd(t, CommandFreeze(), "freeze", nil)
 	testCmd(t, CommandUnfreeze(), "unfreeze", nil)
 	testCmd(t, CommandBalance(), "balance", nil)
-	testCmd(t, CommandReleaseTask("test"), "release_task", map[string]interface{}{"task": "test"})
 	testCmd(t, CommandStopTask("test"), "stop_task", map[string]interface{}{"task": "test"})
 }
