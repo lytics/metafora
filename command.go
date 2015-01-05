@@ -3,11 +3,10 @@ package metafora
 import "encoding/json"
 
 const (
-	cmdFreeze      = "freeze"
-	cmdUnfreeze    = "unfreeze"
-	cmdBalance     = "balance"
-	cmdReleaseTask = "release_task"
-	cmdStopTask    = "stop_task"
+	cmdFreeze   = "freeze"
+	cmdUnfreeze = "unfreeze"
+	cmdBalance  = "balance"
+	cmdStopTask = "stop_task"
 )
 
 // Commands are a way clients can communicate directly with nodes for cluster
@@ -72,12 +71,7 @@ func CommandBalance() Command {
 	return &command{C: cmdBalance}
 }
 
-// CommandReleaseTask forces a node to stop and release a task even if frozen.
-func CommandReleaseTask(task string) Command {
-	return &command{C: cmdReleaseTask, P: map[string]interface{}{"task": task}}
-}
-
-// CommandStopTask forces a node to stop and remove a task even if frozen.
+// CommandStopTask forces a node to stop a task even if frozen.
 func CommandStopTask(task string) Command {
 	return &command{C: cmdStopTask, P: map[string]interface{}{"task": task}}
 }

@@ -23,9 +23,8 @@ type runningTask struct {
 	// handler on which Run and Stop are called
 	h Handler
 
-	// channel that's closed after Run() exits
-	c chan struct{}
-
+	// stopL serializes calls to task.h.Stop() to make handler implementations
+	// easier/safer.
 	stopL sync.Mutex
 }
 
@@ -288,7 +287,7 @@ func (c *Consumer) balance() {
 		c.logger.Log(LogLevelInfo, "Balancer releasing: %v", tasks)
 	}
 	for _, task := range tasks {
-		go c.release(task)
+		go c.stopTask(task)
 	}
 }
 
@@ -300,7 +299,7 @@ func (c *Consumer) shutdown() {
 
 	// Concurrently shutdown handlers as they may take a while to shutdown
 	for _, id := range tasks {
-		go c.release(id)
+		go c.stopTask(id)
 	}
 
 	c.logger.Log(LogLevelInfo, "Waiting for handlers to exit")
@@ -373,7 +372,7 @@ func (c *Consumer) claimed(taskID string) {
 		c.logger.Log(LogLevelWarn, "Attempted to claim already running task %s", taskID)
 		return
 	}
-	c.running[taskID] = runningTask{h: h, c: make(chan struct{})}
+	c.running[taskID] = runningTask{h: h}
 
 	// This must be done in the runL lock after the stop chan check so Shutdown
 	// doesn't close(stop) and start Wait()ing concurrently.
@@ -413,7 +412,6 @@ func (c *Consumer) runTask(run func(string) bool, task string) bool {
 
 			// **This is the only place tasks should be removed from c.running**
 			c.runL.Lock()
-			close(c.running[task].c)
 			delete(c.running, task)
 			c.runL.Unlock()
 		}()
@@ -422,19 +420,10 @@ func (c *Consumer) runTask(run func(string) bool, task string) bool {
 	return done
 }
 
-// release stops and Coordinator.Release()s a task if it's running.
-//
-// release blocks until the task handler stops running.
-func (c *Consumer) release(taskID string) {
-	// Stop task...
-	if c.stopTask(taskID) {
-		// ...instruct the coordinator to release it
-		c.coord.Release(taskID)
-	}
-}
-
-// stopTask returns true if the task was running and stopped successfully.
-func (c *Consumer) stopTask(taskID string) bool {
+// stopTask asynchronously calls the task handlers' Stop method. While stopTask
+// calls don't block, calls to task handler's Stop method are serialized with a
+// lock.
+func (c *Consumer) stopTask(taskID string) {
 	c.runL.Lock()
 	task, ok := c.running[taskID]
 	c.runL.Unlock()
@@ -442,12 +431,12 @@ func (c *Consumer) stopTask(taskID string) bool {
 	if !ok {
 		// This can happen if a task completes during Balance() and is not an error.
 		c.logger.Log(LogLevelWarn, "Tried to release a non-running task: %s", taskID)
-		return false
+		return
 	}
 
 	// all handler methods must be wrapped in a recover to prevent a misbehaving
 	// handler from crashing the entire consumer
-	func() {
+	go func() {
 		defer func() {
 			if err := recover(); err != nil {
 				stack := make([]byte, 50*1024)
@@ -461,12 +450,6 @@ func (c *Consumer) stopTask(taskID string) bool {
 		defer task.stopL.Unlock()
 		task.h.Stop()
 	}()
-
-	// Block until the handler finishes - even if it blocks indefinitely.
-	// Otherwise we may release a task that is still running which would allow it
-	// to run on multiple nodes concurrently.
-	<-task.c
-	return true
 }
 
 // Frozen returns true if Metafora is no longer watching for new tasks or
@@ -505,15 +488,6 @@ func (c *Consumer) handleCommand(cmd Command) {
 		c.logger.Log(LogLevelInfo, "Balancing due to command")
 		c.balance()
 		c.logger.Log(LogLevelDebug, "Finished balancing due to command")
-	case cmdReleaseTask:
-		taskI, ok := cmd.Parameters()["task"]
-		task, ok2 := taskI.(string)
-		if !ok || !ok2 {
-			c.logger.Log(LogLevelError, "Release task command didn't contain a valid task")
-			return
-		}
-		c.logger.Log(LogLevelInfo, "Releasing task %s due to command", task)
-		c.release(task)
 	case cmdStopTask:
 		taskI, ok := cmd.Parameters()["task"]
 		task, ok2 := taskI.(string)

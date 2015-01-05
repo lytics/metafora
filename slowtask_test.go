@@ -27,7 +27,7 @@ func TestDoubleRelease(t *testing.T) {
 	reallyStop := make(chan bool)
 	h := SimpleHandler(func(task string, stop <-chan bool) bool {
 		started <- 1
-		t.Logf("TestDoubleRelease handler recieved %s - blocking until reallStop closed.", task)
+		t.Logf("TestDoubleRelease handler recieved %s - blocking until reallyStop closed.", task)
 		<-reallyStop
 		return true
 	})
