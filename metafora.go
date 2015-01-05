@@ -287,7 +287,7 @@ func (c *Consumer) balance() {
 		c.logger.Log(LogLevelInfo, "Balancer releasing: %v", tasks)
 	}
 	for _, task := range tasks {
-		go c.stopTask(task)
+		c.stopTask(task)
 	}
 }
 
@@ -297,9 +297,8 @@ func (c *Consumer) shutdown() {
 	tasks := c.Tasks()
 	c.logger.Log(LogLevelInfo, "Sending stop signal to %d handler(s)", len(tasks))
 
-	// Concurrently shutdown handlers as they may take a while to shutdown
 	for _, id := range tasks {
-		go c.stopTask(id)
+		c.stopTask(id)
 	}
 
 	c.logger.Log(LogLevelInfo, "Waiting for handlers to exit")
