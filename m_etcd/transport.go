@@ -13,7 +13,7 @@ var transport = &http.Transport{Dial: dial}
 
 // dial is copied from go-etcd's Client.dial method
 func dial(network, addr string) (net.Conn, error) {
-	//FIXME Don't use a constnat for timeout
+	//FIXME Don't use a constant for timeout
 	conn, err := net.DialTimeout(network, addr, 5*time.Second)
 	if err != nil {
 		return nil, err
