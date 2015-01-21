@@ -13,21 +13,16 @@ func TestEmbedded(t *testing.T) {
 	tc := newTestCounter()
 	adds := make(chan string, 4)
 
-	addFunc := func(s string) {
-		tc.Add(s)
-		adds <- s
-	}
-
-	thfunc := func() metafora.Handler {
-		return newTestHandler(addFunc)
-	}
+	thfunc := metafora.SimpleHandler(func(id string, _ <-chan bool) bool {
+		tc.Add(id)
+		adds <- id
+		return true
+	})
 
 	coord, client := NewEmbeddedPair("testnode")
 	runner, _ := metafora.NewConsumer(coord, thfunc, &metafora.DumbBalancer{})
 
-	go func() {
-		runner.Run()
-	}()
+	go runner.Run()
 
 	for _, taskid := range []string{"one", "two", "three", "four"} {
 		err := client.SubmitTask(taskid)
@@ -55,22 +50,30 @@ func TestEmbedded(t *testing.T) {
 
 }
 
-func TestEmbeddedStopTask(t *testing.T) {
-
-	testcounter := newTestCounter()
-	thfunc := func() metafora.Handler {
-		return &blockingtesthandler{make(chan struct{}), testcounter}
-	}
+func TestEmbeddedShutdown(t *testing.T) {
+	const n = 4
+	runs := make(chan int, n)
+	stops := make(chan int, n)
+	thfunc := metafora.SimpleHandler(func(id string, s <-chan bool) bool {
+		runs <- 1
+		select {
+		case <-s:
+			stops <- 1
+			return false
+		case <-time.After(time.Second * 3):
+			return true
+		}
+	})
 
 	coord, client := NewEmbeddedPair("testnode")
 	runner, _ := metafora.NewConsumer(coord, thfunc, &metafora.DumbBalancer{})
 
-	go func() {
-		runner.Run()
-	}()
+	go runner.Run()
 
+	// len(tasks) must == n
 	tasks := []string{"one", "two", "three", "four"}
 
+	// submit tasks
 	for _, taskid := range tasks {
 		err := client.SubmitTask(taskid)
 		if err != nil {
@@ -78,16 +81,17 @@ func TestEmbeddedStopTask(t *testing.T) {
 		}
 	}
 
-	for _, taskid := range tasks {
-		err := client.DeleteTask(taskid)
-		if err != nil {
-			t.Fatalf("Expected no error, got %v", err)
-		}
+	// make sure all 4 start
+	for i := 0; i < n; i++ {
+		<-runs
 	}
 
+	// tell them to stop
 	runner.Shutdown()
-	if len(testcounter.Runs()) != 4 {
-		t.Fatalf("Expected 4 runs, got %d by deadline", len(testcounter.Runs()))
+
+	// make sure all 4 stop
+	for i := 0; i < n; i++ {
+		<-stops
 	}
 }
 
@@ -110,41 +114,4 @@ func (t *testcounter) Runs() []string {
 	t.cmut.Lock()
 	defer t.cmut.Unlock()
 	return t.runs
-}
-
-// Run a single function; assumes the function returns (nearly) immediately
-func newTestHandler(hfunc func(string)) metafora.Handler {
-	return &testhandler{hfunc}
-}
-
-type testhandler struct {
-	addfunc func(r string)
-}
-
-func (th *testhandler) Run(taskId string) (done bool) {
-	th.addfunc(taskId)
-	return true
-}
-
-func (th *testhandler) Stop() {
-}
-
-// Blocks until stop is called
-type blockingtesthandler struct {
-	stopchan chan struct{}
-	tc       *testcounter
-}
-
-func (bh *blockingtesthandler) Run(taskId string) (done bool) {
-	select {
-	case <-bh.stopchan:
-		bh.tc.Add(taskId)
-	case <-time.After(time.Second * 3):
-		return false
-	}
-	return true
-}
-
-func (bh *blockingtesthandler) Stop() {
-	close(bh.stopchan)
 }

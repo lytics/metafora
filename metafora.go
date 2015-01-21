@@ -327,8 +327,8 @@ func (c *Consumer) Shutdown() {
 	// Wait for task handlers to exit.
 	c.hwg.Wait()
 
-	// Make sure Run() exits, otherwise coord.Close() might not finish before
-	// exiting.
+	// Make sure Run() exits, otherwise Shutdown() might exit before
+	// coord.Close() is called.
 	c.runwgL.Lock()
 	c.runwg.Wait()
 	c.runwgL.Unlock()
