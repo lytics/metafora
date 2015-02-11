@@ -4,21 +4,23 @@ import (
 	"encoding/json"
 	"net/http"
 	"time"
+
+	"github.com/lytics/metafora"
 )
 
 // Consumer contains just the Metafora methods exposed by the HTTP
 // introspection endpoints.
 type Consumer interface {
 	Frozen() bool
-	Tasks() []string
+	Tasks() []metafora.Task
 }
 
 // InfoResponse is the JSON response marshalled by the MakeInfoHandler.
 type InfoResponse struct {
-	Frozen  bool      `json:"frozen"`
-	Node    string    `json:"node"`
-	Started time.Time `json:"started"`
-	Tasks   []string  `json:"tasks"`
+	Frozen  bool            `json:"frozen"`
+	Node    string          `json:"node"`
+	Started time.Time       `json:"started"`
+	Tasks   []metafora.Task `json:"tasks"`
 }
 
 // MakeInfoHandler returns an HTTP handler which can be added to an exposed

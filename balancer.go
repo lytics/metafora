@@ -17,7 +17,7 @@ type BalancerContext interface {
 	// Tasks returns a sorted list of task IDs run by this Consumer. The Consumer
 	// stops task manipulations during claiming and balancing, so the list will
 	// be accurate unless a task naturally completes.
-	Tasks() []string
+	Tasks() []Task
 
 	Logger
 }
@@ -127,7 +127,7 @@ func (e *FairBalancer) Balance() []string {
 	random := rand.New(rand.NewSource(time.Now().UnixNano()))
 	nodetasks := e.bc.Tasks()
 	for len(releasetasks) < shouldrelease {
-		tid := nodetasks[random.Intn(len(nodetasks))]
+		tid := nodetasks[random.Intn(len(nodetasks))].ID()
 		releasetasks = append(releasetasks, tid)
 		e.lastreleased[tid] = true
 	}
