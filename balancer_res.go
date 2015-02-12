@@ -24,9 +24,8 @@ type ResourceReporter interface {
 // threshold (otherwise claims would continue just to have the work
 // rebalanced.)
 //
-// Furthermore, claims are delayed by the how far below the threshold the node
-// is in milliseconds. This is intended to give a slight advantage to nodes
-// with more free resources.
+// Even below the claim limit, claims are delayed by the percent of resources
+// used (in milliseconds) to give less loaded nodes a claim advantage.
 //
 // The balancer releases the oldest tasks first (skipping those who are already
 // stopping) to try to prevent rebalancing the same tasks repeatedly within a
