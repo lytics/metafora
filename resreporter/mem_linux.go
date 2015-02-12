@@ -30,6 +30,9 @@ func (memory) Used() (used uint64, total uint64) {
 	var buffered uint64
 	var free uint64
 	for s.Scan() {
+		if total > 0 && foundFree && foundCache && foundBuf {
+			break
+		}
 		if total == 0 {
 			if n, _ := fmt.Sscanf(s.Text(), "MemTotal:%d", &total); n == 1 {
 				continue
