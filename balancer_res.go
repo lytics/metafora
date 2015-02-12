@@ -12,7 +12,7 @@ type ResourceReporter interface {
 	// resource.
 	Used() (used uint64, total uint64)
 
-	// String returns the plural name of the unit resources are reported in.
+	// String returns the unit resources are reported in.
 	String() string
 }
 
@@ -40,6 +40,9 @@ type ResourceBalancer struct {
 
 // NewResourceBalancer creates a new ResourceBalancer or returns an error if
 // the limits are invalid.
+//
+// Limits should be a percentage expressed as an integer between 1 and 100
+// inclusive.
 func NewResourceBalancer(src ResourceReporter, claimLimit, releaseLimit int) (*ResourceBalancer, error) {
 	if claimLimit < 1 || claimLimit > 100 || releaseLimit < 1 || releaseLimit > 100 {
 		return nil, fmt.Errorf("Limits must be between 1 and 100. claim=%d release=%d", claimLimit, releaseLimit)
