@@ -36,7 +36,6 @@ func TestCoordinatorFirstNodeJoiner(t *testing.T) {
 	}
 
 	//TODO test for node path too...
-
 }
 
 // Ensure that Watch() picks up new tasks and returns them.
@@ -84,28 +83,31 @@ func TestCoordinatorTC2(t *testing.T) {
 	}
 	defer coordinator1.Close()
 
-	test_finished := make(chan bool)
+	result := make(chan error, 1)
 	testTasks := []string{"test-claiming-task0001", "test-claiming-task0002", "test-claiming-task0003"}
 
 	mclient := NewClientWithLogger(namespace, client, testLogger{"metafora-client1", t})
 
-	startATaskWatcher := func() {
+	go func() {
 		//Watch blocks, so we need to test it in its own go routine.
 		taskId, err := coordinator1.Watch()
 		if err != nil {
+			result <- err
+			return
 			t.Fatalf("coordinator1.Watch() returned an err: %v", err)
 		}
 
 		t.Logf("We got a task id from the coordinator1.Watch() res: %s", taskId)
 
 		if ok := coordinator1.Claim(taskId); !ok {
+			result <- err
+			return
 			t.Fatal("coordinator1.Claim() unable to claim the task")
 		}
 
-		test_finished <- true
-	}
+		result <- nil
+	}()
 
-	go startATaskWatcher()
 	time.Sleep(24 * time.Millisecond)
 	err := mclient.SubmitTask(testTasks[0])
 	if err != nil {
@@ -113,9 +115,9 @@ func TestCoordinatorTC2(t *testing.T) {
 	}
 
 	select {
-	case res := <-test_finished:
-		if !res {
-			t.Fatalf("Background test checker failed so the test failed.")
+	case res := <-result:
+		if res != nil {
+			t.Fatalf("Background test checker failed so the test failed: %v", res)
 		}
 	case <-time.After(time.Second * 5):
 		t.Fatalf("Test failed: The testcase timed out after 5 seconds.")
