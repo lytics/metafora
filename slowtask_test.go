@@ -17,7 +17,11 @@ func (b *releaseAllBalancer) Init(c BalancerContext) {
 func (b *releaseAllBalancer) CanClaim(string) bool { return true }
 func (b *releaseAllBalancer) Balance() []string {
 	b.balances <- 1
-	return b.ctx.Tasks()
+	ids := []string{}
+	for _, task := range b.ctx.Tasks() {
+		ids = append(ids, task.ID())
+	}
+	return ids
 }
 
 func TestDoubleRelease(t *testing.T) {

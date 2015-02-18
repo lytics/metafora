@@ -1,7 +1,6 @@
 package metafora
 
 import (
-	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -129,7 +128,7 @@ func (b *testBalancer) Balance() []string {
 		b.t.Errorf("len(ConsumerState.Tasks()) != 1 ==> %v", tsks)
 		return nil
 	}
-	if tsks[0] != "ok-task" {
+	if tsks[0].ID() != "ok-task" {
 		b.t.Errorf("Wrong task in ConsumerState.Tasks(): %v", tsks)
 	}
 	close(b.done)
@@ -137,16 +136,16 @@ func (b *testBalancer) Balance() []string {
 }
 
 func TestBalancer(t *testing.T) {
-	// ugly hack to force fast rebalancing (use atomic to make race detector happy)
-	oldJ := atomic.LoadInt64(&balanceJitterMax)
-	atomic.StoreInt64(&balanceJitterMax, 1)
-	defer func() { atomic.StoreInt64(&balanceJitterMax, oldJ) }()
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("skipping due to -short")
+	}
 
 	hf, tasksRun := newTestHandlerFunc(t)
 	tc := NewTestCoord()
 	balDone := make(chan struct{})
 	c, _ := NewConsumer(tc, hf, &testBalancer{t: t, done: balDone})
-	c.balEvery = 10 * time.Millisecond
+	c.balEvery = 0
 	go c.Run()
 	tc.Tasks <- "test1"
 	tc.Tasks <- "ok-task"
@@ -155,7 +154,7 @@ func TestBalancer(t *testing.T) {
 	// Wait for balance
 	select {
 	case <-balDone:
-	case <-time.After(c.balEvery * 10):
+	case <-time.After(time.Duration(balanceJitterMax) + 10*time.Millisecond):
 		t.Error("Didn't balance in a timely fashion")
 	}
 

@@ -110,8 +110,12 @@ type TestConsumerState struct {
 	Logger
 }
 
-func (tc *TestConsumerState) Tasks() []string {
-	return tc.Current
+func (tc *TestConsumerState) Tasks() []Task {
+	tasks := []Task{}
+	for _, id := range tc.Current {
+		tasks = append(tasks, newTask(id, nil))
+	}
+	return tasks
 }
 
 // Sleepy Balancer Tests
@@ -121,8 +125,12 @@ type sbCtx struct {
 	tasks []string
 }
 
-func (ctx *sbCtx) Tasks() []string {
-	return ctx.tasks
+func (ctx *sbCtx) Tasks() []Task {
+	tasks := []Task{}
+	for _, id := range ctx.tasks {
+		tasks = append(tasks, newTask(id, nil))
+	}
+	return tasks
 }
 func (ctx *sbCtx) Log(l LogLevel, v string, args ...interface{}) {
 	ctx.t.Logf(l.String()+" "+v, args)

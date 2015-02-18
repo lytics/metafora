@@ -9,7 +9,6 @@ import (
 )
 
 var (
-
 	// balance calls are randomized and this is the upper bound of the random
 	// amount
 	balanceJitterMax = 10 * int64(time.Second)
@@ -18,23 +17,13 @@ var (
 	consumerRetryDelay = 10 * time.Second
 )
 
-// runningTask is the per-task state Metafora tracks internally.
-type runningTask struct {
-	// handler on which Run and Stop are called
-	h Handler
-
-	// stopL serializes calls to task.h.Stop() to make handler implementations
-	// easier/safer.
-	stopL sync.Mutex
-}
-
 // Consumer is the core Metafora task runner.
 type Consumer struct {
 	// Func to create new handlers
 	handler HandlerFunc
 
 	// Map of task:Handler
-	running map[string]runningTask
+	running map[string]*task
 
 	// Mutex to protect access to running
 	runL sync.Mutex
@@ -66,7 +55,7 @@ type Consumer struct {
 // NewConsumer returns a new consumer and calls Init on the Balancer and Coordinator.
 func NewConsumer(coord Coordinator, h HandlerFunc, b Balancer) (*Consumer, error) {
 	c := &Consumer{
-		running:  make(map[string]runningTask),
+		running:  make(map[string]*task),
 		handler:  h,
 		bal:      b,
 		balEvery: 15 * time.Minute, //TODO make balance wait configurable
@@ -298,7 +287,7 @@ func (c *Consumer) shutdown() {
 	c.logger.Log(LogLevelInfo, "Sending stop signal to %d handler(s)", len(tasks))
 
 	for _, id := range tasks {
-		c.stopTask(id)
+		c.stopTask(id.ID())
 	}
 
 	c.logger.Log(LogLevelInfo, "Waiting for handlers to exit")
@@ -334,22 +323,30 @@ func (c *Consumer) Shutdown() {
 	c.runwgL.Unlock()
 }
 
-// Tasks returns a sorted list of running Task IDs.
-func (c *Consumer) Tasks() []string {
+// Tasks returns a lexicographically sorted list of running Task IDs.
+func (c *Consumer) Tasks() []Task {
 	c.runL.Lock()
 	defer c.runL.Unlock()
-	t := make([]string, len(c.running))
+
+	// Create a sorted list of task IDs
+	ids := make([]string, len(c.running))
 	i := 0
 	for id, _ := range c.running {
-		t[i] = id
+		ids[i] = id
 		i++
 	}
-	sort.Strings(t)
+	sort.Strings(ids)
+
+	// Add tasks in lexicographic order
+	t := make([]Task, len(ids))
+	for i, id := range ids {
+		t[i] = c.running[id]
+	}
 	return t
 }
 
 // claimed starts a handler for a claimed task. It is the only method to
-// manipulate c.running and closes the runningTask channel when a handler's Run
+// manipulate c.running and closes the task channel when a handler's Run
 // method exits.
 func (c *Consumer) claimed(taskID string) {
 	h := c.handler()
@@ -371,7 +368,8 @@ func (c *Consumer) claimed(taskID string) {
 		c.logger.Log(LogLevelWarn, "Attempted to claim already running task %s", taskID)
 		return
 	}
-	c.running[taskID] = runningTask{h: h}
+	rt := newTask(taskID, h)
+	c.running[taskID] = rt
 
 	// This must be done in the runL lock after the stop chan check so Shutdown
 	// doesn't close(stop) and start Wait()ing concurrently.
@@ -445,9 +443,7 @@ func (c *Consumer) stopTask(taskID string) {
 		}()
 
 		// Serialize calls to Stop as a convenience to handler implementors.
-		task.stopL.Lock()
-		defer task.stopL.Unlock()
-		task.h.Stop()
+		task.stop()
 	}()
 }
 
