@@ -9,7 +9,6 @@ type CoordinatorContext interface {
 	// Since this implies there is a window of time where the task is executing
 	// more than once, this is a sign of an unhealthy cluster.
 	Lost(taskID string)
-	Logger
 }
 
 // Coordinator is the core interface Metafora uses to discover, claim, and
@@ -49,12 +48,11 @@ type Coordinator interface {
 
 type coordinatorContext struct {
 	*Consumer
-	Logger
 }
 
 // Lost is a light wrapper around Coordinator.stopTask to make it suitable for
 // calling by Coordinator implementations via the CoordinatorContext interface.
 func (ctx *coordinatorContext) Lost(taskID string) {
-	ctx.Log(LogLevelError, "Lost task %s", taskID)
+	Errorf("Lost task %s", taskID)
 	ctx.stopTask(taskID)
 }

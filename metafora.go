@@ -38,7 +38,6 @@ type Consumer struct {
 	bal      Balancer
 	balEvery time.Duration
 	coord    Coordinator
-	logger   *logger
 	stop     chan struct{} // closed by Shutdown to cause Run to exit
 
 	// ticked on each loop of the main loop to enforce sequential interaction
@@ -60,34 +59,18 @@ func NewConsumer(coord Coordinator, h HandlerFunc, b Balancer) (*Consumer, error
 		bal:      b,
 		balEvery: 15 * time.Minute, //TODO make balance wait configurable
 		coord:    coord,
-		logger:   stdoutLogger(),
 		stop:     make(chan struct{}),
 		tick:     make(chan int),
 		watch:    make(chan string),
 	}
 
 	// initialize balancer with the consumer and a prefixed logger
-	b.Init(&struct {
-		*Consumer
-		Logger
-	}{Consumer: c, Logger: c.logger})
+	b.Init(c)
 
-	if err := coord.Init(&coordinatorContext{Consumer: c, Logger: c.logger}); err != nil {
+	if err := coord.Init(&coordinatorContext{c}); err != nil {
 		return nil, err
 	}
 	return c, nil
-}
-
-// SetLogger assigns the logger to use as well as a level
-//
-// The logger parameter is an interface that requires the following
-// method to be implemented (such as the the stdlib log.Logger):
-//
-//    Output(calldepth int, s string)
-//
-func (c *Consumer) SetLogger(l logOutputter, lvl LogLevel) {
-	c.logger.l = l
-	c.logger.lvl = lvl
 }
 
 // Run is the core run loop of Metafora. It is responsible for calling into the
@@ -95,7 +78,7 @@ func (c *Consumer) SetLogger(l logOutputter, lvl LogLevel) {
 //
 // Run blocks until Shutdown is called or an internal error occurs.
 func (c *Consumer) Run() {
-	c.logger.Log(LogLevelDebug, "Starting consumer")
+	Debug("Starting consumer")
 
 	// Increment run wait group so Shutdown() can block on Run() exiting fully.
 	c.runwgL.Lock()
@@ -116,7 +99,7 @@ func (c *Consumer) Run() {
 				// Shutdown has been called.
 				return
 			case <-time.After(c.balEvery + time.Duration(randInt(balanceJitterMax))):
-				c.logger.Log(LogLevelInfo, "Balancing")
+				Info("Balancing")
 				select {
 				case balance <- true:
 					// Ticked balance
@@ -143,8 +126,7 @@ func (c *Consumer) Run() {
 		for {
 			cmd, err := c.coord.Command()
 			if err != nil {
-				//FIXME add more sophisticated error handling
-				c.logger.Log(LogLevelError, "Coordinator returned an error during command, waiting and retrying. %v", err)
+				Errorf("Coordinator returned an error during command, waiting and retrying. %v", err)
 				select {
 				case <-c.stop:
 					return
@@ -153,7 +135,7 @@ func (c *Consumer) Run() {
 				continue
 			}
 			if cmd == nil {
-				c.logger.Log(LogLevelDebug, "Command coordinator exited")
+				Debug("Command coordinator exited")
 				return
 			}
 			// Send command to watcher (or shutdown)
@@ -184,10 +166,10 @@ func (c *Consumer) Run() {
 				return
 			case cmd, ok := <-cmdChan:
 				if !ok {
-					c.logger.Log(LogLevelDebug, "Command channel closed. Exiting main loop.")
+					Debug("Command channel closed. Exiting main loop.")
 					return
 				}
-				c.logger.Log(LogLevelDebug, "Received command: %s", cmd)
+				Debugf("Received command: %s", cmd)
 				c.handleCommand(cmd)
 			}
 			// Must send tick whenever main loop restarts
@@ -207,21 +189,21 @@ func (c *Consumer) Run() {
 			c.balance()
 		case task, ok := <-c.watch:
 			if !ok {
-				c.logger.Log(LogLevelDebug, "Watch channel closed. Exiting main loop.")
+				Debug("Watch channel closed. Exiting main loop.")
 				return
 			}
 			if !c.bal.CanClaim(task) {
-				c.logger.Log(LogLevelInfo, "Balancer rejected task %s", task)
+				Infof("Balancer rejected task %s", task)
 				break
 			}
 			if !c.coord.Claim(task) {
-				c.logger.Log(LogLevelInfo, "Coordinator unable to claim task %s", task)
+				Infof("Coordinator unable to claim task %s", task)
 				break
 			}
 			c.claimed(task)
 		case cmd, ok := <-cmdChan:
 			if !ok {
-				c.logger.Log(LogLevelDebug, "Command channel closed. Exiting main loop.")
+				Debug("Command channel closed. Exiting main loop.")
 				return
 			}
 			c.handleCommand(cmd)
@@ -237,13 +219,13 @@ func (c *Consumer) Run() {
 
 func (c *Consumer) watcher() {
 	defer close(c.watch)
-	c.logger.Log(LogLevelDebug, "Consumer watching")
+	Debug("Consumer watching")
 
 	for {
 		task, err := c.coord.Watch()
 		if err != nil {
 			//FIXME add more sophisticated error handling
-			c.logger.Log(LogLevelError, "Coordinator returned an error during watch, waiting and retrying: %v", err)
+			Errorf("Coordinator returned an error during watch, waiting and retrying: %v", err)
 			select {
 			case <-c.stop:
 				return
@@ -252,7 +234,7 @@ func (c *Consumer) watcher() {
 			continue
 		}
 		if task == "" {
-			c.logger.Log(LogLevelInfo, "Coordinator has closed, no longer watching for tasks.")
+			Info("Coordinator has closed, no longer watching for tasks.")
 			return
 		}
 		// Send task to watcher (or shutdown)
@@ -273,7 +255,7 @@ func (c *Consumer) watcher() {
 func (c *Consumer) balance() {
 	tasks := c.bal.Balance()
 	if len(tasks) > 0 {
-		c.logger.Log(LogLevelInfo, "Balancer releasing: %v", tasks)
+		Infof("Balancer releasing: %v", tasks)
 	}
 	for _, task := range tasks {
 		c.stopTask(task)
@@ -284,16 +266,16 @@ func (c *Consumer) balance() {
 func (c *Consumer) shutdown() {
 	// Build list of of currently running tasks
 	tasks := c.Tasks()
-	c.logger.Log(LogLevelInfo, "Sending stop signal to %d handler(s)", len(tasks))
+	Infof("Sending stop signal to %d handler(s)", len(tasks))
 
 	for _, id := range tasks {
 		c.stopTask(id.ID())
 	}
 
-	c.logger.Log(LogLevelInfo, "Waiting for handlers to exit")
+	Info("Waiting for handlers to exit")
 	c.hwg.Wait()
 
-	c.logger.Log(LogLevelDebug, "Closing Coordinator")
+	Debug("Closing Coordinator")
 	c.coord.Close()
 }
 
@@ -308,7 +290,7 @@ func (c *Consumer) Shutdown() {
 	case <-c.stop:
 		// already stopped
 	default:
-		c.logger.Log(LogLevelDebug, "Stopping Run loop")
+		Debug("Stopping Run loop")
 		close(c.stop)
 	}
 	c.runL.Unlock()
@@ -351,7 +333,7 @@ func (c *Consumer) Tasks() []Task {
 func (c *Consumer) claimed(taskID string) {
 	h := c.handler()
 
-	c.logger.Log(LogLevelDebug, "Attempting to start task "+taskID)
+	Debugf("Attempting to start task " + taskID)
 	// Associate handler with taskID
 	// **This is the only place tasks should be added to c.running**
 	c.runL.Lock()
@@ -365,7 +347,7 @@ func (c *Consumer) claimed(taskID string) {
 	if _, ok := c.running[taskID]; ok {
 		// If a coordinator returns an already claimed task from Watch(), then it's
 		// a coordinator (or broker) bug.
-		c.logger.Log(LogLevelWarn, "Attempted to claim already running task %s", taskID)
+		Warnf("Attempted to claim already running task %s", taskID)
 		return
 	}
 	rt := newTask(taskID, h)
@@ -381,13 +363,13 @@ func (c *Consumer) claimed(taskID string) {
 		defer c.hwg.Done() // Must be run after task exit and Done/Release called
 
 		// Run the task
-		c.logger.Log(LogLevelInfo, "Task started: %s", taskID)
+		Infof("Task started: %s", taskID)
 		done := c.runTask(h.Run, taskID)
 		if done {
-			c.logger.Log(LogLevelInfo, "Task exited: %s (marking done)", taskID)
+			Infof("Task exited: %s (marking done)", taskID)
 			c.coord.Done(taskID)
 		} else {
-			c.logger.Log(LogLevelInfo, "Task exited: %s (releasing)", taskID)
+			Infof("Task exited: %s (releasing)", taskID)
 			c.coord.Release(taskID)
 		}
 	}()
@@ -401,7 +383,7 @@ func (c *Consumer) runTask(run func(string) bool, task string) bool {
 			if err := recover(); err != nil {
 				stack := make([]byte, 50*1024)
 				sz := runtime.Stack(stack, false)
-				c.logger.Log(LogLevelError, "Handler %s panic()'d: %v\n%s", task, err, stack[:sz])
+				Errorf("Handler %s panic()'d: %v\n%s", task, err, stack[:sz])
 				// panics are considered fatal errors. Make sure the task isn't
 				// rescheduled.
 				done = true
@@ -427,7 +409,7 @@ func (c *Consumer) stopTask(taskID string) {
 
 	if !ok {
 		// This can happen if a task completes during Balance() and is not an error.
-		c.logger.Log(LogLevelWarn, "Tried to release a non-running task: %s", taskID)
+		Warnf("Tried to release a non-running task: %s", taskID)
 		return
 	}
 
@@ -438,7 +420,7 @@ func (c *Consumer) stopTask(taskID string) {
 			if err := recover(); err != nil {
 				stack := make([]byte, 50*1024)
 				sz := runtime.Stack(stack, false)
-				c.logger.Log(LogLevelError, "Handler %s panic()'d on Stop: %v\n%s", taskID, err, stack[:sz])
+				Errorf("Handler %s panic()'d on Stop: %v\n%s", taskID, err, stack[:sz])
 			}
 		}()
 
@@ -463,36 +445,36 @@ func (c *Consumer) handleCommand(cmd Command) {
 	switch cmd.Name() {
 	case cmdFreeze:
 		if c.Frozen() {
-			c.logger.Log(LogLevelInfo, "Ignoring freeze command: already frozen")
+			Info("Ignoring freeze command: already frozen")
 			return
 		}
-		c.logger.Log(LogLevelInfo, "Freezing")
+		Info("Freezing")
 		c.freezeL.Lock()
 		c.freeze = true
 		c.freezeL.Unlock()
 	case cmdUnfreeze:
 		if !c.Frozen() {
-			c.logger.Log(LogLevelInfo, "Ignoring unfreeze command: not frozen")
+			Info("Ignoring unfreeze command: not frozen")
 			return
 		}
-		c.logger.Log(LogLevelInfo, "Unfreezing")
+		Info("Unfreezing")
 		c.freezeL.Lock()
 		c.freeze = false
 		c.freezeL.Unlock()
 	case cmdBalance:
-		c.logger.Log(LogLevelInfo, "Balancing due to command")
+		Info("Balancing due to command")
 		c.balance()
-		c.logger.Log(LogLevelDebug, "Finished balancing due to command")
+		Debug("Finished balancing due to command")
 	case cmdStopTask:
 		taskI, ok := cmd.Parameters()["task"]
 		task, ok2 := taskI.(string)
 		if !ok || !ok2 {
-			c.logger.Log(LogLevelError, "Stop task command didn't contain a valid task")
+			Error("Stop task command didn't contain a valid task")
 			return
 		}
-		c.logger.Log(LogLevelInfo, "Stopping task %s due to command", task)
+		Info("Stopping task %s due to command", task)
 		c.stopTask(task)
 	default:
-		c.logger.Log(LogLevelWarn, "Discarding unknown command: %s", cmd.Name())
+		Warnf("Discarding unknown command: %s", cmd.Name())
 	}
 }

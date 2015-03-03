@@ -26,7 +26,6 @@ func TestResourceBalancer(t *testing.T) {
 
 	ctx := &TestConsumerState{
 		Current: []string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"},
-		Logger:  LogT(t),
 	}
 	bal.Init(ctx)
 

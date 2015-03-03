@@ -70,7 +70,7 @@ func (b *ResourceBalancer) CanClaim(string) bool {
 		//      cause a tight loop with the coordinator. Sleep longer than more
 		//      lightly loaded nodes.
 		dur := time.Duration(100+(threshold-b.claimLimit)) * time.Millisecond
-		b.ctx.Log(LogLevelInfo, "%d is over the claim limit of %d. Used %d of %d %s. Sleeping %s before claiming.",
+		Infof("%d is over the claim limit of %d. Used %d of %d %s. Sleeping %s before claiming.",
 			threshold, b.claimLimit, used, total, b.reporter, dur)
 		time.Sleep(dur)
 		return true
@@ -103,7 +103,7 @@ func (b *ResourceBalancer) Balance() []string {
 		return nil
 	}
 
-	b.ctx.Log(LogLevelInfo, "Releasing task %s (started %s) because %d > %d (%d of %d %s used)",
+	Infof("Releasing task %s (started %s) because %d > %d (%d of %d %s used)",
 		task.ID(), task.Started(), threshold, b.releaseLimit, used, total, b.reporter)
 	return []string{task.ID()}
 }

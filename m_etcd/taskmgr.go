@@ -49,7 +49,7 @@ func newManager(ctx metafora.CoordinatorContext, client client, path, nodeID str
 	interval := time.Duration((ttl>>1)+(ttl>>2)) * time.Second
 	if ttl == 1 {
 		interval = 750 * time.Millisecond
-		ctx.Log(metafora.LogLevelWarn, "Dangerously low TTL: %d; consider raising.", ttl)
+		metafora.Warnf("Dangerously low TTL: %d; consider raising.", ttl)
 	}
 	return &taskManager{
 		ctx:      ctx,
@@ -86,22 +86,22 @@ func (m *taskManager) add(taskID string) bool {
 	if err != nil {
 		etcdErr, ok := err.(*etcd.EtcdError)
 		if !ok || etcdErr.ErrorCode != EcodeNodeExist {
-			m.ctx.Log(metafora.LogLevelError, "Claim of %s failed with an unexpected error: %v", key, err)
+			metafora.Errorf("Claim of %s failed with an unexpected error: %v", key, err)
 		} else {
-			m.ctx.Log(metafora.LogLevelInfo, "Claim of %s failed, already claimed", key)
+			metafora.Debugf("Claim of %s failed, already claimed", key)
 		}
 		return false
 	}
 
 	// Claim successful, start the refresher
-	m.ctx.Log(metafora.LogLevelDebug, "Claim successful: %s", key)
+	metafora.Debugf("Claim successful: %s", key)
 	done := make(chan struct{})
 	release := make(chan struct{})
 	m.taskL.Lock()
 	m.tasks[taskID] = taskStates{done: done, release: release}
 	m.taskL.Unlock()
 
-	m.ctx.Log(metafora.LogLevelDebug, "Starting claim refresher for task %s", taskID)
+	metafora.Debugf("Starting claim refresher for task %s", taskID)
 	m.wg.Add(1)
 	go func() {
 		defer func() {
@@ -116,23 +116,23 @@ func (m *taskManager) add(taskID string) bool {
 			case <-time.After(m.interval):
 				// Try to refresh the claim node (0 index means compare by value)
 				if _, err := m.client.CompareAndSwap(key, value, m.ttl, value, 0); err != nil {
-					m.ctx.Log(metafora.LogLevelError, "Error trying to update task %s ttl: %v", taskID, err)
+					metafora.Errorf("Error trying to update task %s ttl: %v", taskID, err)
 					m.ctx.Lost(taskID)
 					// On errors, don't even try to Delete as we're in a bad state
 					return
 				}
 			case <-done:
-				m.ctx.Log(metafora.LogLevelDebug, "Deleting directory for task %s as it's done.", taskID)
+				metafora.Debugf("Deleting directory for task %s as it's done.", taskID)
 				const recursive = true
 				if _, err := m.client.Delete(m.taskPath(taskID), recursive); err != nil {
-					m.ctx.Log(metafora.LogLevelError, "Error deleting task %s while stopping: %v", taskID, err)
+					metafora.Errorf("Error deleting task %s while stopping: %v", taskID, err)
 				}
 				return
 			case <-release:
-				m.ctx.Log(metafora.LogLevelDebug, "Deleting claim for task %s as it's released.", taskID)
+				metafora.Debugf("Deleting claim for task %s as it's released.", taskID)
 				// Not done, releasing; just delete the claim node
 				if _, err := m.client.CompareAndDelete(key, value, 0); err != nil {
-					m.ctx.Log(metafora.LogLevelWarn, "Error releasing task %s while stopping: %v", taskID, err)
+					metafora.Warnf("Error releasing task %s while stopping: %v", taskID, err)
 				}
 				return
 			}
@@ -147,7 +147,7 @@ func (m *taskManager) remove(taskID string, done bool) {
 	defer m.taskL.Unlock()
 	states, ok := m.tasks[taskID]
 	if !ok {
-		m.ctx.Log(metafora.LogLevelDebug, "Cannot remove task %s from refresher: not present.", taskID)
+		metafora.Debugf("Cannot remove task %s from refresher: not present.", taskID)
 		return
 	}
 

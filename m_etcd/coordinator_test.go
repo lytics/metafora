@@ -86,7 +86,7 @@ func TestCoordinatorTC2(t *testing.T) {
 	result := make(chan error, 1)
 	testTasks := []string{"test-claiming-task0001", "test-claiming-task0002", "test-claiming-task0003"}
 
-	mclient := NewClientWithLogger(namespace, client, testLogger{"metafora-client1", t})
+	mclient := NewClient(namespace, client)
 
 	go func() {
 		//Watch blocks, so we need to test it in its own go routine.
@@ -144,7 +144,7 @@ func TestCoordinatorTC3(t *testing.T) {
 	test_finished := make(chan bool)
 	testTasks := []string{"test-claiming-task0001", "test-claiming-task0002", "test-claiming-task0003"}
 
-	mclient := NewClientWithLogger(namespace, client, testLogger{"metafora-client1", t})
+	mclient := NewClient(namespace, client)
 
 	startATaskWatcher := func() {
 		//Watch blocks, so we need to test it in its own go routine.
@@ -212,7 +212,7 @@ func TestCoordinatorTC4(t *testing.T) {
 	watchOk := make(chan bool)
 	task := "testtask4"
 
-	mclient := NewClientWithLogger(namespace, client, testLogger{"metafora-client1", t})
+	mclient := NewClient(namespace, client)
 
 	err := mclient.SubmitTask(task)
 	if err != nil {
@@ -277,7 +277,7 @@ func TestClaimRefreshExpire(t *testing.T) {
 	}
 	coord1ResultChannel := make(chan string)
 
-	mclient := NewClientWithLogger(namespace, client, testLogger{"client", t})
+	mclient := NewClient(namespace, client)
 	task := "testclaimrefreshexpire"
 
 	go func() {

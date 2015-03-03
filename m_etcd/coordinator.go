@@ -112,7 +112,7 @@ func NewEtcdCoordinator(nodeID, namespace string, client *etcd.Client) metafora.
 // Init is called once by the consumer to provide a Logger to Coordinator
 // implementations.
 func (ec *EtcdCoordinator) Init(cordCtx metafora.CoordinatorContext) error {
-	cordCtx.Log(metafora.LogLevelDebug, "Initializing coordinator with namespace: %s and etcd cluster: %s",
+	metafora.Debugf("Initializing coordinator with namespace: %s and etcd cluster: %s",
 		ec.namespace, strings.Join(ec.Client.GetCluster(), ", "))
 
 	ec.cordCtx = cordCtx
@@ -146,7 +146,7 @@ func (ec *EtcdCoordinator) upsertDir(path string, ttl uint64) {
 	if ok && etcdErr.ErrorCode == EcodeKeyNotFound {
 		_, err := ec.Client.CreateDir(path, ttl)
 		if err != nil {
-			ec.cordCtx.Log(metafora.LogLevelDebug, "Error trying to create directory. path:[%s] error:[ %v ]", path, err)
+			metafora.Debugf("Error trying to create directory. path:[%s] error:[ %v ]", path, err)
 		}
 		host, _ := os.Hostname()
 
@@ -185,8 +185,7 @@ func (ec *EtcdCoordinator) nodeRefresher() {
 		case <-time.After(time.Duration(ttl) * time.Second):
 			if err := ec.refreshBy(deadline); err != nil {
 				// We're in a bad state; shut everything down
-				ec.cordCtx.Log(metafora.LogLevelError,
-					"Unable to refresh node key before deadline %s. Last error: %v", deadline, err)
+				metafora.Errorf("Unable to refresh node key before deadline %s. Last error: %v", deadline, err)
 				ec.Close()
 			}
 		}
@@ -208,7 +207,7 @@ func (ec *EtcdCoordinator) refreshBy(deadline time.Time) (err error) {
 			// It worked!
 			return nil
 		}
-		ec.cordCtx.Log(metafora.LogLevelWarn, "Unexpected error updating node key: %v", err)
+		metafora.Warnf("Unexpected error updating node key: %v", err)
 		transport.CloseIdleConnections()   // paranoia; let's get fresh connections on errors.
 		time.Sleep(500 * time.Millisecond) // rate limit retries a bit
 	}
@@ -234,7 +233,7 @@ startWatch:
 		// Get existing tasks
 		resp, err := ec.Client.Get(ec.taskPath, sorted, recursive)
 		if err != nil {
-			ec.cordCtx.Log(metafora.LogLevelError, "%s Error getting the existing tasks: %v", ec.taskPath, err)
+			metafora.Errorf("%s Error getting the existing tasks: %v", ec.taskPath, err)
 			return "", err
 		}
 
@@ -279,7 +278,7 @@ startWatch:
 func (ec *EtcdCoordinator) parseTask(resp *etcd.Response) (task string, ok bool) {
 	// Sanity check / test path invariant
 	if !strings.HasPrefix(resp.Node.Key, ec.taskPath) {
-		ec.cordCtx.Log(metafora.LogLevelError, "Received task from outside task path: %s", resp.Node.Key)
+		metafora.Errorf("Received task from outside task path: %s", resp.Node.Key)
 		return "", false
 	}
 
@@ -291,17 +290,17 @@ func (ec *EtcdCoordinator) parseTask(resp *etcd.Response) (task string, ok bool)
 		// Make sure it's not already claimed before returning it
 		for _, n := range resp.Node.Nodes {
 			if strings.HasSuffix(n.Key, OwnerMarker) {
-				ec.cordCtx.Log(metafora.LogLevelDebug, "Ignoring task as it's already claimed: %s", parts[2])
+				metafora.Debugf("Ignoring task as it's already claimed: %s", parts[2])
 				return "", false
 			}
 		}
-		ec.cordCtx.Log(metafora.LogLevelDebug, "Received new task: %s", parts[2])
+		metafora.Debugf("Received new task: %s", parts[2])
 		return parts[2], true
 	}
 
 	// If a claim key is removed, try to claim the task
 	if releaseActions[resp.Action] && len(parts) == 4 && parts[3] == OwnerMarker {
-		ec.cordCtx.Log(metafora.LogLevelDebug, "Received released task: %s", parts[2])
+		metafora.Debugf("Received released task: %s", parts[2])
 		return parts[2], true
 	}
 
@@ -343,7 +342,7 @@ startWatch:
 		// Get existing commands
 		resp, err := ec.Client.Get(ec.commandPath, sorted, recursive)
 		if err != nil {
-			ec.cordCtx.Log(metafora.LogLevelError, "%s Error getting the existing commands: %v", ec.commandPath, err)
+			metafora.Errorf("%s Error getting the existing commands: %v", ec.commandPath, err)
 			return nil, err
 		}
 
@@ -390,12 +389,12 @@ func (ec *EtcdCoordinator) parseCommand(resp *etcd.Response) metafora.Command {
 
 	const recurse = false
 	if _, err := ec.Client.Delete(resp.Node.Key, recurse); err != nil {
-		ec.cordCtx.Log(metafora.LogLevelError, "Error deleting handled command %s: %v", resp.Node.Key, err)
+		metafora.Errorf("Error deleting handled command %s: %v", resp.Node.Key, err)
 	}
 
 	cmd, err := metafora.UnmarshalCommand([]byte(resp.Node.Value))
 	if err != nil {
-		ec.cordCtx.Log(metafora.LogLevelError, "Invalid command %s: %v", resp.Node.Key, err)
+		metafora.Errorf("Invalid command %s: %v", resp.Node.Key, err)
 		return nil
 	}
 	return cmd
@@ -430,7 +429,7 @@ func (ec *EtcdCoordinator) Close() {
 			}
 		}
 		// All other errors are unexpected
-		ec.cordCtx.Log(metafora.LogLevelError, "Error deleting node path %s: %v", ec.nodePath, err)
+		metafora.Errorf("Error deleting node path %s: %v", ec.nodePath, err)
 	}
 }
 
@@ -457,7 +456,7 @@ func (ec *EtcdCoordinator) watch(path string, index uint64) (*etcd.Response, err
 			// also fails to communicate with etcd it will close the coordinator,
 			// closing ec.stop in the process which will cause this function to with
 			// ErrWatchStoppedByUser.
-			ec.cordCtx.Log(metafora.LogLevelError, "%s Retrying after unexpected watch error: %v", path, err)
+			metafora.Errorf("%s Retrying after unexpected watch error: %v", path, err)
 			transport.CloseIdleConnections() // paranoia; let's get fresh connections on errors.
 			continue
 		}
@@ -474,13 +473,13 @@ func (ec *EtcdCoordinator) watch(path string, index uint64) (*etcd.Response, err
 		if err != nil {
 			if ee, ok := err.(*etcd.EtcdError); ok {
 				if ee.ErrorCode == EcodeExpiredIndex {
-					ec.cordCtx.Log(metafora.LogLevelDebug, "%s Too many events have happened since index was updated. Restarting watch.", ec.taskPath)
+					metafora.Debugf("%s Too many events have happened since index was updated. Restarting watch.", ec.taskPath)
 					// We need to retrieve all existing tasks to update our index
 					// without potentially missing some events.
 					return nil, restartWatchError
 				}
 			}
-			ec.cordCtx.Log(metafora.LogLevelError, "%s Unexpected error unmarshalling etcd response: %+v", ec.taskPath, err)
+			metafora.Errorf("%s Unexpected error unmarshalling etcd response: %+v", ec.taskPath, err)
 			return nil, err
 		}
 		return resp, nil
