@@ -52,7 +52,7 @@ func TestNodes(t *testing.T) {
 func TestSubmitTask(t *testing.T) {
 	eclient := newEtcdClient(t)
 
-	mclient := NewClientWithLogger(Namespace, eclient, testLogger{"metafora-client", t})
+	mclient := NewClient(Namespace, eclient)
 
 	if err := mclient.DeleteTask("testid1"); err != nil {
 		t.Logf("DeleteTask returned an error, which maybe ok.  Error:%v", err)

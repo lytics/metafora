@@ -3,8 +3,9 @@ package resreporter
 import (
 	"bufio"
 	"fmt"
-	"log"
 	"os"
+
+	"github.com/lytics/metafora"
 )
 
 const meminfo = "/proc/meminfo"
@@ -16,8 +17,7 @@ type memory struct{}
 func (memory) Used() (used uint64, total uint64) {
 	fd, err := os.Open(meminfo)
 	if err != nil {
-		//XXX Should this use metafora's logger somehow?
-		log.Printf("Error reading free memory via "+meminfo+": %v", err)
+		metafora.Errorf("Error reading free memory via "+meminfo+": %v", err)
 
 		// Effectively disable the balancer since an error happened
 		return 0, 100
@@ -57,8 +57,7 @@ func (memory) Used() (used uint64, total uint64) {
 		}
 	}
 	if err := s.Err(); err != nil {
-		//XXX Should this use metafora's logger somehow?
-		log.Printf("Error reading free memory via "+meminfo+": %v", err)
+		metafora.Errorf("Error reading free memory via "+meminfo+": %v", err)
 
 		// Effectively disable the balancer since an error happened
 		return 0, 100

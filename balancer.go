@@ -12,14 +12,12 @@ const (
 )
 
 // BalancerContext is a limited interface exposed to Balancers from the
-// Consumer for access to logging and limited Consumer state.
+// Consumer for access to limited Consumer state.
 type BalancerContext interface {
 	// Tasks returns a sorted list of task IDs run by this Consumer. The Consumer
 	// stops task manipulations during claiming and balancing, so the list will
 	// be accurate unless a task naturally completes.
 	Tasks() []Task
-
-	Logger
 }
 
 // Balancer is the core task balancing interface. Without a master Metafora
@@ -114,7 +112,7 @@ func (e *FairBalancer) Balance() []string {
 	e.lastreleased = map[string]bool{}
 	current, err := e.clusterstate.NodeTaskCount()
 	if err != nil {
-		e.bc.Log(LogLevelWarn, "Error retrieving cluster state: %v", err)
+		Warnf("Error retrieving cluster state: %v", err)
 		return nil
 	}
 

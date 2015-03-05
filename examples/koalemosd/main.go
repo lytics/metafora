@@ -13,10 +13,6 @@ import (
 	"github.com/lytics/metafora/m_etcd"
 )
 
-const lflags = log.Ldate | log.Lmicroseconds | log.Lshortfile
-
-var logger = log.New(os.Stdout, "", lflags)
-
 func main() {
 	mlvl := metafora.LogLevelInfo
 
@@ -40,6 +36,7 @@ func main() {
 	case "error":
 		mlvl = metafora.LogLevelError
 	}
+	metafora.SetLogLevel(mlvl)
 
 	hfunc := makeHandlerFunc(etcdc)
 	coord := m_etcd.NewEtcdCoordinator(*name, *namespace, etcdc).(*m_etcd.EtcdCoordinator)
@@ -48,7 +45,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("Error creating consumer: %v", err)
 	}
-	c.SetLogger(logger, mlvl)
 	log.Printf(
 		"Starting koalsmosd with etcd=%s; namespace=%s; name=%s; loglvl=%s",
 		*peers, *namespace, coord.NodeID, mlvl)

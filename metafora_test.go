@@ -1,9 +1,21 @@
 package metafora
 
 import (
+	"flag"
 	"testing"
 	"time"
 )
+
+func init() {
+	flag.Parse()
+	if !testing.Verbose() {
+		SetLogger(testlogger{})
+	}
+}
+
+type testlogger struct{}
+
+func (testlogger) Output(int, string) error { return nil }
 
 // Handler/Consumer test
 
