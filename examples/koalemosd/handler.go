@@ -86,10 +86,14 @@ func (h *shellHandler) Run(taskID string) (done bool) {
 	if err := cmd.Wait(); err != nil {
 		if err.(*exec.ExitError).Sys().(syscall.WaitStatus).Signal() == os.Interrupt {
 			h.log("Stopping")
+			// Not done!
+			done = false
 		} else {
 			h.log("Exited with error: %v", err)
 			done = true // don't retry commands that error'd
 		}
+	} else {
+		done = true
 	}
 
 	// Only delete task if command is done

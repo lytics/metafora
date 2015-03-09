@@ -90,7 +90,7 @@ func (l *logger) log(lvl LogLevel, v ...interface{}) {
 		return
 	}
 
-	l.l.Output(2, fmt.Sprintf("[%s] %s", lvl, fmt.Sprint(v...)))
+	l.l.Output(3, fmt.Sprintf("[%s] %s", lvl, fmt.Sprint(v...)))
 }
 
 func (l *logger) logf(lvl LogLevel, format string, v ...interface{}) {
@@ -102,5 +102,5 @@ func (l *logger) logf(lvl LogLevel, format string, v ...interface{}) {
 		return
 	}
 
-	l.l.Output(2, fmt.Sprintf("[%s] %s", lvl, fmt.Sprintf(format, v...)))
+	l.l.Output(3, fmt.Sprintf("[%s] %s", lvl, fmt.Sprintf(format, v...)))
 }

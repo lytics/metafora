@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"log"
 	"os"
 	"os/signal"
 	"strings"
@@ -25,16 +24,19 @@ func main() {
 	etcdc := etcd.NewClient(strings.Split(*peers, ","))
 
 	if !etcdc.SyncCluster() {
-		log.Fatalf("Unable to connect to etcd cluster: %s", *peers)
+		metafora.Errorf("Unable to connect to etcd cluster: %s", *peers)
+		os.Exit(1)
 	}
 
-	switch *loglvl {
+	switch strings.ToLower(*loglvl) {
 	case "debug":
 		mlvl = metafora.LogLevelDebug
 	case "warn":
 		mlvl = metafora.LogLevelWarn
 	case "error":
 		mlvl = metafora.LogLevelError
+	default:
+		metafora.Warnf("Invalid log level %q - using %s", *loglvl, mlvl)
 	}
 	metafora.SetLogLevel(mlvl)
 
@@ -43,9 +45,10 @@ func main() {
 	bal := m_etcd.NewFairBalancer(*name, *namespace, etcdc)
 	c, err := metafora.NewConsumer(coord, hfunc, bal)
 	if err != nil {
-		log.Fatalf("Error creating consumer: %v", err)
+		metafora.Errorf("Error creating consumer: %v", err)
+		os.Exit(2)
 	}
-	log.Printf(
+	metafora.Infof(
 		"Starting koalsmosd with etcd=%s; namespace=%s; name=%s; loglvl=%s",
 		*peers, *namespace, coord.NodeID, mlvl)
 	consumerRunning := make(chan struct{})
@@ -58,10 +61,10 @@ func main() {
 	signal.Notify(sigC, os.Interrupt, os.Kill, syscall.SIGTERM)
 	select {
 	case s := <-sigC:
-		log.Printf("Received signal %s, shutting down", s)
+		metafora.Infof("Received signal %s, shutting down", s)
 	case <-consumerRunning:
-		log.Printf("Consumer exited. Shutting down.")
+		metafora.Warn("Consumer exited. Shutting down.")
 	}
 	c.Shutdown()
-	log.Printf("Shutdown")
+	metafora.Info("Shutdown")
 }
