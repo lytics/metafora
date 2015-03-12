@@ -363,14 +363,24 @@ func (c *Consumer) claimed(taskID string) {
 		defer c.hwg.Done() // Must be run after task exit and Done/Release called
 
 		// Run the task
-		Infof("Task started: %s", taskID)
+		Infof("Task %q started", taskID)
 		done := c.runTask(h.Run, taskID)
+		var status string
 		if done {
-			Infof("Task exited: %s (marking done)", taskID)
+			status = "done"
 			c.coord.Done(taskID)
 		} else {
-			Infof("Task exited: %s (releasing)", taskID)
+			status = "released"
 			c.coord.Release(taskID)
+		}
+
+		stopped := rt.Stopped()
+		if stopped.IsZero() {
+			// Task exited on its own
+			Infof("Task %q exited (%s)", taskID, status)
+		} else {
+			// Task exited due to Stop() being called
+			Infof("Task %q exited (%s) after %s", taskID, status, time.Now().Sub(stopped))
 		}
 	}()
 }
