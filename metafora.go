@@ -197,7 +197,7 @@ func (c *Consumer) Run() {
 				break
 			}
 			if !c.coord.Claim(task) {
-				Infof("Coordinator unable to claim task %s", task)
+				Debugf("Coordinator unable to claim task %s", task)
 				break
 			}
 			c.claimed(task)
