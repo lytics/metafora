@@ -55,7 +55,6 @@ func TestTaskRefreshing(t *testing.T) {
 	client := newFakeEtcd()
 	const ttl = 2
 	mgr := newManager(newCtx(t, "mgr"), client, "testns", "testnode", ttl)
-	defer mgr.stop()
 	mgr.add("tid")
 	for i := 0; i < 2; i++ {
 		select {
@@ -78,7 +77,6 @@ func TestTaskRemoval(t *testing.T) {
 	client := newFakeEtcd()
 	const ttl = 2
 	mgr := newManager(newCtx(t, "mgr"), client, "testns", "testnode", ttl)
-	defer mgr.stop()
 	mgr.add("tid")
 	mgr.remove("tid", false)
 	select {
@@ -110,7 +108,6 @@ func TestFullTaskMgr(t *testing.T) {
 	client := newFakeEtcd()
 	const ttl = 2
 	mgr := newManager(newCtx(t, "mgr"), client, "testns", "testnode", ttl)
-	defer mgr.stop()
 
 	// Add a few tasks and remove one
 	mgr.add("tid1")
@@ -138,13 +135,13 @@ func TestFullTaskMgr(t *testing.T) {
 			}
 			delDone = true
 		case <-time.After(1500 * time.Millisecond):
-			t.Errorf("Took too long for refreshes to happen")
+			t.Fatalf("Took too long for refreshes to happen")
 		}
 	}
 
-	// Calling remove and stop concurrently should be safe
+	// Calling remove concurrently should be safe
 	go mgr.remove("tid3", false)
-	go mgr.stop()
+	go mgr.remove("tid1", false)
 	expectedDels := map[string]bool{mgr.ownerKey("tid1"): true, mgr.ownerKey("tid3"): true}
 	for len(expectedDels) > 0 {
 		select {
@@ -154,12 +151,10 @@ func TestFullTaskMgr(t *testing.T) {
 			}
 			delete(expectedDels, path)
 		case <-time.After(1 * time.Second):
-			t.Errorf("Took too long for deletes to happen")
+			t.Fatalf("Took too long for deletes to happen")
 		}
 	}
 
-	// Stopping more than once is silly but should be a safe noop
-	mgr.stop()
 	if len(client.cad) > 0 {
 		t.Errorf("Unexpected deletes occurred")
 	}
@@ -175,7 +170,6 @@ func TestTaskLost(t *testing.T) {
 	client := newFakeEtcd()
 	const ttl = 2
 	mgr := newManager(ctx, client, "testns", "testnode", ttl)
-	defer mgr.stop()
 
 	mgr.add("testlost")
 
@@ -195,8 +189,6 @@ func TestTaskLost(t *testing.T) {
 
 	// removing a lost task should be a noop
 	mgr.remove("testlost", false)
-	// as should stopping
-	mgr.stop()
 
 	if len(client.cad) > 0 {
 		t.Error("Unexpectedly deleted non-existant tasks when shutting down.")
@@ -217,15 +209,19 @@ func TestTaskDone(t *testing.T) {
 	mgr.add("t1")
 	mgr.add("t2")
 	mgr.remove("t1", true)
-	mgr.stop()
+	mgr.remove("t2", false)
+
+	// Should have 1 CAD and 1 Delete
+	<-client.cad
+	<-client.del
 
 	if len(client.cas) > 0 {
 		t.Errorf("Expected 0 CASs but found %d", len(client.cas))
 	}
-	if len(client.cad) != 1 {
-		t.Errorf("Expected 1 CAD but found %d", len(client.cad))
+	if len(client.cad) > 0 {
+		t.Errorf("Expected 1 CAD but found %d", len(client.cad)+1)
 	}
-	if len(client.del) != 1 {
-		t.Errorf("Expected 1 delete but found %d", len(client.del))
+	if len(client.del) > 0 {
+		t.Errorf("Expected 1 delete but found %d", len(client.del)+1)
 	}
 }

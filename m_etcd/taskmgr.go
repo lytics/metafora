@@ -164,22 +164,3 @@ func (m *taskManager) remove(taskID string, done bool) {
 		}
 	}
 }
-
-// stop blocks until all refreshers have exited.
-func (m *taskManager) stop() {
-	func() {
-		m.taskL.Lock()
-		defer m.taskL.Unlock()
-		for _, states := range m.tasks {
-			select {
-			case <-states.release:
-				// already stopping
-			case <-states.done:
-				// already stopping
-			default:
-				close(states.release)
-			}
-		}
-	}()
-	m.wg.Wait()
-}

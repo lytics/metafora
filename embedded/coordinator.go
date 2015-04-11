@@ -2,7 +2,6 @@ package embedded
 
 import (
 	"errors"
-	"sync"
 
 	"github.com/lytics/metafora"
 )
@@ -31,9 +30,6 @@ type EmbeddedCoordinator struct {
 	cmdchan  chan *NodeCommand
 	nodechan chan<- []string
 	stopchan chan struct{}
-
-	bl      sync.Mutex
-	backlog []string
 }
 
 func (e *EmbeddedCoordinator) Init(c metafora.CoordinatorContext) error {
@@ -41,25 +37,22 @@ func (e *EmbeddedCoordinator) Init(c metafora.CoordinatorContext) error {
 	return nil
 }
 
-func (e *EmbeddedCoordinator) Watch() (taskID string, err error) {
-	// first check backlog for tasks
-	e.bl.Lock()
-	if len(e.backlog) > 0 {
-		taskID, e.backlog = e.backlog[len(e.backlog)-1], e.backlog[:len(e.backlog)-1]
-		e.bl.Unlock()
-		return taskID, nil
-	}
-	e.bl.Unlock()
-
-	// wait for incoming tasks
-	select {
-	case id, ok := <-e.inchan:
-		if !ok {
-			return "", errors.New("Input closed")
+func (e *EmbeddedCoordinator) Watch(out chan<- string) error {
+	for {
+		// wait for incoming tasks
+		select {
+		case id, ok := <-e.inchan:
+			if !ok {
+				return errors.New("Input closed")
+			}
+			select {
+			case out <- id:
+			case <-e.stopchan:
+				return nil
+			}
+		case <-e.stopchan:
+			return nil
 		}
-		return id, nil
-	case <-e.stopchan:
-		return "", nil
 	}
 }
 
@@ -69,15 +62,14 @@ func (e *EmbeddedCoordinator) Claim(taskID string) bool {
 }
 
 func (e *EmbeddedCoordinator) Release(taskID string) {
-	select {
-	case e.inchan <- taskID:
-	case <-e.stopchan:
-	default:
-		// No consumers watching and not stopping, store in backlog
-		e.bl.Lock()
-		e.backlog = append(e.backlog, taskID)
-		e.bl.Unlock()
-	}
+	// Releasing should be async to avoid deadlocks (and better reflect the
+	// behavior of "real" coordinators)
+	go func() {
+		select {
+		case e.inchan <- taskID:
+		case <-e.stopchan:
+		}
+	}()
 }
 
 func (e *EmbeddedCoordinator) Done(taskID string) {}

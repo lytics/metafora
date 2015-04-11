@@ -18,31 +18,31 @@ type Coordinator interface {
 	// implementations. NewConsumer will return Init's return value.
 	Init(CoordinatorContext) error
 
-	// Watch the broker for claimable tasks. Returned tasks are passed to the
-	// Balancer to check if a claim should be attempted.
-	//
-	// Watch returns ("", nil) when the Coordinator has been Closed.
-	Watch() (taskID string, err error)
+	// Watch the broker for tasks. Watch blocks until Close is called or it
+	// encounters an error. Tasks are sent to consumer via the tasks chan.
+	Watch(tasks chan<- string) (err error)
 
 	// Claim is called by the Consumer when a Balancer has determined that a task
 	// ID can be claimed. Claim returns false if another consumer has already
 	// claimed the ID.
 	Claim(taskID string) bool
 
-	// Release a task for other consumers to claim.
+	// Release a task for other consumers to claim. May be called after Close.
 	Release(taskID string)
 
 	// Done is called by Metafora when a task has been completed and should never
 	// be scheduled to run again (in other words: deleted from the broker).
+	//
+	// May be called after Close.
 	Done(taskID string)
 
 	// Command blocks until a command for this node is received from the broker
 	// by the coordinator. Command must return (nil, nil) when Close is called.
 	Command() (Command, error)
 
-	// Close indicates the Coordinator should stop watching and receiving
-	// commands. It is called during Consumer.Shutdown() and shutdown will block
-	// until Close() exits.
+	// Close the coordinator. Stop waiting for tasks and commands. Remove node from broker.
+	//
+	// Do not release tasks. The consumer will handle task releasing.
 	Close()
 }
 

@@ -14,7 +14,7 @@ func (b *releaseAllBalancer) Init(c BalancerContext) {
 	b.ctx = c
 	b.balances = make(chan int)
 }
-func (b *releaseAllBalancer) CanClaim(string) bool { return true }
+func (b *releaseAllBalancer) CanClaim(string) (time.Time, bool) { return time.Time{}, true }
 func (b *releaseAllBalancer) Balance() []string {
 	b.balances <- 1
 	ids := []string{}

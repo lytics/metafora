@@ -13,8 +13,6 @@ import (
 
 /*
 	Running the Integration Test:
-	#if you don't have etcd install use this script to set it up:
-	sudo bash ./scripts/docker_run_etcd.sh
 
 ETCDTESTS=1 go test -v ./...
 */
@@ -39,7 +37,6 @@ func TestCoordinatorFirstNodeJoiner(t *testing.T) {
 }
 
 // Ensure that Watch() picks up new tasks and returns them.
-//
 func TestCoordinatorTC1(t *testing.T) {
 	coordinator1, client := setupEtcd(t)
 	if err := coordinator1.Init(newCtx(t, "coordinator1")); err != nil {
@@ -47,35 +44,35 @@ func TestCoordinatorTC1(t *testing.T) {
 	}
 	defer coordinator1.Close()
 
-	watchRes := make(chan string)
-	task001 := "test-task0001"
+	tasks := make(chan string)
+	task001 := "test-task"
 	taskPath := path.Join(namespace, TasksPath, task001)
+	errc := make(chan error)
 
 	go func() {
 		//Watch blocks, so we need to test it in its own go routine.
-		taskId, err := coordinator1.Watch()
-		if err != nil {
-			t.Fatalf("coordinator1.Watch() returned an err: %v", err)
-		}
-		t.Logf("We got a task id from the coordinator1.Watch() res:%s", taskId)
-
-		watchRes <- taskId
+		errc <- coordinator1.Watch(tasks)
 	}()
 
 	client.CreateDir(taskPath, 5)
 
 	select {
-	case taskId := <-watchRes:
+	case taskId := <-tasks:
 		if taskId != task001 {
 			t.Fatalf("coordinator1.Watch() test failed: We received the incorrect taskId.  Got [%s] Expected[%s]", taskId, task001)
 		}
 	case <-time.After(time.Second * 5):
 		t.Fatalf("coordinator1.Watch() test failed: The testcase timed out after 5 seconds.")
 	}
+
+	coordinator1.Close()
+	err := <-errc
+	if err != nil {
+		t.Fatalf("coordinator1.Watch() returned an err: %v", err)
+	}
 }
 
-//   Submit a task while a coordinator is actively watching for tasks.
-//
+// Submit a task while a coordinator is actively watching for tasks.
 func TestCoordinatorTC2(t *testing.T) {
 	coordinator1, client := setupEtcd(t)
 	if err := coordinator1.Init(newCtx(t, "coordinator1")); err != nil {
@@ -83,52 +80,40 @@ func TestCoordinatorTC2(t *testing.T) {
 	}
 	defer coordinator1.Close()
 
-	result := make(chan error, 1)
-	testTasks := []string{"test-claiming-task0001", "test-claiming-task0002", "test-claiming-task0003"}
+	testTasks := []string{"test1", "test2", "test3"}
 
 	mclient := NewClient(namespace, client)
 
+	tasks := make(chan string)
+	errc := make(chan error)
 	go func() {
 		//Watch blocks, so we need to test it in its own go routine.
-		taskId, err := coordinator1.Watch()
-		if err != nil {
-			result <- err
-			return
-			t.Fatalf("coordinator1.Watch() returned an err: %v", err)
-		}
-
-		t.Logf("We got a task id from the coordinator1.Watch() res: %s", taskId)
-
-		if ok := coordinator1.Claim(taskId); !ok {
-			result <- err
-			return
-			t.Fatal("coordinator1.Claim() unable to claim the task")
-		}
-
-		result <- nil
+		errc <- coordinator1.Watch(tasks)
 	}()
 
-	time.Sleep(24 * time.Millisecond)
-	err := mclient.SubmitTask(testTasks[0])
-	if err != nil {
-		t.Fatalf("Error submitting a task to metafora via the client.  Error:\n%v", err)
+	for _, task := range testTasks {
+		err := mclient.SubmitTask(task)
+		if err != nil {
+			t.Fatalf("Error submitting a task to metafora via the client.  Error:\n%v", err)
+		}
+		recvd := <-tasks
+		if recvd != task {
+			t.Fatalf("%s != %s - received an unexpected task", recvd, task)
+		}
+		if ok := coordinator1.Claim(task); !ok {
+			t.Fatal("coordinator1.Claim() unable to claim the task")
+		}
 	}
 
-	select {
-	case res := <-result:
-		if res != nil {
-			t.Fatalf("Background test checker failed so the test failed: %v", res)
-		}
-	case <-time.After(time.Second * 5):
-		t.Fatalf("Test failed: The testcase timed out after 5 seconds.")
+	coordinator1.Close()
+	err := <-errc
+	if err != nil {
+		t.Fatalf("coordinator1.Watch() returned an err: %v", err)
 	}
 }
 
-//   1) Submit two tasks between calls to coordinator.Watch() to make sure the
-//   coordinator picks up tasks made between requests to Watch().
-//
-//   2) Try claiming the same taskId twice.
-//
+// Start two coordinators to ensure that fighting over claims results in only
+// one coordinator winning (and the other not crashing).
 func TestCoordinatorTC3(t *testing.T) {
 	coordinator1, client := setupEtcd(t)
 	if err := coordinator1.Init(newCtx(t, "coordinator1")); err != nil {
@@ -141,63 +126,55 @@ func TestCoordinatorTC3(t *testing.T) {
 	}
 	defer coordinator2.Close()
 
-	test_finished := make(chan bool)
 	testTasks := []string{"test-claiming-task0001", "test-claiming-task0002", "test-claiming-task0003"}
 
 	mclient := NewClient(namespace, client)
 
-	startATaskWatcher := func() {
-		//Watch blocks, so we need to test it in its own go routine.
-		taskId, err := coordinator1.Watch()
+	// Start the watchers
+	errc := make(chan error, 2)
+	c1tasks := make(chan string)
+	c2tasks := make(chan string)
+	go func() {
+		errc <- coordinator1.Watch(c1tasks)
+	}()
+	go func() {
+		errc <- coordinator2.Watch(c2tasks)
+	}()
+
+	// Submit the tasks
+	for _, tid := range testTasks {
+		err := mclient.SubmitTask(tid)
 		if err != nil {
-			t.Fatalf("coordinator1.Watch() returned an err: %v", err)
+			t.Fatalf("Error submitting task=%q to metafora via the client. Error:\n%v", tid, err)
 		}
-
-		_, err = coordinator2.Watch() //coordinator2 should also pickup this task
-		if err != nil {
-			t.Fatalf("coordinator2.Watch() returned an err: %v", err)
-		}
-
-		t.Logf("We got a task id from the coordinator1.Watch() res: %s", taskId)
-
-		if ok := coordinator1.Claim(taskId); !ok {
-			t.Fatal("coordinator1.Claim() unable to claim the task")
-		}
-
-		//Try to claim the task in a second coordinator.  Should fail
-		if ok := coordinator2.Claim(taskId); ok {
-			t.Fatal("coordinator1.Claim() unable to claim the task")
-		}
-
-		test_finished <- true
 	}
 
-	err := mclient.SubmitTask(testTasks[1])
-	if err != nil {
-		t.Fatalf("Error submitting a task to metafora via the client. Error:\n%v", err)
-	}
-	err = mclient.SubmitTask(testTasks[2])
-	if err != nil {
-		t.Fatalf("Error submitting a task to metafora via the client. Error:\n%v", err)
+	//XXX This assumes tasks are sent by watchers in the order they were
+	//    submitted to etcd which, while /possible/ to guarantee, isn't a gurantee
+	//    we're interested in making. Remove this section if it starts causing problems.
+	//    We only want to guarantee that exactly one coordinator can claim a task.
+	c1tid := <-c1tasks
+	c2tid := <-c2tasks
+	if c1tid != c2tid {
+		t.Fatalf("Watchers didn't receive the same task %s != %s. Might be fine; see code.", c1tid, c2tid)
 	}
 
-	go startATaskWatcher()
-	select {
-	case res := <-test_finished:
-		if !res {
-			t.Fatalf("Background test checker failed so the test failed.")
-		}
-	case <-time.After(time.Second * 5):
-		t.Fatalf("Test failed: The testcase timed out after 5 seconds.")
+	// Make sure c1 can claim and c2 cannot
+	if ok := coordinator1.Claim(c1tid); !ok {
+		t.Fatalf("coordinator1.Claim() unable to claim the task=%q", c1tid)
 	}
-	go startATaskWatcher()
-	select {
-	case res := <-test_finished:
-		if !res {
-			t.Fatalf("Background test checker failed so the test failed.")
-		}
-	case <-time.After(time.Second * 5):
-		t.Fatalf("Test failed: The testcase timed out after 5 seconds.")
+	if ok := coordinator2.Claim(c1tid); ok {
+		t.Fatalf("coordinator2.Claim() succeeded for task=%q when it shouldn't have!", c2tid)
+	}
+
+	// Make sure coordinators close down properly and quickly
+	coordinator1.Close()
+	if err := <-errc; err != nil {
+		t.Errorf("Error shutting down coordinator1: %v", err)
+	}
+	coordinator2.Close()
+	if err := <-errc; err != nil {
+		t.Errorf("Error shutting down coordinator2: %v", err)
 	}
 }
 
@@ -209,7 +186,6 @@ func TestCoordinatorTC3(t *testing.T) {
 func TestCoordinatorTC4(t *testing.T) {
 	coordinator1, client := setupEtcd(t)
 
-	watchOk := make(chan bool)
 	task := "testtask4"
 
 	mclient := NewClient(namespace, client)
@@ -225,134 +201,50 @@ func TestCoordinatorTC4(t *testing.T) {
 	}
 	defer coordinator1.Close()
 
-	coord1Watch := func() {
-		//Watch blocks, so we need to test it in its own go routine.
-		taskId, err := coordinator1.Watch()
-		if err != nil {
-			t.Fatalf("coordinator1.Watch() returned an err: %v", err)
-		}
-
-		t.Logf("Task from the coordinator1.Watch(): %s", taskId)
-
-		if ok := coordinator1.Claim(taskId); !ok {
-			t.Fatal("coordinator1.Claim() unable to claim the task")
-		}
-
-		watchOk <- true
-	}
-
-	go coord1Watch()
-	select {
-	case <-watchOk:
-	case <-time.After(time.Second * 5):
-		t.Fatalf("Test failed: The testcase timed out after 5 seconds.")
-	}
-
-	//Testcase2 test releasing a task,  Since coordinator1 is still running
-	// it should be able to pick up the task again.
-	t.Logf("Releasing %s", task)
-	coordinator1.Release(task)
-
-	t.Log("Watching again")
-	go coord1Watch()
-	select {
-	case <-watchOk:
-	case <-time.After(time.Second * 5):
-		t.Fatalf("Test failed: The testcase timed out after 5 seconds.")
-	}
-}
-
-// Test that Watch() picks up new tasks and returns them.
-// Then Claim() the task and make sure we are able to claim it.
-//     Calling Claim() should also trigger a scheduled refresh of the claim before it's ttl
-// Test after (ClaimTTL + 1 second) that the claim is still around.
-// Then add a second coordinator and kill the first one.  The second coordinator
-// should pick up the work from the dead first one.
-func TestClaimRefreshExpire(t *testing.T) {
-	coordinator1, client := setupEtcd(t)
-	coordinator1.ClaimTTL = 3
-	defer coordinator1.Close()
-	if err := coordinator1.Init(newCtx(t, "coordinator1")); err != nil {
-		t.Fatalf("Unexpected error initialzing coordinator: %v", err)
-	}
-	coord1ResultChannel := make(chan string)
-
-	mclient := NewClient(namespace, client)
-	task := "testclaimrefreshexpire"
-
+	errc := make(chan error)
+	c1tasks := make(chan string)
 	go func() {
-		//Watch blocks, so we need to test it in its own go routine.
-		taskId, err := coordinator1.Watch()
-		if err != nil {
-			t.Fatalf("coordinator1.Watch() returned an err: %v", err)
-		}
-		t.Logf("We got a task id from the coordinator1.Watch() res:%s", taskId)
-
-		coordinator1.Claim(taskId)
-		coord1ResultChannel <- taskId
+		errc <- coordinator1.Watch(c1tasks)
 	}()
 
-	err := mclient.SubmitTask(task)
-	if err != nil {
-		t.Fatalf("Error submitting a task to metafora via the client. Error:\n%v", err)
+	tid := <-c1tasks
+
+	if ok := coordinator1.Claim(tid); !ok {
+		t.Fatal("coordinator1.Claim() unable to claim the task")
 	}
 
-	// Step 1: Make sure we picked up and claimed the task before moving on...
-	select {
-	case taskId := <-coord1ResultChannel:
-		if taskId != task {
-			t.Fatalf("coordinator1.Watch() test failed: We received the incorrect taskId.  Got [%s] Expected[%s]", taskId, task)
-		}
-	case <-time.After(time.Second * 5):
-		t.Fatalf("coordinator1.Watch() test failed: The testcase timed out after 5 seconds.")
-	}
-
-	// Start a second coordinator and make sure it can't claim our task.
+	// Startup a second
 	coordinator2 := NewEtcdCoordinator("node2", namespace, client).(*EtcdCoordinator)
-	coordinator2.ClaimTTL = 3
-	defer coordinator2.Close()
 	if err := coordinator2.Init(newCtx(t, "coordinator2")); err != nil {
 		t.Fatalf("Unexpected error initialzing coordinator: %v", err)
 	}
-	coord2ResultChannel := make(chan string)
+	defer coordinator2.Close()
+
+	c2tasks := make(chan string)
 	go func() {
-		taskId, err := coordinator2.Watch()
-		if err != nil {
-			t.Fatalf("coordinator2.Watch() returned an err: %v", err)
-		}
-		t.Logf("We got a task id from the coordinator2.Watch() res:%s", taskId)
-		coordinator2.Claim(taskId)
-		coord2ResultChannel <- taskId
+		errc <- coordinator2.Watch(c2tasks)
 	}()
 
-	// make sure we still have the claim after 2 seconds
+	// coordinator 2 shouldn't see anything yet
 	select {
-	case taskId := <-coord2ResultChannel:
-		t.Fatalf("coordinator2.Watch() test failed: We received a taskId when we shouldn't have.  Got [%s]", taskId)
-	case <-time.After(5 * time.Second):
+	case <-c2tasks:
+		t.Fatal("coordinator2.Watch() returned a task when there are none to claim!")
+	case <-time.After(100 * time.Millisecond):
 	}
 
-	// This should shut down coordinator1's task watcher and refresher, so that all its tasks are returned
-	// and coordinator2 should pick them up.
-	t.Log("Coordinator1 trying to shutdown coordinator1. ")
-	go func() {
-		// The only way to tell when coord.Close() finishes is by waiting for a Watch()
-		// to exit.
-		coordinator1.Watch()
-		coord1ResultChannel <- ""
-	}()
-	coordinator1.Close()
-	<-coord1ResultChannel
-	t.Log("Coordinator1 was closed, so its tasks should shortly become available again. ")
+	// Now release the task from coordinator1 and claim it with coordinator2
+	coordinator1.Release(tid)
+	tid = <-c2tasks
+	if ok := coordinator2.Claim(tid); !ok {
+		t.Fatalf("coordinator2.Claim() should have succeded on released task=%q", tid)
+	}
 
-	// Now that coordinator1 is shutdown coordinator2 should recover its tasks.
-	select {
-	case taskId := <-coord2ResultChannel:
-		if taskId != task {
-			t.Fatalf("coordinator2.Watch() test failed: We received the incorrect taskId.  Got [%s] Expected[%s]", taskId, task)
+	coordinator1.Close()
+	coordinator2.Close()
+	for i := 0; i < 2; i++ {
+		if err := <-errc; err != nil {
+			t.Errorf("coordinator returned an error after closing: %v", err)
 		}
-	case <-time.After(time.Second * 5):
-		t.Fatalf("coordinator2.Watch() test failed: The testcase timed out before coordinator2 recovered coordinator1's tasks.")
 	}
 }
 
@@ -423,9 +315,8 @@ func TestNodeRefresher(t *testing.T) {
 	defer atomic.StoreUint64(&DefaultNodePathTTL, orig)
 
 	coord, client := setupEtcd(t)
-	bal := &metafora.DumbBalancer{}
 	hf := metafora.HandlerFunc(nil) // we won't be handling any tasks
-	consumer, err := metafora.NewConsumer(coord, hf, bal)
+	consumer, err := metafora.NewConsumer(coord, hf, metafora.DumbBalancer)
 	if err != nil {
 		t.Fatalf("Error creating consumer: %+v", err)
 	}
