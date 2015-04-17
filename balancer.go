@@ -11,6 +11,11 @@ const (
 	defaultThreshold float64 = 1.2
 )
 
+// NoDelay is simply the zero value for time and meant to be a more meaningful
+// value for CanClaim methods to return instead of initializing a new empty
+// time struct.
+var NoDelay = time.Time{}
+
 // BalancerContext is a limited interface exposed to Balancers from the
 // Consumer for access to limited Consumer state.
 type BalancerContext interface {
@@ -51,7 +56,7 @@ type dumbBalancer struct{}
 func (dumbBalancer) Init(BalancerContext) {}
 
 // CanClaim always returns true.
-func (dumbBalancer) CanClaim(string) (time.Time, bool) { return time.Time{}, true }
+func (dumbBalancer) CanClaim(string) (time.Time, bool) { return NoDelay, true }
 
 // Balance never returns any tasks to balance.
 func (dumbBalancer) Balance() []string { return nil }
@@ -104,7 +109,7 @@ func (e *FairBalancer) Init(s BalancerContext) {
 // delayed proportionally.
 func (e *FairBalancer) CanClaim(taskid string) (time.Time, bool) {
 	if e.delay == 0 {
-		return time.Time{}, true
+		return NoDelay, true
 	}
 	return time.Now().Add(e.delay), false
 }

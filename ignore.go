@@ -6,6 +6,8 @@ import (
 	"time"
 )
 
+// ignoremgr handles ignoring tasks and sending them back to the consumer once
+// their ignore deadline is reached.
 type ignoremgr struct {
 	incoming chan *timetask
 	mu       *sync.RWMutex
