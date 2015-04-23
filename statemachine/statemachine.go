@@ -216,11 +216,14 @@ type StatefulHandler func(taskID string, commands <-chan Message) Message
 type StateStore interface {
 	// Load the persisted or initial state for a task. Errors will cause tasks to
 	// be marked as done.
-	Load(taskID string) (State, error)
+	//
+	// The one exception is the special error StateNotFound which will cause the
+	// state machine to start from the initial (Runnable) state.
+	Load(taskID string) (*State, error)
 
 	// Store the current task state. Errors will prevent current state from being
 	// persisted and prevent state transitions.
-	Store(taskID string, s State) error
+	Store(taskID string, s *State) error
 }
 
 type stateMachine struct {
@@ -260,7 +263,7 @@ func (s *stateMachine) Run(taskID string) (done bool) {
 	done = false
 	for {
 		var msg Message
-		var newstate State
+		var newstate *State
 		metafora.Debugf("task=%q in state %s", taskID, state.Code)
 
 		// Execute state
@@ -333,20 +336,19 @@ func run(f StatefulHandler, tid string, cmd <-chan Message) (m Message) {
 	return m
 }
 
-// Stop sends a Release message to the state machine.
+// Stop sends a Release message to the state machine through the command chan.
 func (s *stateMachine) Stop() {
-	//FIXME Could this block forever?!
 	s.cmd <- Message{Code: Release}
 }
 
 // apply a message to cause a state transition. Returns false if the state
 // transition is invalid.
-func apply(cur State, m Message) (State, bool) {
+func apply(cur *State, m Message) (*State, bool) {
 	//XXX Is a linear scan of all rules really the best option here?
 	for _, trans := range Rules {
 		if trans.Event == m.Code && trans.From == cur.Code {
 			metafora.Debugf("Transitioned %s", trans)
-			return State{Code: trans.To, Until: m.Until}, true
+			return &State{Code: trans.To, Until: m.Until}, true
 		}
 	}
 	return cur, false

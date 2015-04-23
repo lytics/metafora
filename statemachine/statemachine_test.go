@@ -2,8 +2,10 @@ package statemachine_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/lytics/metafora"
+	"github.com/lytics/metafora/embedded"
 	"github.com/lytics/metafora/statemachine"
 )
 
@@ -15,15 +17,15 @@ func testhandler(tid string, cmds <-chan statemachine.Message) statemachine.Mess
 }
 
 type testStore struct {
-	initial statemachine.State
-	out     chan<- statemachine.State
+	initial *statemachine.State
+	out     chan<- *statemachine.State
 }
 
-func (s testStore) Load(taskID string) (statemachine.State, error) {
+func (s testStore) Load(taskID string) (*statemachine.State, error) {
 	s.out <- s.initial
 	return s.initial, nil
 }
-func (s testStore) Store(taskID string, newstate statemachine.State) error {
+func (s testStore) Store(taskID string, newstate *statemachine.State) error {
 	metafora.Debugf("%s storing %s", taskID, newstate.Code)
 	s.out <- newstate
 	return nil
@@ -31,13 +33,11 @@ func (s testStore) Store(taskID string, newstate statemachine.State) error {
 
 //FIXME leaks goroutines
 func TestRules(t *testing.T) {
-	metafora.SetLogLevel(metafora.LogLevelDebug)
-
 	for i, trans := range statemachine.Rules {
 		metafora.Debugf("Trying %s", trans)
 		cmds := make(chan statemachine.Message)
-		store := make(chan statemachine.State)
-		ts := testStore{initial: statemachine.State{Code: trans.From}, out: store}
+		store := make(chan *statemachine.State)
+		ts := testStore{initial: &statemachine.State{Code: trans.From}, out: store}
 
 		// Create a new statemachine that starts from the From state
 		sm := statemachine.New(testhandler, ts, cmds, nil)
@@ -60,5 +60,39 @@ func TestRules(t *testing.T) {
 		if newstate.Code != trans.To {
 			t.Fatalf("%d Expected %q but found %q", i, trans.To, newstate.Code)
 		}
+	}
+}
+
+func TestCheckpointRelease(t *testing.T) {
+	ss := embedded.NewStateStore()
+	ss.Store("test1", &statemachine.State{Code: statemachine.Runnable})
+	cmds := make(chan statemachine.Message)
+	sm := statemachine.New(testhandler, ss, cmds, nil)
+	done := make(chan bool)
+	go func() { done <- sm.Run("test1") }()
+	// Should just cause statemachine to loop
+	cmds <- statemachine.Message{Code: statemachine.Checkpoint}
+	select {
+	case <-done:
+		t.Fatalf("Checkpoint command should not have caused statemachine to exit.")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	// Should cause the statemachine to exit
+	cmds <- statemachine.Message{Code: statemachine.Release}
+	select {
+	case d := <-done:
+		if d {
+			t.Fatalf("Release command should not have caused the task to be marked as done.")
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatalf("Expected statemachine to exit but it did not.")
+	}
+	state, err := ss.Load("test1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Code != statemachine.Runnable {
+		t.Fatalf("Expected released task to be runnable but found state %q", state.Code)
 	}
 }
