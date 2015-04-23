@@ -15,9 +15,9 @@ type tc struct {
 }
 
 func (*tc) Init(metafora.CoordinatorContext) error { return nil }
-func (c *tc) Watch() (string, error) {
+func (c *tc) Watch(chan<- string) error {
 	<-c.stop
-	return "", nil
+	return nil
 }
 func (c *tc) Claim(string) bool { return false }
 func (c *tc) Release(string)    {}
@@ -31,7 +31,7 @@ func (c *tc) Close() { close(c.stop) }
 func TestMakeInfoHandler(t *testing.T) {
 	t.Parallel()
 
-	c, _ := metafora.NewConsumer(&tc{stop: make(chan bool)}, nil, &metafora.DumbBalancer{})
+	c, _ := metafora.NewConsumer(&tc{stop: make(chan bool)}, nil, metafora.DumbBalancer)
 	defer c.Shutdown()
 	name := "test-name"
 	now := time.Now().Truncate(time.Second)

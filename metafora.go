@@ -12,9 +12,6 @@ var (
 	// balance calls are randomized and this is the upper bound of the random
 	// amount
 	balanceJitterMax = 10 * int64(time.Second)
-
-	//FIXME should probably be improved, see usage in Run()
-	consumerRetryDelay = 10 * time.Second
 )
 
 // Consumer is the core Metafora task runner.
@@ -38,13 +35,9 @@ type Consumer struct {
 	bal      Balancer
 	balEvery time.Duration
 	coord    Coordinator
+	im       *ignoremgr
 	stop     chan struct{} // closed by Shutdown to cause Run to exit
-
-	// ticked on each loop of the main loop to enforce sequential interaction
-	// with coordinator and balancer
-	tick chan int
-
-	watch chan string // channel for watcher to send tasks to main loop
+	tasks    chan string   // channel for watcher to send tasks to main loop
 
 	// Set by command handler, read anywhere via Consumer.frozen()
 	freezeL sync.Mutex
@@ -60,9 +53,9 @@ func NewConsumer(coord Coordinator, h HandlerFunc, b Balancer) (*Consumer, error
 		balEvery: 15 * time.Minute, //TODO make balance wait configurable
 		coord:    coord,
 		stop:     make(chan struct{}),
-		tick:     make(chan int),
-		watch:    make(chan string),
+		tasks:    make(chan string),
 	}
+	c.im = ignorer(c.tasks, c.stop)
 
 	// initialize balancer with the consumer and a prefixed logger
 	b.Init(c)
@@ -108,12 +101,6 @@ func (c *Consumer) Run() {
 					return
 				}
 			}
-			// Wait for main loop to signal balancing is done
-			select {
-			case <-c.stop:
-				return
-			case <-c.tick:
-			}
 		}
 	}()
 
@@ -126,13 +113,8 @@ func (c *Consumer) Run() {
 		for {
 			cmd, err := c.coord.Command()
 			if err != nil {
-				Errorf("Coordinator returned an error during command, waiting and retrying. %v", err)
-				select {
-				case <-c.stop:
-					return
-				case <-time.After(consumerRetryDelay):
-				}
-				continue
+				Errorf("Exiting because coordinator returned an error during command: %v", err)
+				return
 			}
 			if cmd == nil {
 				Debug("Command coordinator exited")
@@ -143,12 +125,6 @@ func (c *Consumer) Run() {
 			case <-c.stop:
 				return
 			case cmdChan <- cmd:
-			}
-			// Wait for main loop to signal command has been handled
-			select {
-			case <-c.stop:
-				return
-			case <-c.tick:
 			}
 		}
 	}()
@@ -172,12 +148,6 @@ func (c *Consumer) Run() {
 				Debugf("Received command: %s", cmd)
 				c.handleCommand(cmd)
 			}
-			// Must send tick whenever main loop restarts
-			select {
-			case <-c.stop:
-				return
-			case c.tick <- 1:
-			}
 			continue
 		}
 
@@ -187,17 +157,18 @@ func (c *Consumer) Run() {
 			return
 		case <-balance:
 			c.balance()
-		case task, ok := <-c.watch:
-			if !ok {
-				Debug("Watch channel closed. Exiting main loop.")
-				return
+		case task := <-c.tasks:
+			if c.ignored(task) {
+				Debugf("task=%q ignored", task)
+				continue
 			}
-			if !c.bal.CanClaim(task) {
-				Infof("Balancer rejected task %s", task)
+			if until, ok := c.bal.CanClaim(task); !ok {
+				Infof("Balancer rejected task=%q until %s", task, until)
+				c.ignore(task, until)
 				break
 			}
 			if !c.coord.Claim(task) {
-				Debugf("Coordinator unable to claim task %s", task)
+				Debugf("Coordinator unable to claim task=%q", task)
 				break
 			}
 			c.claimed(task)
@@ -208,47 +179,18 @@ func (c *Consumer) Run() {
 			}
 			c.handleCommand(cmd)
 		}
-		// Signal that main loop is restarting after handling an event
-		select {
-		case <-c.stop:
-			return
-		case c.tick <- 1:
-		}
 	}
 }
 
 func (c *Consumer) watcher() {
-	defer close(c.watch)
-	Debug("Consumer watching")
+	// The watcher dying unexpectedly should close the consumer to cause a
+	// shutdown.
+	defer c.close()
 
-	for {
-		task, err := c.coord.Watch()
-		if err != nil {
-			//FIXME add more sophisticated error handling
-			Errorf("Coordinator returned an error during watch, waiting and retrying: %v", err)
-			select {
-			case <-c.stop:
-				return
-			case <-time.After(consumerRetryDelay):
-			}
-			continue
-		}
-		if task == "" {
-			Info("Coordinator has closed, no longer watching for tasks.")
-			return
-		}
-		// Send task to watcher (or shutdown)
-		select {
-		case <-c.stop:
-			return
-		case c.watch <- task:
-		}
-		// Wait for main loop to signal task has been handled
-		select {
-		case <-c.stop:
-			return
-		case <-c.tick:
-		}
+	err := c.coord.Watch(c.tasks)
+	if err != nil {
+		Errorf("Exiting because coordinator returned an error during watch: %v", err)
+		return
 	}
 }
 
@@ -258,34 +200,17 @@ func (c *Consumer) balance() {
 		Infof("Balancer releasing: %v", tasks)
 	}
 	for _, task := range tasks {
+		// Actually release the rebalanced task.
 		c.stopTask(task)
 	}
 }
 
-// shutdown is the actual shutdown logic called when Run() exits.
-func (c *Consumer) shutdown() {
-	// Build list of of currently running tasks
-	tasks := c.Tasks()
-	Infof("Sending stop signal to %d handler(s)", len(tasks))
-
-	for _, id := range tasks {
-		c.stopTask(id.ID())
-	}
-
-	Info("Waiting for handlers to exit")
-	c.hwg.Wait()
-
-	Debug("Closing Coordinator")
-	c.coord.Close()
-}
-
-// Shutdown stops the main Run loop, calls Stop on all handlers, and calls
-// Close on the Coordinator. Running tasks will be released for other nodes to
-// claim.
-func (c *Consumer) Shutdown() {
+// close the c.stop channel which signals for the consumer to shutdown.
+func (c *Consumer) close() {
 	// acquire the runL lock to make sure we don't race with claimed()'s <-c.stop
 	// check
 	c.runL.Lock()
+	defer c.runL.Unlock()
 	select {
 	case <-c.stop:
 		// already stopped
@@ -293,7 +218,30 @@ func (c *Consumer) Shutdown() {
 		Debug("Stopping Run loop")
 		close(c.stop)
 	}
-	c.runL.Unlock()
+}
+
+// shutdown is the actual shutdown logic called when Run() exits.
+func (c *Consumer) shutdown() {
+	Debug("Closing Coordinator")
+	c.coord.Close()
+
+	// Build list of of currently running tasks
+	tasks := c.Tasks()
+	Infof("Coordinator closed. Sending stop signal to %d handler(s)", len(tasks))
+
+	for _, id := range tasks {
+		c.stopTask(id.ID())
+	}
+
+	Info("Waiting for handlers to exit")
+	c.hwg.Wait()
+}
+
+// Shutdown stops the main Run loop, calls Stop on all handlers, and calls
+// Close on the Coordinator. Running tasks will be released for other nodes to
+// claim.
+func (c *Consumer) Shutdown() {
+	c.close()
 
 	// Wait for task handlers to exit.
 	c.hwg.Wait()
@@ -488,3 +436,9 @@ func (c *Consumer) handleCommand(cmd Command) {
 		Warnf("Discarding unknown command: %s", cmd.Name())
 	}
 }
+
+func (c *Consumer) ignored(taskID string) bool            { return c.im.ignored(taskID) }
+func (c *Consumer) ignore(taskID string, until time.Time) { c.im.add(taskID, until) }
+
+// Ignores is a list of all ignored tasks.
+func (c *Consumer) Ignores() []string { return c.im.all() }

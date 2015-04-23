@@ -42,7 +42,7 @@ func newEtcdClient(t *testing.T) *etcd.Client {
 }
 
 // setupEtcd should be used for all etcd integration tests. It handles the following tasks:
-//  * Skip testsif ETCDTESTS is unset
+//  * Skip tests if ETCDTESTS is unset
 //  * Create and return an etcd client
 //  * Create and return an initial etcd coordinator
 func setupEtcd(t *testing.T) (*EtcdCoordinator, *etcd.Client) {

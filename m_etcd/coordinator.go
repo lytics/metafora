@@ -215,26 +215,26 @@ func (ec *EtcdCoordinator) refreshBy(deadline time.Time) (err error) {
 	return err
 }
 
-// Watch will do a blocking etcd watch on taskPath until a claimable task is
-// found or Close() is called.
-//
-// Watch will return ("", nil) if the coordinator is closed.
-func (ec *EtcdCoordinator) Watch() (taskID string, err error) {
-	if ec.closed() {
-		// already closed, don't restart watch
-		return "", nil
-	}
-
+// Watch streams tasks from etcd watches or GETs until Close is called or etcd
+// is unreachable (in which case an error is returned).
+func (ec *EtcdCoordinator) Watch(out chan<- string) error {
 	const sorted = true
 	const recursive = true
 
 startWatch:
 	for {
+		// Make sure we haven't been told to exit
+		select {
+		case <-ec.stop:
+			return nil
+		default:
+		}
+
 		// Get existing tasks
 		resp, err := ec.Client.Get(ec.taskPath, sorted, recursive)
 		if err != nil {
 			metafora.Errorf("%s Error getting the existing tasks: %v", ec.taskPath, err)
-			return "", err
+			return err
 		}
 
 		// Start watching at the index the Get retrieved since we've retrieved all
@@ -248,29 +248,38 @@ startWatch:
 				index = node.ModifiedIndex
 			}
 			if task, ok := ec.parseTask(&etcd.Response{Action: "create", Node: node}); ok {
-				return task, nil
+				select {
+				case out <- task:
+				case <-ec.stop:
+					return nil
+				}
 			}
 		}
 
 		// Start blocking watch
 		for {
-			resp, err := ec.watch(ec.taskPath, index)
+			resp, err := ec.watch(ec.taskPath, index, ec.stop)
 			if err != nil {
 				if err == restartWatchError {
 					continue startWatch
 				}
 				if err == etcd.ErrWatchStoppedByUser {
-					return "", nil
+					return nil
+				}
+				return err
+			}
+
+			// Found a claimable task! Return it if it's not Ignored.
+			if task, ok := ec.parseTask(resp); ok {
+				select {
+				case out <- task:
+				case <-ec.stop:
+					return nil
 				}
 			}
 
-			// Found a claimable task! Return it.
-			if task, ok := ec.parseTask(resp); ok {
-				return task, nil
-			}
-
-			// Task wasn't claimable, start next watch from where the last watch ended
-			index = resp.EtcdIndex
+			// Start the next watch from the latest index seen
+			index = resp.Node.ModifiedIndex
 		}
 	}
 }
@@ -362,7 +371,7 @@ startWatch:
 		}
 
 		for {
-			resp, err := ec.watch(ec.commandPath, index)
+			resp, err := ec.watch(ec.commandPath, index, ec.stop)
 			if err != nil {
 				if err == restartWatchError {
 					continue startWatch
@@ -401,7 +410,7 @@ func (ec *EtcdCoordinator) parseCommand(resp *etcd.Response) metafora.Command {
 }
 
 // Close stops the coordinator and causes blocking Watch and Command methods to
-// return zero values.
+// return zero values. It does not release tasks.
 func (ec *EtcdCoordinator) Close() {
 	// Gracefully handle multiple close calls mostly to ease testing. This block
 	// isn't threadsafe, so you shouldn't try to call Close() concurrently.
@@ -412,8 +421,6 @@ func (ec *EtcdCoordinator) Close() {
 	}
 
 	close(ec.stop)
-
-	ec.taskManager.stop()
 
 	// Finally remove the node entry
 	const recursive = true
@@ -441,11 +448,11 @@ func (ec *EtcdCoordinator) Close() {
 //
 //   2. restartWatchError - the specified index is too old, try again with a
 //                          newer index
-func (ec *EtcdCoordinator) watch(path string, index uint64) (*etcd.Response, error) {
+func (ec *EtcdCoordinator) watch(path string, index uint64, stop chan bool) (*etcd.Response, error) {
 	const recursive = true
 	for {
 		// Start the blocking watch after the last response's index.
-		rawResp, err := ec.Client.RawWatch(path, index+1, recursive, nil, ec.stop)
+		rawResp, err := ec.Client.RawWatch(path, index+1, recursive, nil, stop)
 		if err != nil {
 			if err == etcd.ErrWatchStoppedByUser {
 				// This isn't actually an error, the stop chan was closed. Time to stop!

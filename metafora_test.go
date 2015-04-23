@@ -56,24 +56,17 @@ func newTestHandlerFunc(t *testing.T) (HandlerFunc, chan string) {
 func TestConsumer(t *testing.T) {
 	t.Parallel()
 
-	//FIXME hack retry delay for quicker error testing
-	origCRD := consumerRetryDelay
-	consumerRetryDelay = 10 * time.Millisecond
-	defer func() { consumerRetryDelay = origCRD }()
-
 	// Setup some tasks to run in a fake coordinator
 	tc := NewTestCoord()
 	tc.Tasks <- "test1"
-	tc.Tasks <- "" // cause an error which should be a noop
 	tc.Tasks <- "test2"
 
 	// Setup a handler func that lets us know what tasks are running
 	hf, tasksRun := newTestHandlerFunc(t)
 
 	// Create the consumer and run it
-	c, _ := NewConsumer(tc, hf, bal)
+	c, _ := NewConsumer(tc, hf, DumbBalancer)
 	s := make(chan int)
-	start := time.Now()
 	go func() {
 		c.Run()
 		s <- 1
@@ -87,14 +80,10 @@ func TestConsumer(t *testing.T) {
 			if tr != "test1" && tr != "test2" {
 				t.Errorf("Expected `test1` or `test2` but received: %s", tr)
 			}
+			t.Logf("Received task=%q", tr)
 		case <-time.After(100 * time.Millisecond):
 			t.Errorf("First task didn't execute in a timely fashion")
 		}
-	}
-
-	//FIXME ensure we waited the retry delay as a way to test for error handling
-	if time.Now().Sub(start) < consumerRetryDelay {
-		t.Error("Consumer didn't pause before retrying after an error")
 	}
 
 	// Ensure Tasks() is accurate
@@ -126,9 +115,9 @@ type testBalancer struct {
 }
 
 func (b *testBalancer) Init(c BalancerContext) { b.c = c }
-func (b *testBalancer) CanClaim(taskID string) bool {
-	b.t.Logf("CanClaim(%s)", taskID)
-	return taskID == "ok-task"
+func (b *testBalancer) CanClaim(taskID string) (time.Time, bool) {
+	b.t.Logf("CanClaim(%s) -> %t", taskID, taskID == "ok-task")
+	return time.Now().Add(100 * time.Hour), taskID == "ok-task"
 }
 func (b *testBalancer) Balance() []string {
 	if b.secondRun {
@@ -209,7 +198,7 @@ func (noopHandler) Stop()           {}
 func TestHandleTask(t *testing.T) {
 	hf := func() Handler { return noopHandler{} }
 	coord := NewTestCoord()
-	c, _ := NewConsumer(coord, hf, &DumbBalancer{})
+	c, _ := NewConsumer(coord, hf, DumbBalancer)
 	go c.Run()
 	coord.Tasks <- "task1"
 	select {
@@ -229,7 +218,7 @@ func TestTaskPanic(t *testing.T) {
 		panic("TestTaskPanic")
 	})
 	coord := NewTestCoord()
-	c, _ := NewConsumer(coord, hf, bal)
+	c, _ := NewConsumer(coord, hf, DumbBalancer)
 	go c.Run()
 	coord.Tasks <- "1"
 	coord.Tasks <- "2"
@@ -255,7 +244,7 @@ func TestShutdown(t *testing.T) {
 		return false
 	})
 	coord := NewTestCoord()
-	c, _ := NewConsumer(coord, hf, bal)
+	c, _ := NewConsumer(coord, hf, DumbBalancer)
 	go c.Run()
 	coord.Tasks <- "1"
 	coord.Tasks <- "2"

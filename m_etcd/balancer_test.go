@@ -1,7 +1,6 @@
 package m_etcd
 
 import (
-	"fmt"
 	"testing"
 	"time"
 
@@ -15,9 +14,9 @@ func TestFairBalancer(t *testing.T) {
 	cli := NewClient(namespace, etcdc)
 
 	h := metafora.SimpleHandler(func(task string, stop <-chan bool) bool {
-		t.Logf("Starting %s", task)
+		metafora.Debugf("Starting %s", task)
 		<-stop
-		t.Logf("Stopping %s", task)
+		metafora.Debugf("Stopping %s", task)
 		return false // never done
 	})
 
@@ -92,6 +91,7 @@ func TestFairBalancer(t *testing.T) {
 // Fair balancer shouldn't consider a shutting-down node
 // See https://github.com/lytics/metafora/issues/92
 func TestFairBalancerShutdown(t *testing.T) {
+	metafora.SetLogLevel(metafora.LogLevelDebug)
 	coord1, etcdc := setupEtcd(t)
 	coord2 := NewEtcdCoordinator("node2", namespace, etcdc).(*EtcdCoordinator)
 
@@ -99,9 +99,9 @@ func TestFairBalancerShutdown(t *testing.T) {
 
 	// This handler always returns immediately
 	h1 := metafora.SimpleHandler(func(task string, stop <-chan bool) bool {
-		t.Logf("Starting %s", task)
+		metafora.Debugf("H1 Starting %s", task)
 		<-stop
-		t.Logf("Stopping %s", task)
+		metafora.Debugf("H1 Stopping %s", task)
 		return false // never done
 	})
 
@@ -110,13 +110,13 @@ func TestFairBalancerShutdown(t *testing.T) {
 	stopr := make(chan chan struct{}, 1)
 	stopr <- stop2
 	h2 := metafora.SimpleHandler(func(task string, stop <-chan bool) bool {
-		t.Logf("Starting %s", task)
+		metafora.Debugf("H2 Starting %s", task)
 		blockchan, ok := <-stopr
 		if ok {
 			<-blockchan
 		}
 		<-stop
-		t.Logf("Stopping %s", task)
+		metafora.Debugf("H2 Stopping %s", task)
 		return false // never done
 	})
 
@@ -157,7 +157,6 @@ func TestFairBalancerShutdown(t *testing.T) {
 	// Wait for node to startup and register
 	time.Sleep(500 * time.Millisecond)
 
-	fmt.Printf("Balancing 1\n")
 	cli.SubmitCommand(nodeID, metafora.CommandBalance())
 
 	time.Sleep(2 * time.Second)
@@ -168,7 +167,6 @@ func TestFairBalancerShutdown(t *testing.T) {
 		t.Fatalf("expected consumers to have 4|2 tasks: %d|%d", len(c1Tasks), len(c2Tasks))
 	}
 
-	fmt.Printf("Balancing 2\n")
 	// Make sure that balancing the other node does nothing
 	cli.SubmitCommand("node2", metafora.CommandBalance())
 
@@ -193,7 +191,6 @@ func TestFairBalancerShutdown(t *testing.T) {
 	// Second consumer should block on a single task forever
 	// Rebalancing the first node should then cause it to pickup all but
 	// one task
-	fmt.Println("Shutting down 2")
 	c2stop := make(chan struct{})
 	go func() {
 		con2.Shutdown()
@@ -202,7 +199,6 @@ func TestFairBalancerShutdown(t *testing.T) {
 
 	time.Sleep(500 * time.Millisecond)
 
-	fmt.Printf("Balancing 1\n")
 	cli.SubmitCommand(nodeID, metafora.CommandBalance())
 
 	time.Sleep(2 * time.Second)
@@ -220,15 +216,15 @@ func TestFairBalancerShutdown(t *testing.T) {
 	// Consumer 2 should stop now
 	<-c2stop
 
-	fmt.Printf("Balancing 1\n")
 	cli.SubmitCommand(nodeID, metafora.CommandBalance())
 
 	time.Sleep(2 * time.Second)
 
+	// con2 is out of the picture. con1 has all the tasks.
 	c1Tasks4 := con1.Tasks()
 	c2Tasks4 := con2.Tasks()
 	if len(c1Tasks4) != 6 || len(c2Tasks4) != 0 {
-		t.Fatalf("Expected consumers to have 6|0 tasks: %d|%d", len(c1Tasks3), len(c2Tasks3))
+		t.Fatalf("Expected consumers to have 6|0 tasks: %d|%d", len(c1Tasks4), len(c2Tasks4))
 	}
 
 }

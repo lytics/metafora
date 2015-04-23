@@ -11,6 +11,11 @@ const (
 	defaultThreshold float64 = 1.2
 )
 
+// NoDelay is simply the zero value for time and meant to be a more meaningful
+// value for CanClaim methods to return instead of initializing a new empty
+// time struct.
+var NoDelay = time.Time{}
+
 // BalancerContext is a limited interface exposed to Balancers from the
 // Consumer for access to limited Consumer state.
 type BalancerContext interface {
@@ -29,28 +34,32 @@ type Balancer interface {
 	// be useful for CanClaim and Balance implementations.
 	Init(BalancerContext)
 
-	// CanClaim should return true if the consumer should accept a task. No new
-	// tasks will be claimed while CanClaim is called.
-	CanClaim(taskID string) bool
+	// CanClaim should return true if the consumer should accept a task.
+	//
+	// When denying a claim by returning false, CanClaim should return the time
+	// at which to reconsider the task for claiming.
+	CanClaim(taskID string) (ignoreUntil time.Time, claim bool)
 
-	// Balance should return the list of Task IDs that should be released. No new
-	// tasks will be claimed during balancing. The criteria used to determine
-	// which tasks should be released is left up to the implementation.
+	// Balance should return the list of Task IDs that should be released. The
+	// criteria used to determine which tasks should be released is left up to
+	// the implementation.
 	Balance() (release []string)
 }
 
 // DumbBalancer is the simplest possible balancer implementation which simply
-// accepts all tasks.
-type DumbBalancer struct{}
+// accepts all tasks. Since it has no state a single global instance exists.
+var DumbBalancer = dumbBalancer{}
+
+type dumbBalancer struct{}
 
 // Init does nothing.
-func (*DumbBalancer) Init(BalancerContext) {}
+func (dumbBalancer) Init(BalancerContext) {}
 
 // CanClaim always returns true.
-func (*DumbBalancer) CanClaim(string) bool { return true }
+func (dumbBalancer) CanClaim(string) (time.Time, bool) { return NoDelay, true }
 
 // Balance never returns any tasks to balance.
-func (*DumbBalancer) Balance() []string { return nil }
+func (dumbBalancer) Balance() []string { return nil }
 
 // Provides information about the cluster to be used by FairBalancer
 type ClusterState interface {
@@ -72,7 +81,6 @@ func NewDefaultFairBalancerWithThreshold(nodeid string, cs ClusterState, thresho
 		nodeid:           nodeid,
 		clusterstate:     cs,
 		releaseThreshold: threshold,
-		lastreleased:     map[string]bool{},
 	}
 }
 
@@ -89,27 +97,28 @@ type FairBalancer struct {
 	clusterstate ClusterState
 
 	releaseThreshold float64
-
-	lastreleased map[string]bool
+	delay            time.Duration
 }
 
 func (e *FairBalancer) Init(s BalancerContext) {
 	e.bc = s
 }
 
-// CanClaim will claim all tasks, but will add a sleep to block claiming
-// released tasks in order to give other nodes a chance to claim them first
-func (e *FairBalancer) CanClaim(taskid string) bool {
-	if e.lastreleased[taskid] {
-		time.Sleep(500 * time.Millisecond)
+// CanClaim will claim any task if this node wasn't over the task threshold
+// during the last rebalance. If it was over the threshold claims will be
+// delayed proportionally.
+func (e *FairBalancer) CanClaim(taskid string) (time.Time, bool) {
+	if e.delay == 0 {
+		return NoDelay, true
 	}
-	return true
+	return time.Now().Add(e.delay), false
 }
 
 // Balance releases tasks if this node has 120% more tasks than the average
 // node in the cluster.
 func (e *FairBalancer) Balance() []string {
-	e.lastreleased = map[string]bool{}
+	// Reset delay
+	e.delay = 0
 	current, err := e.clusterstate.NodeTaskCount()
 	if err != nil {
 		Warnf("Error retrieving cluster state: %v", err)
@@ -127,9 +136,9 @@ func (e *FairBalancer) Balance() []string {
 	for len(releasetasks) < shouldrelease {
 		tid := nodetasks[random.Intn(len(nodetasks))].ID()
 		releasetasks = append(releasetasks, tid)
-		e.lastreleased[tid] = true
 	}
 
+	e.delay = time.Duration(len(releasetasks)) * time.Second
 	return releasetasks
 }
 

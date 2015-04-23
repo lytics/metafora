@@ -24,7 +24,7 @@ func TestFairBalancerOneNode(t *testing.T) {
 	fb := NewDefaultFairBalancer("node1", clusterstate)
 	fb.Init(consumerstate)
 
-	if !fb.CanClaim("23") {
+	if _, ok := fb.CanClaim("23"); !ok {
 		t.Fatal("Expected claim to be true")
 	}
 
@@ -50,7 +50,7 @@ func TestFairBalanceOver(t *testing.T) {
 	fb := NewDefaultFairBalancer("node1", clusterstate)
 	fb.Init(consumerstate)
 
-	if !fb.CanClaim("23") {
+	if _, ok := fb.CanClaim("23"); !ok {
 		t.Fatal("Expected claim to be true")
 	}
 
@@ -77,7 +77,7 @@ func TestFairBalanceNothing(t *testing.T) {
 	fb := NewDefaultFairBalancer("node1", clusterstate)
 	fb.Init(consumerstate)
 
-	if !fb.CanClaim("23") {
+	if _, ok := fb.CanClaim("23"); !ok {
 		t.Fatal("Expected claim to be true")
 	}
 
