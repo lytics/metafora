@@ -55,9 +55,10 @@ func (s StateCode) String() string {
 	}
 }
 
+// Err represents an error that occurred while a stateful handler was running.
 type Err struct {
-	Time time.Time
-	Err  string
+	Time time.Time `json:"timestamp"`
+	Err  string    `json:"error"`
 }
 
 // ErrHandler functions should return Run, Sleep, or Fail messages depending on
@@ -96,12 +97,13 @@ func DefaultErrHandler(_ string, errs []Err) (Message, []Err) {
 	return Message{Code: Sleep, Until: time.Now().Add(10 * time.Minute)}, keeperrs
 }
 
+// State represents the current state of a stateful handler. See StateCode
+// documentation for details. Until and Errors are extra state used by the
+// Sleeping and Fault state respectively.
 type State struct {
-	Code   StateCode
-	Until  time.Time
-	Errors []Err
-	//TODO Error related state?! Hm...
-	//Output interface{} //XXX A way to store progress?
+	Code   StateCode `json:"state"`
+	Until  time.Time `json:"until,omitempty"`
+	Errors []Err     `json:"errors,omitempty"`
 }
 
 func (s State) String() string {
@@ -114,10 +116,9 @@ func (s State) String() string {
 }
 
 type Message struct {
-	Code  MessageCode
-	Until time.Time // indicates time in Sleeping state by Sleep message
-	Err   error     // error associated with errMsgs
-	//Output interface{} //XXX A way to store progress?
+	Code  MessageCode `json:"message"`
+	Until time.Time   `json:"until,omitempty"` // indicates time in Sleeping state by Sleep message
+	Err   error       `json:"error,omitempty"` // error associated with errMsgs
 }
 
 type MessageCode int
@@ -229,7 +230,8 @@ type StateStore interface {
 type stateMachine struct {
 	h          StatefulHandler
 	ss         StateStore
-	cmd        chan Message
+	cl         CommandListener
+	cmds       chan Message
 	errHandler ErrHandler
 }
 
@@ -237,16 +239,41 @@ type stateMachine struct {
 // the given handler by calling its Transition method.
 //
 // If ErrHandler==nil the default error handler will be used.
-func New(h StatefulHandler, ss StateStore, commands chan Message, e ErrHandler) *stateMachine {
+func New(h StatefulHandler, ss StateStore, cl CommandListener, e ErrHandler) *stateMachine {
 	if e == nil {
 		e = DefaultErrHandler
 	}
-	return &stateMachine{h: h, ss: ss, cmd: commands, errHandler: e}
+	return &stateMachine{h: h, ss: ss, cl: cl, errHandler: e}
 }
 
 // Run the state machine enabled handler. Loads the initial state and passes
 // control to the internal stateful handler.
 func (s *stateMachine) Run(taskID string) (done bool) {
+	// Multiplex external messages and internal ones
+	stopped := make(chan struct{})
+	s.cmds = make(chan Message)
+	go func() {
+		for {
+			select {
+			case m := <-s.cl.Receive():
+				select {
+				case s.cmds <- m:
+				case <-stopped:
+					return
+				}
+			case <-stopped:
+				return
+			}
+		}
+	}()
+
+	// Stop the command listener and internal message multiplexer when Run exits
+	defer func() {
+		s.cl.Stop()
+		close(stopped)
+	}()
+
+	// Load the initial state
 	state, err := s.ss.Load(taskID)
 	if err != nil {
 		// A failure to load the state for a task is *fatal* - the task will be
@@ -269,9 +296,9 @@ func (s *stateMachine) Run(taskID string) (done bool) {
 		// Execute state
 		switch state.Code {
 		case Runnable:
-			msg = run(s.h, taskID, s.cmd)
+			msg = run(s.h, taskID, s.cmds)
 		case Paused:
-			msg = <-s.cmd
+			msg = <-s.cmds
 		case Sleeping:
 			dur := state.Until.Sub(time.Now())
 			metafora.Infof("task=%q sleeping for %s", taskID, dur)
@@ -279,7 +306,7 @@ func (s *stateMachine) Run(taskID string) (done bool) {
 			select {
 			case <-timer.C:
 				msg = Message{Code: Run}
-			case msg = <-s.cmd:
+			case msg = <-s.cmds:
 				timer.Stop()
 			}
 		case Fault:
@@ -338,7 +365,7 @@ func run(f StatefulHandler, tid string, cmd <-chan Message) (m Message) {
 
 // Stop sends a Release message to the state machine through the command chan.
 func (s *stateMachine) Stop() {
-	s.cmd <- Message{Code: Release}
+	s.cmds <- Message{Code: Release}
 }
 
 // apply a message to cause a state transition. Returns false if the state
