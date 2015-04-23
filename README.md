@@ -11,12 +11,14 @@ Metafora is a [Go](https://golang.org) library designed to run long-running
 Features
 --------
 
-* **Distributed** (horizontally scalable, elastic)
-* **Masterless** (work stealing, not assigning)
-* **Fault tolerant** (work is reassigned if nodes disappear)
-* **Simple** (few states, no checkpointing, no configuration management)
-* **Extensible** (well defined interfaces for implementing balancing and
-  coordinating)
+* **Distributed** - horizontally scalable, elastic
+* **Masterless** - work stealing, not assigning, automatic rebalancing
+* **Fault tolerant** - tasks are reassigned if nodes disappear
+* **Simple** - few states, no checkpointing, no configuration management
+* **Extensible** - well defined interfaces for implementing balancing and
+  coordinating
+* **Exactly-once** - attempts to ensure one-and-only-one instance of each
+  submitted task is running
 
 Many aspects of task running are left up to the *Handler* implementation such
 as checkpointing work progress, configuration management, and more complex
@@ -56,7 +58,17 @@ FAQ
 
 **Q. Is it ready for production use?**
 
-No. Check back soon.
+*Yes.* Metafora with the etcd coordinator has been the production work system at
+[Lytics](http://lytics.io) since Janruary 2014.
+
+We're in the process of migrating more of our internal work system into
+Metafora.
+
+Since Metafora is still under heavy development, you probably want to pin the
+dependencies to a commit hash or
+[tag](https://github.com/lytics/metafora/releases) to keep the API stable. The
+`master` branch is automatically tested and is safe for use if you can tolerate
+API changes.
 
 **Q. Where is the metaforad daemon?**
 
