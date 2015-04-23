@@ -59,7 +59,7 @@ FAQ
 **Q. Is it ready for production use?**
 
 *Yes.* Metafora with the etcd coordinator has been the production work system at
-[Lytics](http://lytics.io) since Janruary 2014.
+[Lytics](http://lytics.io) since January 2014.
 
 We're in the process of migrating more of our internal work system into
 Metafora.
