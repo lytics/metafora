@@ -24,6 +24,26 @@ Many aspects of task running are left up to the *Handler* implementation such
 as checkpointing work progress, configuration management, and more complex
 state transitions than Metafora provides (such as Paused, Sleep, etc.).
 
+Example
+-------
+
+[koalemosd](https://github.com/lytics/metafora/blob/master/examples/koalemosd/main.go)
+is a sample consumer implementation that can be run as a daemon
+(it requires etcd).
+[koalemosctl](https://github.com/lytics/metafora/blob/master/examples/koalemosctl/main.go)
+is a sample command line client for submitting tasks to `koalemosd`.
+
+```sh
+# Install etcd as per https://github.com/coreos/etcd#getting-etcd
+# Run the following in one terminal:
+go get -v -u github.com/lytics/metafora/examples/koalemosd
+koalemosd
+
+# Run the client in another
+go get -v -u github.com/lytics/metafora/examples/koalemosctl
+koalemosctl sleep 3 # where "sleep 3" is any command on your $PATH
+```
+
 Terms
 -----
 
