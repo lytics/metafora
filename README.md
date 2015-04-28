@@ -8,6 +8,8 @@ Ordasity inspired distributed task runner.
 Metafora is a [Go](https://golang.org) library designed to run long-running
 (minutes to permanent) tasks in a cluster.
 
+IRC: `#metafora` on Freenode
+
 Features
 --------
 
