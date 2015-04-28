@@ -51,6 +51,7 @@ type EtcdCoordinator struct {
 	cordCtx   metafora.CoordinatorContext
 	namespace string
 	taskPath  string
+	name      string
 
 	ClaimTTL uint64 // seconds
 
@@ -96,6 +97,7 @@ func NewEtcdCoordinator(nodeID, namespace string, client *etcd.Client) metafora.
 	return &EtcdCoordinator{
 		Client:    client,
 		namespace: namespace,
+		name:      "etcd:/" + nodeID + namespace,
 
 		taskPath: path.Join(namespace, TasksPath),
 		ClaimTTL: ClaimTTL, //default to the package constant, but allow it to be overwritten
@@ -491,4 +493,8 @@ func (ec *EtcdCoordinator) watch(path string, index uint64, stop chan bool) (*et
 		}
 		return resp, nil
 	}
+}
+
+func (ec *EtcdCoordinator) String() string {
+	return ec.name
 }

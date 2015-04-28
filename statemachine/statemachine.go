@@ -214,20 +214,8 @@ var (
 // with their own message.
 type StatefulHandler func(taskID string, commands <-chan Message) Message
 
-type StateStore interface {
-	// Load the persisted or initial state for a task. Errors will cause tasks to
-	// be marked as done.
-	//
-	// The one exception is the special error StateNotFound which will cause the
-	// state machine to start from the initial (Runnable) state.
-	Load(taskID string) (*State, error)
-
-	// Store the current task state. Errors will prevent current state from being
-	// persisted and prevent state transitions.
-	Store(taskID string, s *State) error
-}
-
 type stateMachine struct {
+	taskID     string
 	h          StatefulHandler
 	ss         StateStore
 	cl         CommandListener
@@ -239,16 +227,21 @@ type stateMachine struct {
 // the given handler by calling its Transition method.
 //
 // If ErrHandler==nil the default error handler will be used.
-func New(h StatefulHandler, ss StateStore, cl CommandListener, e ErrHandler) *stateMachine {
+func New(tid string, h StatefulHandler, ss StateStore, cl CommandListener, e ErrHandler) metafora.Handler {
 	if e == nil {
 		e = DefaultErrHandler
 	}
-	return &stateMachine{h: h, ss: ss, cl: cl, errHandler: e}
+	return &stateMachine{taskID: tid,
+		h:          h,
+		ss:         ss,
+		cl:         cl,
+		errHandler: e,
+	}
 }
 
 // Run the state machine enabled handler. Loads the initial state and passes
 // control to the internal stateful handler.
-func (s *stateMachine) Run(taskID string) (done bool) {
+func (s *stateMachine) Run() (done bool) {
 	// Multiplex external messages and internal ones
 	stopped := make(chan struct{})
 	s.cmds = make(chan Message)
@@ -274,15 +267,15 @@ func (s *stateMachine) Run(taskID string) (done bool) {
 	}()
 
 	// Load the initial state
-	state, err := s.ss.Load(taskID)
+	state, err := s.ss.Load(s.taskID)
 	if err != nil {
 		// A failure to load the state for a task is *fatal* - the task will be
 		// unscheduled and requires operator intervention to reschedule.
-		metafora.Errorf("task=%q could not load initial state. Marking done! Error: %v", taskID, err)
+		metafora.Errorf("task=%q could not load initial state. Marking done! Error: %v", s.taskID, err)
 		return true
 	}
 	if state.Code.Terminal() {
-		metafora.Warnf("task=%q in terminal state %s - exiting.", taskID, state.Code)
+		metafora.Warnf("task=%q in terminal state %s - exiting.", s.taskID, state.Code)
 		return true
 	}
 
@@ -291,17 +284,17 @@ func (s *stateMachine) Run(taskID string) (done bool) {
 	for {
 		var msg Message
 		var newstate *State
-		metafora.Debugf("task=%q in state %s", taskID, state.Code)
+		metafora.Debugf("task=%q in state %s", s.taskID, state.Code)
 
 		// Execute state
 		switch state.Code {
 		case Runnable:
-			msg = run(s.h, taskID, s.cmds)
+			msg = run(s.h, s.taskID, s.cmds)
 		case Paused:
 			msg = <-s.cmds
 		case Sleeping:
 			dur := state.Until.Sub(time.Now())
-			metafora.Infof("task=%q sleeping for %s", taskID, dur)
+			metafora.Infof("task=%q sleeping for %s", s.taskID, dur)
 			timer := time.NewTimer(dur)
 			select {
 			case <-timer.C:
@@ -312,9 +305,9 @@ func (s *stateMachine) Run(taskID string) (done bool) {
 		case Fault:
 			// Special case where we potentially trim the current state to keep
 			// errors from growing without bound.
-			msg, state.Errors = s.errHandler(taskID, state.Errors)
+			msg, state.Errors = s.errHandler(s.taskID, state.Errors)
 		case Completed, Failed, Killed:
-			metafora.Infof("task=%q reached terminal state %s - exiting.", taskID, state.Code)
+			metafora.Infof("task=%q reached terminal state %s - exiting.", s.taskID, state.Code)
 		default:
 			panic("invalid state: " + state.Code.String())
 		}
@@ -322,17 +315,17 @@ func (s *stateMachine) Run(taskID string) (done bool) {
 		// Apply message
 		newstate, ok := apply(state, msg)
 		if !ok {
-			metafora.Warnf("task=%q Invalid state transition=%q returned by task. Old state=%q", taskID, msg.Code, state.Code)
+			metafora.Warnf("task=%q Invalid state transition=%q returned by task. Old state=%q", s.taskID, msg.Code, state.Code)
 			msg = Message{Code: Error, Err: err}
 			if newstate, ok = apply(state, msg); !ok {
-				metafora.Errorf("task=%q Unable to transition to error state! Exiting with state=%q", taskID, state.Code)
+				metafora.Errorf("task=%q Unable to transition to error state! Exiting with state=%q", s.taskID, state.Code)
 				return state.Code.Terminal()
 			}
 		}
 
 		// Save state
-		if err := s.ss.Store(taskID, newstate); err != nil {
-			metafora.Errorf("task=%q Unable to persist state=%q. Unscheduling.", taskID, newstate.Code)
+		if err := s.ss.Store(s.taskID, newstate); err != nil {
+			metafora.Errorf("task=%q Unable to persist state=%q. Unscheduling.", s.taskID, newstate.Code)
 			//FIXME Is this really the best thing to do?
 			return true
 		}

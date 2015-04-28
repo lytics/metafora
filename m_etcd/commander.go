@@ -51,6 +51,9 @@ type cmdrListener struct {
 	stop chan bool
 }
 
+// NewCommandListener makes a statemachine.CommandListener implementation
+// backed by etcd. The namespace should be the same as the coordinator as
+// commands use a separate path within a namespace than tasks or nodes.
 func NewCommandListener(c *etcd.Client, namespace string, taskID string) statemachine.CommandListener {
 	if namespace[0] != '/' {
 		namespace = "/" + namespace
@@ -124,7 +127,7 @@ startWatch:
 	const recursive = false
 	const sort = false
 	resp, err := c.cli.Get(c.path, recursive, sort)
-	if err == nil {
+	if err != nil {
 		if ee, ok := err.(*etcd.EtcdError); ok && ee.ErrorCode == EcodeKeyNotFound {
 			// No command found; this is normal. Grab index and skip to watching
 			index = ee.Index

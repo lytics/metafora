@@ -71,7 +71,7 @@ func NewConsumer(coord Coordinator, h HandlerFunc, b Balancer) (*Consumer, error
 //
 // Run blocks until Shutdown is called or an internal error occurs.
 func (c *Consumer) Run() {
-	Debug("Starting consumer")
+	Debug(c, " Starting consumer")
 
 	// Increment run wait group so Shutdown() can block on Run() exiting fully.
 	c.runwgL.Lock()
@@ -92,7 +92,7 @@ func (c *Consumer) Run() {
 				// Shutdown has been called.
 				return
 			case <-time.After(c.balEvery + time.Duration(randInt(balanceJitterMax))):
-				Info("Balancing")
+				Info(c, " Balancing")
 				select {
 				case balance <- true:
 					// Ticked balance
@@ -117,7 +117,7 @@ func (c *Consumer) Run() {
 				return
 			}
 			if cmd == nil {
-				Debug("Command coordinator exited")
+				Debug(c, " Command coordinator exited")
 				return
 			}
 			// Send command to watcher (or shutdown)
@@ -142,10 +142,10 @@ func (c *Consumer) Run() {
 				return
 			case cmd, ok := <-cmdChan:
 				if !ok {
-					Debug("Command channel closed. Exiting main loop.")
+					Debug(c, " Command channel closed. Exiting main loop.")
 					return
 				}
-				Debugf("Received command: %s", cmd)
+				Debugf("%s Received command: %s", c, cmd)
 				c.handleCommand(cmd)
 			}
 			continue
@@ -174,7 +174,7 @@ func (c *Consumer) Run() {
 			c.claimed(task)
 		case cmd, ok := <-cmdChan:
 			if !ok {
-				Debug("Command channel closed. Exiting main loop.")
+				Debug(c, " Command channel closed. Exiting main loop.")
 				return
 			}
 			c.handleCommand(cmd)
@@ -197,7 +197,7 @@ func (c *Consumer) watcher() {
 func (c *Consumer) balance() {
 	tasks := c.bal.Balance()
 	if len(tasks) > 0 {
-		Infof("Balancer releasing: %v", tasks)
+		Infof("%s Balancer releasing: %v", c, tasks)
 	}
 	for _, task := range tasks {
 		// Actually release the rebalanced task.
@@ -233,7 +233,7 @@ func (c *Consumer) shutdown() {
 		c.stopTask(id.ID())
 	}
 
-	Info("Waiting for handlers to exit")
+	Info(c, " Waiting for handlers to exit")
 	c.hwg.Wait()
 }
 
@@ -279,9 +279,9 @@ func (c *Consumer) Tasks() []Task {
 // manipulate c.running and closes the task channel when a handler's Run
 // method exits.
 func (c *Consumer) claimed(taskID string) {
-	h := c.handler()
+	h := c.handler(taskID)
 
-	Debugf("Attempting to start task " + taskID)
+	Debugf("%s Attempting to start task=%q", c, taskID)
 	// Associate handler with taskID
 	// **This is the only place tasks should be added to c.running**
 	c.runL.Lock()
@@ -295,7 +295,7 @@ func (c *Consumer) claimed(taskID string) {
 	if _, ok := c.running[taskID]; ok {
 		// If a coordinator returns an already claimed task from Watch(), then it's
 		// a coordinator (or broker) bug.
-		Warnf("Attempted to claim already running task %s", taskID)
+		Warnf("%s Attempted to claim already running task %s", c, taskID)
 		return
 	}
 	rt := newTask(taskID, h)
@@ -311,7 +311,7 @@ func (c *Consumer) claimed(taskID string) {
 		defer c.hwg.Done() // Must be run after task exit and Done/Release called
 
 		// Run the task
-		Infof("Task %q started", taskID)
+		Infof("%s Task %q started", c, taskID)
 		done := c.runTask(h.Run, taskID)
 		var status string
 		if done {
@@ -325,23 +325,23 @@ func (c *Consumer) claimed(taskID string) {
 		stopped := rt.Stopped()
 		if stopped.IsZero() {
 			// Task exited on its own
-			Infof("Task %q exited (%s)", taskID, status)
+			Infof("%s Task %q exited (%s)", c, taskID, status)
 		} else {
 			// Task exited due to Stop() being called
-			Infof("Task %q exited (%s) after %s", taskID, status, time.Now().Sub(stopped))
+			Infof("%s Task %q exited (%s) after %s", c, taskID, status, time.Now().Sub(stopped))
 		}
 	}()
 }
 
 // runTask executes a handler's Run method and recovers from panic()s.
-func (c *Consumer) runTask(run func(string) bool, task string) bool {
+func (c *Consumer) runTask(run func() bool, task string) bool {
 	done := false
 	func() {
 		defer func() {
 			if err := recover(); err != nil {
 				stack := make([]byte, 50*1024)
 				sz := runtime.Stack(stack, false)
-				Errorf("Handler %s panic()'d: %v\n%s", task, err, stack[:sz])
+				Errorf("%s Handler %s panic()'d: %v\n%s", c, task, err, stack[:sz])
 				// panics are considered fatal errors. Make sure the task isn't
 				// rescheduled.
 				done = true
@@ -352,7 +352,7 @@ func (c *Consumer) runTask(run func(string) bool, task string) bool {
 			delete(c.running, task)
 			c.runL.Unlock()
 		}()
-		done = run(task)
+		done = run()
 	}()
 	return done
 }
@@ -367,7 +367,7 @@ func (c *Consumer) stopTask(taskID string) {
 
 	if !ok {
 		// This can happen if a task completes during Balance() and is not an error.
-		Warnf("Tried to release a non-running task: %s", taskID)
+		Warnf("%s Tried to release a non-running task: %s", c, taskID)
 		return
 	}
 
@@ -378,7 +378,7 @@ func (c *Consumer) stopTask(taskID string) {
 			if err := recover(); err != nil {
 				stack := make([]byte, 50*1024)
 				sz := runtime.Stack(stack, false)
-				Errorf("Handler %s panic()'d on Stop: %v\n%s", taskID, err, stack[:sz])
+				Errorf("%s Handler %s panic()'d on Stop: %v\n%s", c, taskID, err, stack[:sz])
 			}
 		}()
 
@@ -403,37 +403,37 @@ func (c *Consumer) handleCommand(cmd Command) {
 	switch cmd.Name() {
 	case cmdFreeze:
 		if c.Frozen() {
-			Info("Ignoring freeze command: already frozen")
+			Info(c, " Ignoring freeze command: already frozen")
 			return
 		}
-		Info("Freezing")
+		Info(c, " Freezing")
 		c.freezeL.Lock()
 		c.freeze = true
 		c.freezeL.Unlock()
 	case cmdUnfreeze:
 		if !c.Frozen() {
-			Info("Ignoring unfreeze command: not frozen")
+			Info(c, " Ignoring unfreeze command: not frozen")
 			return
 		}
-		Info("Unfreezing")
+		Info(c, " Unfreezing")
 		c.freezeL.Lock()
 		c.freeze = false
 		c.freezeL.Unlock()
 	case cmdBalance:
-		Info("Balancing due to command")
+		Info(c, " Balancing due to command")
 		c.balance()
-		Debug("Finished balancing due to command")
+		Debug(c, " Finished balancing due to command")
 	case cmdStopTask:
 		taskI, ok := cmd.Parameters()["task"]
 		task, ok2 := taskI.(string)
 		if !ok || !ok2 {
-			Error("Stop task command didn't contain a valid task")
+			Error(c, " Stop task command didn't contain a valid task", c)
 			return
 		}
-		Info("Stopping task %s due to command", task)
+		Info("%s Stopping task %s due to command", c, task)
 		c.stopTask(task)
 	default:
-		Warnf("Discarding unknown command: %s", cmd.Name())
+		Warnf("%s Discarding unknown command: %s", c, cmd.Name())
 	}
 }
 
@@ -442,3 +442,8 @@ func (c *Consumer) ignore(taskID string, until time.Time) { c.im.add(taskID, unt
 
 // Ignores is a list of all ignored tasks.
 func (c *Consumer) Ignores() []string { return c.im.all() }
+
+
+func (c *Consumer) String() string {
+	return c.coord.String()
+}

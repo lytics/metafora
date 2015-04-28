@@ -13,7 +13,7 @@ type Handler interface {
 	// The task will be scheduled to run again.
 	//
 	// Panics are treated the same as returning true.
-	Run(taskID string) (done bool)
+	Run() (done bool)
 
 	// Stop signals to the handler to shutdown gracefully. Stop implementations
 	// should not block until Run exits.
@@ -29,26 +29,33 @@ type Handler interface {
 }
 
 // HandlerFunc is called by the Consumer to create a new Handler for each task.
-type HandlerFunc func() Handler
+//
+// HandlerFunc is meant to be the New function for handlers. Since Run and Stop
+// are called concurrently, any state used by both should be initialized in the
+// HandlerFunc. Since Handlerfunc is uninterruptable, only the minimum amount
+// of work necessary to initialize a handler should be done.
+type HandlerFunc func(taskID string) Handler
 
 // SimpleHander creates a HandlerFunc for a simple function that accepts a stop
 // channel. The channel will be closed when Stop is called.
-func SimpleHandler(f func(task string, stop <-chan bool) bool) HandlerFunc {
-	return func() Handler {
+func SimpleHandler(f func(taskID string, stop <-chan bool) bool) HandlerFunc {
+	return func(taskID string) Handler {
 		return &simpleHandler{
-			stop: make(chan bool),
-			f:    f,
+			taskID: taskID,
+			stop:   make(chan bool),
+			f:      f,
 		}
 	}
 }
 
 type simpleHandler struct {
-	stop chan bool
-	f    func(string, <-chan bool) bool
+	taskID string
+	stop   chan bool
+	f      func(string, <-chan bool) bool
 }
 
-func (h *simpleHandler) Run(task string) bool {
-	return h.f(task, h.stop)
+func (h *simpleHandler) Run() bool {
+	return h.f(h.taskID, h.stop)
 }
 
 func (h *simpleHandler) Stop() {
