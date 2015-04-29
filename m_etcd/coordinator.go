@@ -278,7 +278,7 @@ startWatch:
 			}
 
 			// Start the next watch from the latest index seen
-			index = resp.EtcdIndex
+			index = resp.Node.ModifiedIndex
 		}
 	}
 }
@@ -360,10 +360,6 @@ startWatch:
 
 		// Act like existing keys are newly created
 		for _, node := range resp.Node.Nodes {
-			if node.ModifiedIndex > index {
-				// Record the max modified index to keep Watch from picking up redundant events
-				index = node.ModifiedIndex
-			}
 			if cmd := ec.parseCommand(&etcd.Response{Action: "create", Node: node}); cmd != nil {
 				return cmd, nil
 			}
@@ -384,7 +380,7 @@ startWatch:
 				return cmd, nil
 			}
 
-			index = resp.EtcdIndex
+			index = resp.Node.ModifiedIndex
 		}
 	}
 }
