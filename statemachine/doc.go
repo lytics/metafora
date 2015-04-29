@@ -5,5 +5,9 @@
 // state machine. The state machine will handle the state transition and
 // restart the internal handler if necesary.
 //
-// Users must provide a StateStore implementation for persisting task state.
+// Users must provide a StateStore implementation for persisting task state and
+// Command Listener implementation for receiving commands. See the m_etcd or
+// embedded packages for example Command Listener implementations.
+//
+// See the README in this package for details.
 package statemachine
