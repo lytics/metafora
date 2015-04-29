@@ -69,7 +69,6 @@ const (
 	Run        MessageCode = "run"
 	Sleep                  = "sleep"
 	Pause                  = "pause"
-	Resume                 = "resume"
 	Kill                   = "kill"
 	Error                  = "error"
 	Complete               = "complete"
