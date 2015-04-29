@@ -1,28 +1,26 @@
 package statemachine
 
 import (
-	"errors"
 	"fmt"
-	"strconv"
 	"time"
 
 	"github.com/lytics/metafora"
 )
 
-var ExceededErrorRate = errors.New("exceeded error rate")
-
-type StateCode int
+type StateCode string
 
 const (
-	Runnable  StateCode = iota // Scheduled
-	Sleeping                   // Scheduled, not running until time has elapsed
-	Completed                  // Terminal, not scheduled
-	Killed                     // Terminal, not scheduled
-	Failed                     // Terminal, not scheduled
-	Fault                      // Scheduled, in error handling / retry logic
-	Paused                     // Scheduled, not running
+	Runnable  StateCode = "runnable"  // Scheduled
+	Sleeping            = "sleeping"  // Scheduled, not running until time has elapsed
+	Completed           = "completed" // Terminal, not scheduled
+	Killed              = "killed"    // Terminal, not scheduled
+	Failed              = "failed"    // Terminal, not scheduled
+	Fault               = "fault"     // Scheduled, in error handling / retry logic
+	Paused              = "paused"    // Scheduled, not running
 )
 
+// Terminal states will never run and cannot transition to a non-terminal
+// state.
 func (s StateCode) Terminal() bool {
 	switch s {
 	case Runnable, Sleeping, Paused, Fault:
@@ -30,80 +28,17 @@ func (s StateCode) Terminal() bool {
 	case Completed, Killed, Failed:
 		return true
 	default:
-		panic("unknown state " + strconv.Itoa(int(s)))
+		panic("unknown state " + s)
 	}
 }
 
-func (s StateCode) String() string {
-	switch s {
-	case Runnable:
-		return "runnable"
-	case Sleeping:
-		return "sleeping"
-	case Completed:
-		return "completed"
-	case Killed:
-		return "killed"
-	case Failed:
-		return "failed"
-	case Fault:
-		return "fault"
-	case Paused:
-		return "paused"
-	default:
-		panic("unknown state " + strconv.Itoa(int(s)))
-	}
-}
-
-// Err represents an error that occurred while a stateful handler was running.
-type Err struct {
-	Time time.Time `json:"timestamp"`
-	Err  string    `json:"error"`
-}
-
-// ErrHandler functions should return Run, Sleep, or Fail messages depending on
-// the rate of errors.
-//
-// Either ErrHandler and/or StateStore should trim the error slice to keep it
-// from growing without bound.
-type ErrHandler func(taskID string, errs []Err) (Message, []Err)
-
-const (
-	DefaultErrLifetime = -4 * time.Hour
-	DefaultErrMax      = 8
-)
-
-// DefaultErrHandler returns a Fail message if 8 errors have occurred in 4
-// hours. Otherwise it enters the Sleep state for 10 minutes before trying
-// again.
-func DefaultErrHandler(_ string, errs []Err) (Message, []Err) {
-	recent := time.Now().Add(DefaultErrLifetime)
-	strikes := 0
-	for _, err := range errs {
-		if err.Time.After(recent) {
-			strikes++
-		}
-	}
-
-	if strikes >= DefaultErrMax {
-		// Return a new error to transition to Failed as well as the original
-		// errors to store what caused this failure.
-		return Message{Code: Error, Err: ExceededErrorRate}, errs
-	}
-	keeperrs := errs
-	if len(keeperrs) > DefaultErrMax {
-		keeperrs = keeperrs[len(keeperrs)-DefaultErrMax:]
-	}
-	return Message{Code: Sleep, Until: time.Now().Add(10 * time.Minute)}, keeperrs
-}
-
-// State represents the current state of a stateful handler. See StateCode
-// documentation for details. Until and Errors are extra state used by the
-// Sleeping and Fault state respectively.
+// State represents the current state of a stateful handler. See StateCode for
+// details. Until and Errors are extra state used by the Sleeping and Fault
+// states respectively.
 type State struct {
-	Code   StateCode `json:"state"`
-	Until  time.Time `json:"until,omitempty"`
-	Errors []Err     `json:"errors,omitempty"`
+	Code   StateCode  `json:"state"`
+	Until  *time.Time `json:"until,omitempty"`
+	Errors []Err      `json:"errors,omitempty"`
 }
 
 func (s State) String() string {
@@ -111,58 +46,42 @@ func (s State) String() string {
 	case Sleeping:
 		return fmt.Sprintf("%s until %s", s.Code, s.Until)
 	default:
-		return s.Code.String()
+		return string(s.Code)
 	}
 }
 
+// Messages are events that cause state transitions. Until and Err are used by
+// the Sleep and Error messages respectively.
 type Message struct {
-	Code  MessageCode `json:"message"`
-	Until time.Time   `json:"until,omitempty"` // indicates time in Sleeping state by Sleep message
-	Err   error       `json:"error,omitempty"` // error associated with errMsgs
+	Code MessageCode `json:"message"`
+
+	// Until is when the statemachine should transition from sleeping to runnable
+	Until *time.Time `json:"until,omitempty"`
+
+	// Err is the error that caused this Error message
+	Err error `json:"error,omitempty"`
 }
 
-type MessageCode int
+// MessageCode is the symbolic name of a state transition.
+type MessageCode string
 
 const (
-	Run MessageCode = iota
-	Sleep
-	Pause
-	Resume
-	Kill
-	Error
-	Complete
-	Checkpoint //XXX or NOOP?
+	Run        MessageCode = "run"
+	Sleep                  = "sleep"
+	Pause                  = "pause"
+	Resume                 = "resume"
+	Kill                   = "kill"
+	Error                  = "error"
+	Complete               = "complete"
+	Checkpoint             = "checkpoint"
 
 	// Special event which triggers state machine to exit without transitioning
 	// between states.
-	Release
+	Release MessageCode = "release"
 )
 
-func (m MessageCode) String() string {
-	switch m {
-	case Run:
-		return "run"
-	case Sleep:
-		return "sleep"
-	case Pause:
-		return "pause"
-	case Resume:
-		return "resume"
-	case Release:
-		return "release"
-	case Kill:
-		return "kill"
-	case Error:
-		return "error"
-	case Complete:
-		return "complete"
-	case Checkpoint:
-		return "checkpoint"
-	default:
-		panic("unknown mesage code: " + strconv.Itoa(int(m)))
-	}
-}
-
+// Transitions represent a state machine transition from one state to another
+// given an event message.
 type Transition struct {
 	Event MessageCode
 	From  StateCode
@@ -174,7 +93,7 @@ func (t Transition) String() string {
 }
 
 var (
-	// State Transition Table
+	// Rules is the state transition table.
 	Rules = []Transition{
 		// Runnable can transition to anything
 		{Event: Checkpoint, From: Runnable, To: Runnable},
@@ -209,9 +128,15 @@ var (
 	}
 )
 
-// Run a stateful handler until completion or a command is received. Handlers
-// can decide whether to return the command message directly or override it
-// with their own message.
+// StatefulHandler is the function signature that the state machine is able to
+// run. Instead of metafora.Handler's Stop method, StatefulHandlers receive
+// Messages via the commands chan and return their exit status via a Message.
+//
+// Normally StatefulHandlers simply return a Message as soon as it's received
+// on the commands chan. However, it's also acceptable for a handler to return
+// a different Message. For example if it encounters an error during shutdown,
+// it may choose to return that error as an Error Message as opposed to the
+// original command.
 type StatefulHandler func(taskID string, commands <-chan Message) Message
 
 type stateMachine struct {
@@ -224,14 +149,16 @@ type stateMachine struct {
 }
 
 // New handler that creates a state machine and exposes state transitions to
-// the given handler by calling its Transition method.
+// the given handler by calling its Transition method. It should be created in
+// the HandlerFunc you use with metafora's Consumer.
 //
-// If ErrHandler==nil the default error handler will be used.
+// If ErrHandler is nil DefaultErrHandler will be used.
 func New(tid string, h StatefulHandler, ss StateStore, cl CommandListener, e ErrHandler) metafora.Handler {
 	if e == nil {
 		e = DefaultErrHandler
 	}
-	return &stateMachine{taskID: tid,
+	return &stateMachine{
+		taskID:     tid,
 		h:          h,
 		ss:         ss,
 		cl:         cl,
@@ -240,9 +167,10 @@ func New(tid string, h StatefulHandler, ss StateStore, cl CommandListener, e Err
 }
 
 // Run the state machine enabled handler. Loads the initial state and passes
-// control to the internal stateful handler.
+// control to the internal stateful handler passing commands from the command
+// listener into the handler's commands chan.
 func (s *stateMachine) Run() (done bool) {
-	// Multiplex external messages and internal ones
+	// Multiplex external (Stop) messages and internal ones
 	stopped := make(chan struct{})
 	s.cmds = make(chan Message)
 	go func() {
@@ -282,37 +210,11 @@ func (s *stateMachine) Run() (done bool) {
 	// Main Run loop
 	done = false
 	for {
-		var msg Message
-		var newstate *State
 		metafora.Debugf("task=%q in state %s", s.taskID, state.Code)
+		msg := s.exec(state)
 
-		// Execute state
-		switch state.Code {
-		case Runnable:
-			msg = run(s.h, s.taskID, s.cmds)
-		case Paused:
-			msg = <-s.cmds
-		case Sleeping:
-			dur := state.Until.Sub(time.Now())
-			metafora.Infof("task=%q sleeping for %s", s.taskID, dur)
-			timer := time.NewTimer(dur)
-			select {
-			case <-timer.C:
-				msg = Message{Code: Run}
-			case msg = <-s.cmds:
-				timer.Stop()
-			}
-		case Fault:
-			// Special case where we potentially trim the current state to keep
-			// errors from growing without bound.
-			msg, state.Errors = s.errHandler(s.taskID, state.Errors)
-		case Completed, Failed, Killed:
-			metafora.Infof("task=%q reached terminal state %s - exiting.", s.taskID, state.Code)
-		default:
-			panic("invalid state: " + state.Code.String())
-		}
-
-		// Apply message
+		// Enter State
+		// Apply Message
 		newstate, ok := apply(state, msg)
 		if !ok {
 			metafora.Warnf("task=%q Invalid state transition=%q returned by task. Old state=%q", s.taskID, msg.Code, state.Code)
@@ -326,11 +228,10 @@ func (s *stateMachine) Run() (done bool) {
 		// Save state
 		if err := s.ss.Store(s.taskID, newstate); err != nil {
 			metafora.Errorf("task=%q Unable to persist state=%q. Unscheduling.", s.taskID, newstate.Code)
-			//FIXME Is this really the best thing to do?
 			return true
 		}
 
-		// Set next state and loop
+		// Set next state and loop if non-terminal
 		state = newstate
 
 		// Exit and unschedule task on terminal state.
@@ -345,11 +246,52 @@ func (s *stateMachine) Run() (done bool) {
 	}
 }
 
+// execute non-terminal states
+func (s *stateMachine) exec(state *State) Message {
+	switch state.Code {
+	case Runnable:
+		// Runnable passes control to the stateful handler
+		return run(s.h, s.taskID, s.cmds)
+	case Paused:
+		// Paused until a message arrives
+		return <-s.cmds
+	case Sleeping:
+		// Sleeping until the specified time (or a message)
+		if state.Until == nil {
+			metafora.Warnf("task=%q told to sleep without a time. Resuming.", s.taskID)
+			return Message{Code: Run}
+		}
+		dur := state.Until.Sub(time.Now())
+		metafora.Infof("task=%q sleeping for %s", s.taskID, dur)
+		timer := time.NewTimer(dur)
+		select {
+		case <-timer.C:
+			return Message{Code: Run}
+		case msg := <-s.cmds:
+			timer.Stop()
+			// Checkpoint is a special case that shouldn't affect sleep time, so
+			// maintain it across the state transition
+			if msg.Code == Checkpoint {
+				msg.Until = state.Until
+			}
+			return msg
+		}
+	case Fault:
+		// Special case where we potentially trim the current state to keep
+		// errors from growing without bound.
+		var msg Message
+		msg, state.Errors = s.errHandler(s.taskID, state.Errors)
+		return msg
+	default:
+		panic("invalid state: " + state.String())
+	}
+}
+
 func run(f StatefulHandler, tid string, cmd <-chan Message) (m Message) {
 	defer func() {
 		if r := recover(); r != nil {
 			metafora.Errorf("task=%q Run method panic()d! Applying Error message. Panic: %v", tid, r)
-			m = Message{Code: Error, Err: fmt.Errorf("%v", r)} //FIXME This is a weird way of storing the panic
+			m = Message{Code: Error, Err: fmt.Errorf("panic: %v", r)}
 		}
 	}()
 	m = f(tid, cmd)

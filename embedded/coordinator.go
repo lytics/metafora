@@ -89,3 +89,7 @@ func (e *EmbeddedCoordinator) Command() (metafora.Command, error) {
 func (e *EmbeddedCoordinator) Close() {
 	close(e.stopchan)
 }
+
+func (e *EmbeddedCoordinator) String() string {
+	return "embedded"
+}

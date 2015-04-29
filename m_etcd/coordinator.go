@@ -222,6 +222,7 @@ func (ec *EtcdCoordinator) refreshBy(deadline time.Time) (err error) {
 func (ec *EtcdCoordinator) Watch(out chan<- string) error {
 	const sorted = true
 	const recursive = true
+	var index uint64
 
 startWatch:
 	for {
@@ -241,14 +242,10 @@ startWatch:
 
 		// Start watching at the index the Get retrieved since we've retrieved all
 		// tasks up to that point.
-		index := resp.EtcdIndex
+		index = resp.EtcdIndex
 
 		// Act like existing keys are newly created
 		for _, node := range resp.Node.Nodes {
-			if node.ModifiedIndex > index {
-				// Record the max modified index to keep Watch from picking up redundant events
-				index = node.ModifiedIndex
-			}
 			if task, ok := ec.parseTask(&etcd.Response{Action: "create", Node: node}); ok {
 				select {
 				case out <- task:
@@ -281,7 +278,7 @@ startWatch:
 			}
 
 			// Start the next watch from the latest index seen
-			index = resp.Node.ModifiedIndex
+			index = resp.EtcdIndex
 		}
 	}
 }

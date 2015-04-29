@@ -26,12 +26,11 @@ type testHandler struct {
 	tasksRun chan string
 }
 
-func (h *testHandler) Run(id string) bool {
-	h.tasksRun <- id
-	h.id = id
-	h.t.Logf("Run(%s)", id)
+func (h *testHandler) Run() bool {
+	h.tasksRun <- h.id
+	h.t.Logf("Run(%s)", h.id)
 	<-h.stop
-	h.t.Logf("Stop received for %s", id)
+	h.t.Logf("Stop received for %s", h.id)
 	return true
 }
 
@@ -42,8 +41,9 @@ func (h *testHandler) Stop() {
 
 func newTestHandlerFunc(t *testing.T) (HandlerFunc, chan string) {
 	tasksRun := make(chan string, 10)
-	return func() Handler {
+	return func(tid string) Handler {
 		return &testHandler{
+			id:       tid,
 			stop:     make(chan int),
 			t:        t,
 			tasksRun: tasksRun,
@@ -191,12 +191,12 @@ func TestBalancer(t *testing.T) {
 
 type noopHandler struct{}
 
-func (noopHandler) Run(string) bool { return true }
-func (noopHandler) Stop()           {}
+func (noopHandler) Run() bool { return true }
+func (noopHandler) Stop()     {}
 
 // TestHandleTask ensures that tasks are marked as done once handled.
 func TestHandleTask(t *testing.T) {
-	hf := func() Handler { return noopHandler{} }
+	hf := func(string) Handler { return noopHandler{} }
 	coord := NewTestCoord()
 	c, _ := NewConsumer(coord, hf, DumbBalancer)
 	go c.Run()
