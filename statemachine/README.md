@@ -1,6 +1,6 @@
 # Metafora Finite State Machine
 
-The `statemachine` package provides a featureful state machine for us by
+The `statemachine` package provides a featureful state machine for use by
 Metafora task handlers.
 
 ## Features
