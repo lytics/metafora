@@ -33,6 +33,7 @@ func (s testStore) Store(taskID string, newstate *statemachine.State) error {
 
 //FIXME leaks goroutines
 func TestRules(t *testing.T) {
+	t.Parallel()
 	for i, trans := range statemachine.Rules {
 		metafora.Debugf("Trying %s", trans)
 		cmdr := embedded.NewCommander()
@@ -73,7 +74,7 @@ func TestRules(t *testing.T) {
 		}
 		newstate := <-store
 		if trans.From == statemachine.Fault && trans.To == statemachine.Failed {
-			//FIXME continue on as this transition relies on state this test doesn't exercise
+			// continue on as this transition relies on state this test doesn't exercise
 			continue
 		}
 		if newstate.Code != trans.To {
@@ -83,6 +84,7 @@ func TestRules(t *testing.T) {
 }
 
 func TestCheckpointRelease(t *testing.T) {
+	t.Parallel()
 	ss := embedded.NewStateStore()
 	ss.Store("test1", &statemachine.State{Code: statemachine.Runnable})
 	cmdr := embedded.NewCommander()
@@ -119,4 +121,31 @@ func TestCheckpointRelease(t *testing.T) {
 	if state.Code != statemachine.Runnable {
 		t.Fatalf("Expected released task to be runnable but found state %q", state.Code)
 	}
+}
+
+func TestSleep(t *testing.T) {
+	metafora.SetLogLevel(metafora.LogLevelDebug)
+	t.Parallel()
+
+	ss := embedded.NewStateStore().(*embedded.StateStore)
+	ss.Store("sleep-test", &statemachine.State{Code: statemachine.Runnable})
+	<-ss.Stored
+	cmdr := embedded.NewCommander()
+	cmdl := cmdr.NewListener("sleep-test")
+	sm := statemachine.New("sleep-test", testhandler, ss, cmdl, nil)
+	done := make(chan bool)
+	go func() { done <- sm.Run() }()
+
+	// Put to sleep forever
+	until := time.Now().Add(9001 * time.Hour)
+	if err := cmdr.Send("sleep-test", statemachine.Message{Code: statemachine.Sleep, Until: &until}); err != nil {
+		t.Fatalf("Error sending sleep: %v", err)
+	}
+
+	newstate := <-ss.Stored
+	if newstate.State.Code != statemachine.Sleeping || !newstate.State.Until.Equal(until) {
+		t.Fatalf("Expected task to store state Sleeping, but stored: %s", newstate)
+	}
+
+	//FIXME WIP - Exercise automatic transition from Until time -> Runnable
 }
