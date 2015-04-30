@@ -6,19 +6,21 @@ import (
 	"github.com/lytics/metafora/statemachine"
 )
 
-var (
-	_ statemachine.Commander       = (*Commander)(nil)
-	_ statemachine.CommandListener = (*commandListener)(nil)
-)
+var _ statemachine.Commander = (*Commander)(nil)
 
+// Commander is an embedable statemachine.Commander implementation.
+// Task-specific command listeners are created by calling NewListener.
 type Commander struct {
 	listeners map[string]chan statemachine.Message
 }
 
+// NewCommander creates a new statemachine.Commander implementation.
 func NewCommander() *Commander {
 	return &Commander{listeners: make(map[string]chan statemachine.Message)}
 }
 
+// NewListener creates a task specific command listener linked to an embedded
+// Commander.
 func (c *Commander) NewListener(taskID string) statemachine.CommandListener {
 	// Buffer chan to make sending/recving asynchronous
 	c.listeners[taskID] = make(chan statemachine.Message, 1)
