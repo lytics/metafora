@@ -124,7 +124,6 @@ func TestCheckpointRelease(t *testing.T) {
 }
 
 func TestSleep(t *testing.T) {
-	metafora.SetLogLevel(metafora.LogLevelDebug)
 	t.Parallel()
 
 	ss := embedded.NewStateStore().(*embedded.StateStore)
@@ -136,8 +135,30 @@ func TestSleep(t *testing.T) {
 	done := make(chan bool)
 	go func() { done <- sm.Run() }()
 
-	// Put to sleep forever
-	until := time.Now().Add(9001 * time.Hour)
+	{
+		// Put to sleep forever
+		until := time.Now().Add(9001 * time.Hour)
+		if err := cmdr.Send("sleep-test", statemachine.Message{Code: statemachine.Sleep, Until: &until}); err != nil {
+			t.Fatalf("Error sending sleep: %v", err)
+		}
+
+		newstate := <-ss.Stored
+		if newstate.State.Code != statemachine.Sleeping || !newstate.State.Until.Equal(until) {
+			t.Fatalf("Expected task to store state Sleeping, but stored: %s", newstate)
+		}
+	}
+
+	// Make sure it stays sleeping for at least a bit
+	select {
+	case newstate := <-ss.Stored:
+		t.Fatalf("Expected task to stay asleep forever but transitioned to: %s", newstate)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	// Override current sleep with a shorter one
+	dur := 1 * time.Second
+	start := time.Now()
+	until := start.Add(dur)
 	if err := cmdr.Send("sleep-test", statemachine.Message{Code: statemachine.Sleep, Until: &until}); err != nil {
 		t.Fatalf("Error sending sleep: %v", err)
 	}
@@ -147,5 +168,15 @@ func TestSleep(t *testing.T) {
 		t.Fatalf("Expected task to store state Sleeping, but stored: %s", newstate)
 	}
 
-	//FIXME WIP - Exercise automatic transition from Until time -> Runnable
+	// Make sure it transitions to Runnable after sleep has elapsed
+	newstate = <-ss.Stored
+	transitioned := time.Now()
+	if newstate.State.Code != statemachine.Runnable || newstate.State.Until != nil {
+		t.Fatalf("Expected task to be runnable without an Until time but found: %s", newstate.State)
+	}
+	elapsed := transitioned.Sub(start)
+	if transitioned.Sub(start) < dur {
+		t.Fatalf("Expected task to sleep for %s but slept for %s", dur, elapsed)
+	}
+	t.Logf("Statemachine latency: %s", elapsed-dur)
 }

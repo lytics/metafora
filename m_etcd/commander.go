@@ -14,7 +14,7 @@ const (
 	commandPath = "commands"
 
 	// cmdTTL is the TTL in seconds set on commands so that commands sent to
-	// terminating work isn't orphaned in etcd forever.
+	// terminating work aren't orphaned in etcd forever.
 	cmdTTL = 7 * 24 * 60 * 60 // 1 week in seconds
 )
 
@@ -23,7 +23,7 @@ type cmdr struct {
 	path string
 }
 
-func NewCommander(c *etcd.Client, namespace string) statemachine.Commander {
+func NewCommander(namespace string, c *etcd.Client) statemachine.Commander {
 	if namespace[0] != '/' {
 		namespace = "/" + namespace
 	}
@@ -54,7 +54,7 @@ type cmdrListener struct {
 // NewCommandListener makes a statemachine.CommandListener implementation
 // backed by etcd. The namespace should be the same as the coordinator as
 // commands use a separate path within a namespace than tasks or nodes.
-func NewCommandListener(c *etcd.Client, namespace string, taskID string) statemachine.CommandListener {
+func NewCommandListener(taskID, namespace string, c *etcd.Client) statemachine.CommandListener {
 	if namespace[0] != '/' {
 		namespace = "/" + namespace
 	}
@@ -88,9 +88,11 @@ func (c *cmdrListener) sendErr(err error) {
 }
 
 func (c *cmdrListener) sendMsg(resp *etcd.Response) (index uint64, ok bool) {
+	metafora.Debugf("%#v", resp)
+	metafora.Debugf("%#v", *resp.Node)
 	// Only handle new commands
 	if !newActions[resp.Action] {
-		return resp.Node.ModifiedIndex, true
+		return resp.Node.ModifiedIndex + 1, true
 	}
 
 	// Remove command so it's not processed twice
@@ -98,7 +100,7 @@ func (c *cmdrListener) sendMsg(resp *etcd.Response) (index uint64, ok bool) {
 	if err != nil {
 		if ee, ok := err.(*etcd.EtcdError); ok && ee.ErrorCode == EcodeCompareFailed {
 			metafora.Infof("Received successive commands; attempting to retrieve the latest: %v", err)
-			return resp.Node.ModifiedIndex, true
+			return resp.Node.ModifiedIndex + 1, true
 		}
 		metafora.Errorf("Error deleting command %s: %s - sending error to stateful handler: %v", c.path, resp.Node.Value, err)
 		c.sendErr(err)
@@ -114,7 +116,7 @@ func (c *cmdrListener) sendMsg(resp *etcd.Response) (index uint64, ok bool) {
 
 	select {
 	case c.commands <- msg:
-		return cadresp.Node.ModifiedIndex, true
+		return cadresp.Node.ModifiedIndex + 1, true
 	case <-c.stop:
 		return 0, false
 	}
@@ -177,8 +179,5 @@ watchLoop:
 		if index, ok = c.sendMsg(resp); !ok {
 			return
 		}
-
-		// Update the watch index
-		index = resp.Node.ModifiedIndex
 	}
 }

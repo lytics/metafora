@@ -1,4 +1,4 @@
-## etcd integration
+# etcd integration
 
 Metafora contains an [etcd](https://github.com/coreos/etcd) implementation of
 the core
@@ -6,7 +6,7 @@ the core
 [`Client`](http://godoc.org/github.com/lytics/metafora#Client) interfaces, so
 that implementing Metafora with etcd in your own work system is quick and easy.
 
-##### etcd layout
+## etcd layout
 
 ```
 /
@@ -15,13 +15,20 @@ that implementing Metafora with etcd in your own work system is quick and easy.
     │   └── <node_id>          Ephemeral
     │       └── commands  
     │           └── <command>  JSON value
-    └── tasks
-        └── <task_id>
-            └── owner          Ephemeral
-                               JSON value
+    │
+    ├── tasks
+    │   └── <task_id>
+    │       └── owner          Ephemeral, JSON value
+    │
+    ├── state                  Optional, only if using state store
+    │   └── <task_id>          Permanent, JSON value
+    │
+    └── commands               Optional, only if using command listener
+        └── <task_id>          Ephermeral, JSON value
+
 ```
 
-##### Tasks
+### Tasks
 
 Metafora clients submit tasks by making an empty directory in
 `/<namespace>/tasks/` without a TTL.
@@ -40,9 +47,9 @@ The JSON format is:
 
 Note that Metafora does not handle task parameters or configuration.
 
-##### Commands
+### Node Commands
 
-Metafora clients send commands by making a file inside
+Metafora clients can send node commands by making a file inside
 `/<namespace>/nodes/<node_id>/commands/` with any name (preferably using a time-ordered
 UUID).
 
@@ -56,7 +63,35 @@ executed at a time, and pending commands are lost on node shutdown.
 
 Where parameters is an arbitrary JSON Object.
 
-### Useful links for managing etcd
+### Task State
+
+If you're using the etcd state store, it will persist a task's state as JSON in
+`/<namespace>/state/<task_id>`.  The format of the JSON is defined by the
+`statemachine` package.
+
+Task state keys are permanent so they exist even after a task reaches a
+terminal state and is unscheduled for 2 reasons:
+
+1. Provide a task history for users to inspect or prune at their discretion.
+2. Allow state store to default non-existant task states to Runnable since if
+   they were running already or had run to completion before, the task key
+   would exist.
+
+See [`statemachine`'s Documentation](../statemachine/README.md) for details.
+
+### Task Commands
+
+If you're using the etcd commander and command listener, task commands are sent
+as JSON in `/<namespace>/commands/<task_id>`. Commands are deleted after
+they're handled. If more than one command is sent before either can be
+processed only the last command sent will be processed.
+
+Commands have a TTL of 1 week so they're eventually cleaned up if a task
+terminates before it handles a command.
+
+See [`statemachine`'s Documentation](../statemachine/README.md) for details.
+
+## Useful links for managing etcd
 
 [The etcd API](https://coreos.com/docs/distributed-configuration/etcd-api/)
 

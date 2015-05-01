@@ -11,6 +11,7 @@ import (
 	"code.google.com/p/go-uuid/uuid"
 	"github.com/coreos/go-etcd/etcd"
 	"github.com/lytics/metafora"
+	"github.com/lytics/metafora/statemachine"
 )
 
 const (
@@ -73,6 +74,38 @@ func (ec *EtcdCoordinator) closed() bool {
 	default:
 		return false
 	}
+}
+
+// New creates a Metafora Coordinator, State Machine, State Store, Fair
+// Balancer, and Commander, all backed by etcd.
+//
+// Supply a node ID, namespace, etcd client, and StatefulHandler, and this
+// function creates an etcd Coordinator and HandlerFunc for you to pass to
+// metafora.NewConsumer:
+//
+//	coord, hf, bal := m_etcd.New("node1", "work", etcdc, customHandler)
+//	consumer, err := metafora.NewConsumer(coord, hf, bal)
+//
+func New(nodeID, namespace string, client *etcd.Client, h statemachine.StatefulHandler) (
+	metafora.Coordinator, metafora.HandlerFunc, metafora.Balancer) {
+
+	// Create the state store
+	ss := NewStateStore(namespace, client)
+
+	// Create a HandlerFunc that ties together the command listener, stateful
+	// handler, and statemachine.
+	hf := func(taskID string) metafora.Handler {
+		cl := NewCommandListener(taskID, namespace, client)
+		return statemachine.New(taskID, h, ss, cl, nil)
+	}
+
+	// Create an etcd coordinator
+	coord := NewEtcdCoordinator(nodeID, namespace, client)
+
+	// Create an etcd backed Fair Balancer (there's no harm in not using it)
+	bal := NewFairBalancer(nodeID, namespace, client)
+
+	return coord, hf, bal
 }
 
 // NewEtcdCoordinator creates a new Metafora Coordinator implementation using
