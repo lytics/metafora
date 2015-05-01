@@ -14,7 +14,7 @@ const (
 	commandPath = "commands"
 
 	// cmdTTL is the TTL in seconds set on commands so that commands sent to
-	// terminating work isn't orphaned in etcd forever.
+	// terminating work aren't orphaned in etcd forever.
 	cmdTTL = 7 * 24 * 60 * 60 // 1 week in seconds
 )
 
@@ -23,7 +23,7 @@ type cmdr struct {
 	path string
 }
 
-func NewCommander(c *etcd.Client, namespace string) statemachine.Commander {
+func NewCommander(namespace string, c *etcd.Client) statemachine.Commander {
 	if namespace[0] != '/' {
 		namespace = "/" + namespace
 	}
@@ -54,7 +54,7 @@ type cmdrListener struct {
 // NewCommandListener makes a statemachine.CommandListener implementation
 // backed by etcd. The namespace should be the same as the coordinator as
 // commands use a separate path within a namespace than tasks or nodes.
-func NewCommandListener(c *etcd.Client, namespace string, taskID string) statemachine.CommandListener {
+func NewCommandListener(taskID, namespace string, c *etcd.Client) statemachine.CommandListener {
 	if namespace[0] != '/' {
 		namespace = "/" + namespace
 	}
