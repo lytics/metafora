@@ -121,6 +121,7 @@ var (
 		{Event: Run, From: Paused, To: Runnable},
 		{Event: Sleep, From: Paused, To: Sleeping},
 		{Event: Kill, From: Paused, To: Killed},
+		{Event: Pause, From: Paused, To: Paused},
 
 		// Completed, Failed, and Killed are terminal states that cannot transition
 		// to anything.
