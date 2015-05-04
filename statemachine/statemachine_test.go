@@ -216,7 +216,7 @@ func TestTerminal(t *testing.T) {
 }
 
 func TestPause(t *testing.T) {
-	ss, cmdr, _, done := setup(t, "test-pause")
+	ss, cmdr, sm, done := setup(t, "test-pause")
 
 	pause := func() {
 		if err := cmdr.Send("test-pause", statemachine.Message{Code: statemachine.Pause}); err != nil {
@@ -260,9 +260,7 @@ func TestPause(t *testing.T) {
 	pause()
 
 	// Releasing paused work should make it exit but leave it in the paused state
-	if err := cmdr.Send("test-pause", statemachine.Message{Code: statemachine.Release}); err != nil {
-		t.Fatalf("Error sending release command to test-pause: %v", err)
-	}
+	sm.Stop()
 	newstate = <-ss.Stored
 	if newstate.State.Code != statemachine.Paused {
 		t.Fatalf("Releasing should not have changed paused state but stored: %s", newstate.State)
