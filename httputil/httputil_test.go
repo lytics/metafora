@@ -26,8 +26,8 @@ func (c *tc) Command() (metafora.Command, error) {
 	<-c.stop
 	return nil, nil
 }
-func (c *tc) Close()         { close(c.stop) }
-func (c *tc) String() string { return "tc" }
+func (c *tc) Close()       { close(c.stop) }
+func (c *tc) Name() string { return "tc" }
 
 func TestMakeInfoHandler(t *testing.T) {
 	t.Parallel()
@@ -49,8 +49,8 @@ func TestMakeInfoHandler(t *testing.T) {
 	if !info.Started.Equal(now) {
 		t.Errorf("Started time %s != %s", info.Started, now)
 	}
-	if info.Node != "tc" {
-		t.Errorf("Node name %q != tc", info.Node)
+	if info.Name != "tc" {
+		t.Errorf("Node name %q != tc", info.Name)
 	}
 	if len(info.Tasks) != 0 {
 		t.Errorf("Unexpected tasks: %v", info.Tasks)

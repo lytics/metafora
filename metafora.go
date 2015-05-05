@@ -443,7 +443,6 @@ func (c *Consumer) ignore(taskID string, until time.Time) { c.im.add(taskID, unt
 // Ignores is a list of all ignored tasks.
 func (c *Consumer) Ignores() []string { return c.im.all() }
 
-
 func (c *Consumer) String() string {
-	return c.coord.String()
+	return c.coord.Name()
 }

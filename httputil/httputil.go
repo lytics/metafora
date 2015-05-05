@@ -19,7 +19,7 @@ type Consumer interface {
 // InfoResponse is the JSON response marshalled by the MakeInfoHandler.
 type InfoResponse struct {
 	Frozen  bool            `json:"frozen"`
-	Node    string          `json:"node"`
+	Name    string          `json:"name"`
 	Started time.Time       `json:"started"`
 	Tasks   []metafora.Task `json:"tasks"`
 }
@@ -32,7 +32,7 @@ func MakeInfoHandler(c Consumer, started time.Time) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(&InfoResponse{
 			Frozen:  c.Frozen(),
-			Node:    c.String(),
+			Name:    c.String(),
 			Started: started,
 			Tasks:   c.Tasks(),
 		})

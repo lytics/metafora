@@ -45,8 +45,8 @@ type Coordinator interface {
 	// Do not release tasks. The consumer will handle task releasing.
 	Close()
 
-	// String should return a name for the coordinator to use in logging.
-	String() string
+	// Name of the coordinator for use in logs and other tooling.
+	Name() string
 }
 
 type coordinatorContext struct {

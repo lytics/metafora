@@ -90,6 +90,6 @@ func (e *EmbeddedCoordinator) Close() {
 	close(e.stopchan)
 }
 
-func (e *EmbeddedCoordinator) String() string {
+func (e *EmbeddedCoordinator) Name() string {
 	return "embedded"
 }

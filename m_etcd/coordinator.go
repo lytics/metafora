@@ -521,6 +521,6 @@ func (ec *EtcdCoordinator) watch(path string, index uint64, stop chan bool) (*et
 	}
 }
 
-func (ec *EtcdCoordinator) String() string {
+func (ec *EtcdCoordinator) Name() string {
 	return ec.name
 }
