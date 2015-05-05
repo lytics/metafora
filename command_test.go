@@ -16,7 +16,7 @@ func testCmd(t *testing.T, cmd Command, name string, params map[string]interface
 	}
 	b, err := cmd.Marshal()
 	if err != nil {
-		t.Errorf("%s command's Marshal() returned an error: %v", err)
+		t.Errorf("%s command's Marshal() returned an error: %v", name, err)
 		return
 	}
 	cmd2, err := UnmarshalCommand(b)
@@ -25,7 +25,7 @@ func testCmd(t *testing.T, cmd Command, name string, params map[string]interface
 		return
 	}
 	if cmd2.Name() != name {
-		t.Errorf("%s command's name didn't Unmarshal properly: %s", cmd2.Name())
+		t.Errorf("%s command's name didn't Unmarshal properly: %s", name, cmd2.Name())
 	}
 	if !reflect.DeepEqual(cmd2.Parameters(), params) {
 		t.Errorf("%s command's params didn't Unmarshal properly. expected %#v != %#v",

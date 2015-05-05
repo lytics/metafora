@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/lytics/metafora"
+	"github.com/lytics/metafora/m_etcd/testutil"
 )
 
 const (
@@ -27,7 +28,7 @@ const (
 // TestNodes tests that client.Nodes() returns the metafora nodes
 // registered in etcd.
 func TestNodes(t *testing.T) {
-	eclient := newEtcdClient(t)
+	eclient := testutil.NewEtcdClient(t)
 	const recursive = true
 	eclient.Delete(Node1Path, recursive)
 
@@ -50,7 +51,7 @@ func TestNodes(t *testing.T) {
 // the proper path in etcd, and that the same task id cannot be
 // submitted more than once.
 func TestSubmitTask(t *testing.T) {
-	eclient := newEtcdClient(t)
+	eclient := testutil.NewEtcdClient(t)
 
 	mclient := NewClient(Namespace, eclient)
 
@@ -70,7 +71,7 @@ func TestSubmitTask(t *testing.T) {
 // TestSubmitCommand tests that client.SubmitCommand(...) adds a command
 // to the proper node path in etcd, and that it can be read back.
 func TestSubmitCommand(t *testing.T) {
-	eclient := newEtcdClient(t)
+	eclient := testutil.NewEtcdClient(t)
 
 	mclient := NewClient(Namespace, eclient)
 

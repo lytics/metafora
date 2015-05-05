@@ -11,6 +11,7 @@ import (
 	"code.google.com/p/go-uuid/uuid"
 	"github.com/coreos/go-etcd/etcd"
 	"github.com/lytics/metafora"
+	"github.com/lytics/metafora/statemachine"
 )
 
 const (
@@ -51,6 +52,7 @@ type EtcdCoordinator struct {
 	cordCtx   metafora.CoordinatorContext
 	namespace string
 	taskPath  string
+	name      string
 
 	ClaimTTL uint64 // seconds
 
@@ -72,6 +74,38 @@ func (ec *EtcdCoordinator) closed() bool {
 	default:
 		return false
 	}
+}
+
+// New creates a Metafora Coordinator, State Machine, State Store, Fair
+// Balancer, and Commander, all backed by etcd.
+//
+// Supply a node ID, namespace, etcd client, and StatefulHandler, and this
+// function creates an etcd Coordinator and HandlerFunc for you to pass to
+// metafora.NewConsumer:
+//
+//	coord, hf, bal := m_etcd.New("node1", "work", etcdc, customHandler)
+//	consumer, err := metafora.NewConsumer(coord, hf, bal)
+//
+func New(nodeID, namespace string, client *etcd.Client, h statemachine.StatefulHandler) (
+	metafora.Coordinator, metafora.HandlerFunc, metafora.Balancer) {
+
+	// Create the state store
+	ss := NewStateStore(namespace, client)
+
+	// Create a HandlerFunc that ties together the command listener, stateful
+	// handler, and statemachine.
+	hf := func(taskID string) metafora.Handler {
+		cl := NewCommandListener(taskID, namespace, client)
+		return statemachine.New(taskID, h, ss, cl, nil)
+	}
+
+	// Create an etcd coordinator
+	coord := NewEtcdCoordinator(nodeID, namespace, client)
+
+	// Create an etcd backed Fair Balancer (there's no harm in not using it)
+	bal := NewFairBalancer(nodeID, namespace, client)
+
+	return coord, hf, bal
 }
 
 // NewEtcdCoordinator creates a new Metafora Coordinator implementation using
@@ -96,6 +130,7 @@ func NewEtcdCoordinator(nodeID, namespace string, client *etcd.Client) metafora.
 	return &EtcdCoordinator{
 		Client:    client,
 		namespace: namespace,
+		name:      "etcd:/" + nodeID + namespace,
 
 		taskPath: path.Join(namespace, TasksPath),
 		ClaimTTL: ClaimTTL, //default to the package constant, but allow it to be overwritten
@@ -220,6 +255,7 @@ func (ec *EtcdCoordinator) refreshBy(deadline time.Time) (err error) {
 func (ec *EtcdCoordinator) Watch(out chan<- string) error {
 	const sorted = true
 	const recursive = true
+	var index uint64
 
 startWatch:
 	for {
@@ -239,14 +275,10 @@ startWatch:
 
 		// Start watching at the index the Get retrieved since we've retrieved all
 		// tasks up to that point.
-		index := resp.EtcdIndex
+		index = resp.EtcdIndex
 
 		// Act like existing keys are newly created
 		for _, node := range resp.Node.Nodes {
-			if node.ModifiedIndex > index {
-				// Record the max modified index to keep Watch from picking up redundant events
-				index = node.ModifiedIndex
-			}
 			if task, ok := ec.parseTask(&etcd.Response{Action: "create", Node: node}); ok {
 				select {
 				case out <- task:
@@ -361,10 +393,6 @@ startWatch:
 
 		// Act like existing keys are newly created
 		for _, node := range resp.Node.Nodes {
-			if node.ModifiedIndex > index {
-				// Record the max modified index to keep Watch from picking up redundant events
-				index = node.ModifiedIndex
-			}
 			if cmd := ec.parseCommand(&etcd.Response{Action: "create", Node: node}); cmd != nil {
 				return cmd, nil
 			}
@@ -385,7 +413,7 @@ startWatch:
 				return cmd, nil
 			}
 
-			index = resp.EtcdIndex
+			index = resp.Node.ModifiedIndex
 		}
 	}
 }
@@ -491,4 +519,8 @@ func (ec *EtcdCoordinator) watch(path string, index uint64, stop chan bool) (*et
 		}
 		return resp, nil
 	}
+}
+
+func (ec *EtcdCoordinator) Name() string {
+	return ec.name
 }

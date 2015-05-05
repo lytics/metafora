@@ -18,7 +18,7 @@ import (
 
 type shellHandler struct {
 	etcdc *etcd.Client
-	id    string
+	tid   string
 	m     sync.Mutex
 	p     *os.Process
 	ps    *os.ProcessState
@@ -26,11 +26,9 @@ type shellHandler struct {
 }
 
 // Run retrieves task information from etcd and executes it.
-func (h *shellHandler) Run(taskID string) (done bool) {
-	h.id = taskID
-
+func (h *shellHandler) Run() (done bool) {
 	const sort, recurs = false, false
-	resp, err := h.etcdc.Get("/koalemos-tasks/"+taskID, sort, recurs)
+	resp, err := h.etcdc.Get("/koalemos-tasks/"+h.tid, sort, recurs)
 	if err != nil {
 		h.log("Fatal error: Failed retrieving task from etcd: %v", err)
 		return false
@@ -49,7 +47,7 @@ func (h *shellHandler) Run(taskID string) (done bool) {
 	cmd := exec.Command(task.Args[0], task.Args[1:]...)
 
 	// Set stdout and stderr to temporary files
-	stdout, stderr, err := outFiles(taskID)
+	stdout, stderr, err := outFiles(h.tid)
 	if err != nil {
 		h.log("Could not create log files: %v", err)
 		return false
@@ -99,7 +97,7 @@ func (h *shellHandler) Run(taskID string) (done bool) {
 	// Only delete task if command is done
 	if done {
 		//FIXME Use CompareAndDelete
-		if _, err := h.etcdc.Delete("/koalemos-tasks/"+taskID, recurs); err != nil {
+		if _, err := h.etcdc.Delete("/koalemos-tasks/"+h.tid, recurs); err != nil {
 			h.log("Error deleting task body: %v", err)
 		}
 	}
@@ -126,7 +124,7 @@ func (h *shellHandler) Stop() {
 }
 
 func (h *shellHandler) log(msg string, v ...interface{}) {
-	log.Printf("[%s] %s", h.id, fmt.Sprintf(msg, v...))
+	log.Printf("[%s] %s", h.tid, fmt.Sprintf(msg, v...))
 }
 
 func outFiles(name string) (io.WriteCloser, io.WriteCloser, error) {
@@ -139,7 +137,7 @@ func outFiles(name string) (io.WriteCloser, io.WriteCloser, error) {
 }
 
 func makeHandlerFunc(c *etcd.Client) metafora.HandlerFunc {
-	return func() metafora.Handler {
-		return &shellHandler{etcdc: c}
+	return func(tid string) metafora.Handler {
+		return &shellHandler{tid: tid, etcdc: c}
 	}
 }

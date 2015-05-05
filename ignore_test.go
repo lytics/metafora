@@ -35,7 +35,7 @@ func TestIgnore(t *testing.T) {
 	}
 	now := time.Now()
 	if now.Before(deadline2) {
-		t.Fatal("First eviction happened too soon: %s < %s", now, deadline2)
+		t.Fatalf("First eviction happened too soon: %s < %s", now, deadline2)
 	}
 
 	eviction = <-out

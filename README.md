@@ -124,12 +124,12 @@ critical.
 **Q. Why not use a cluster management framework like
 [Mesos](http://mesos.apache.org/) or [Kubernetes](http://kubernetes.io/)?**
 
-You can use a cluster management framework to run Metafora, but you *can't* use
-Metafora as a cluster management framework.
+You can use a cluster management framework to run Metafora, but you *shouldn't*
+use Metafora as a cluster management framework.
 
-While our tasks are long lived, they're often not large or resource intensive.
-Cluster management frameworks' smallest unit of work tends to be an operating
-system process. We wanted to run many tasks per process.
+While Metafora tasks are long lived, they're often not individually large or
+resource intensive.  Cluster management frameworks' smallest unit of work tends
+to be an operating system process. We wanted to run many tasks per process.
 
 Cluster management frameworks are quite large in terms of code and operational
 complexity -- for good reason! They're a much more powerful and general purpose

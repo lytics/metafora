@@ -7,6 +7,7 @@ import "errors"
 //package which means no manipulating unexported globals like balance jitter.
 
 type TestCoord struct {
+	name     string
 	Tasks    chan string // will be returned in order, "" indicates return an error
 	Commands chan Command
 	Releases chan string
@@ -16,6 +17,7 @@ type TestCoord struct {
 
 func NewTestCoord() *TestCoord {
 	return &TestCoord{
+		name:     "testcoord",
 		Tasks:    make(chan string, 10),
 		Commands: make(chan Command, 10),
 		Releases: make(chan string, 10),
@@ -29,6 +31,7 @@ func (*TestCoord) Claim(string) bool             { return true }
 func (c *TestCoord) Close()                      { close(c.closed) }
 func (c *TestCoord) Release(task string)         { c.Releases <- task }
 func (c *TestCoord) Done(task string)            { c.Dones <- task }
+func (c *TestCoord) Name() string                { return c.name }
 
 // Watch sends tasks from the Tasks channel unless an empty string is sent.
 // Then an error is returned.
@@ -51,7 +54,6 @@ func (c *TestCoord) Watch(out chan<- string) error {
 			return nil
 		}
 	}
-	return nil
 }
 
 // Command returns commands from the Commands channel unless a nil is sent.

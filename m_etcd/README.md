@@ -1,6 +1,8 @@
 metafora etcd client
 ====================
 
+See [Documentation/etcd.md](../Documentation/etcd.md) for details.
+
 Testing
 -------
 

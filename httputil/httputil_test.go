@@ -26,18 +26,18 @@ func (c *tc) Command() (metafora.Command, error) {
 	<-c.stop
 	return nil, nil
 }
-func (c *tc) Close() { close(c.stop) }
+func (c *tc) Close()       { close(c.stop) }
+func (c *tc) Name() string { return "tc" }
 
 func TestMakeInfoHandler(t *testing.T) {
 	t.Parallel()
 
 	c, _ := metafora.NewConsumer(&tc{stop: make(chan bool)}, nil, metafora.DumbBalancer)
 	defer c.Shutdown()
-	name := "test-name"
 	now := time.Now().Truncate(time.Second)
 
 	resp := httptest.NewRecorder()
-	MakeInfoHandler(c, name, now)(resp, nil)
+	MakeInfoHandler(c, now)(resp, nil)
 
 	info := InfoResponse{}
 	if err := json.Unmarshal(resp.Body.Bytes(), &info); err != nil {
@@ -49,8 +49,8 @@ func TestMakeInfoHandler(t *testing.T) {
 	if !info.Started.Equal(now) {
 		t.Errorf("Started time %s != %s", info.Started, now)
 	}
-	if info.Node != name {
-		t.Errorf("Node name %s != %s", info.Node, name)
+	if info.Name != "tc" {
+		t.Errorf("Node name %q != tc", info.Name)
 	}
 	if len(info.Tasks) != 0 {
 		t.Errorf("Unexpected tasks: %v", info.Tasks)
