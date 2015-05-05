@@ -40,15 +40,15 @@ func DefaultErrHandler(_ string, errs []Err) (Message, []Err) {
 		}
 	}
 
+	if len(errs) > DefaultErrMax {
+		errs = errs[len(errs)-DefaultErrMax:]
+	}
+
 	if strikes >= DefaultErrMax {
 		// Return a new error to transition to Failed as well as the original
 		// errors to store what caused this failure.
 		return Message{Code: Error, Err: ExceededErrorRate}, errs
 	}
-	keeperrs := errs
-	if len(keeperrs) > DefaultErrMax {
-		keeperrs = keeperrs[len(keeperrs)-DefaultErrMax:]
-	}
 	until := time.Now().Add(10 * time.Minute)
-	return Message{Code: Sleep, Until: &until}, keeperrs
+	return Message{Code: Sleep, Until: &until}, errs
 }
