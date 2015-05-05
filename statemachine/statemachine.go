@@ -45,6 +45,8 @@ func (s State) String() string {
 	switch s.Code {
 	case Sleeping:
 		return fmt.Sprintf("%s until %s", s.Code, s.Until)
+	case Fault:
+		return fmt.Sprintf("%s (%d errors)", s.Code, len(s.Errors))
 	default:
 		return string(s.Code)
 	}
@@ -60,6 +62,20 @@ type Message struct {
 
 	// Err is the error that caused this Error message
 	Err error `json:"error,omitempty"`
+}
+
+func (m Message) String() string {
+	switch m.Code {
+	case Sleep:
+		if m.Until != nil {
+			return fmt.Sprintf("%s until %s", m.Code, m.Until)
+		}
+	case Error:
+		if m.Err != nil {
+			return fmt.Sprintf("%s: %s", m.Code, m.Err.Error())
+		}
+	}
+	return string(m.Code)
 }
 
 // MessageCode is the symbolic name of a state transition.
@@ -224,6 +240,8 @@ func (s *stateMachine) Run() (done bool) {
 				return state.Code.Terminal()
 			}
 		}
+
+		metafora.Infof("task=%q transitioning %s --> %s --> %s", s.taskID, state, msg, newstate)
 
 		// Save state
 		if err := s.ss.Store(s.taskID, newstate); err != nil {
