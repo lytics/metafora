@@ -198,6 +198,9 @@ type stateMachine struct {
 	mu    *sync.RWMutex
 	state *State
 	ts    time.Time
+
+	stopL   *sync.Mutex
+	stopped chan bool
 }
 
 // New handler that creates a state machine and exposes state transitions to
@@ -217,6 +220,8 @@ func New(tid string, h StatefulHandler, ss StateStore, cl CommandListener, e Err
 		errHandler: e,
 		mu:         &sync.RWMutex{},
 		ts:         time.Now(),
+		stopL:      &sync.Mutex{},
+		stopped:    make(chan bool),
 	}
 }
 
@@ -240,7 +245,6 @@ func (s *stateMachine) setState(state *State) {
 // listener into the handler's commands chan.
 func (s *stateMachine) Run() (done bool) {
 	// Multiplex external (Stop) messages and internal ones
-	stopped := make(chan struct{})
 	s.cmds = make(chan Message)
 	go func() {
 		for {
@@ -252,10 +256,10 @@ func (s *stateMachine) Run() (done bool) {
 				}
 				select {
 				case s.cmds <- m:
-				case <-stopped:
+				case <-s.stopped:
 					return
 				}
-			case <-stopped:
+			case <-s.stopped:
 				return
 			}
 		}
@@ -264,7 +268,7 @@ func (s *stateMachine) Run() (done bool) {
 	// Stop the command listener and internal message multiplexer when Run exits
 	defer func() {
 		s.cl.Stop()
-		close(stopped)
+		s.stop()
 	}()
 
 	// Load the initial state
@@ -281,13 +285,13 @@ func (s *stateMachine) Run() (done bool) {
 	}
 	s.setState(state)
 
-	// Main Run loop
+	// Main Statemachine Loop
 	done = false
 	for {
+		// Enter State
 		metafora.Debugf("task=%q in state %s", s.taskID, state.Code)
 		msg := s.exec(state)
 
-		// Enter State
 		// Apply Message
 		newstate, ok := apply(state, msg)
 		if !ok {
@@ -321,6 +325,15 @@ func (s *stateMachine) Run() (done bool) {
 		// Release messages indicate the task should exit but not unschedule.
 		if msg.Code == Release {
 			return false
+		}
+
+		// Alternatively Stop() may have been called but the handler may not have
+		// returned the Release message. Always exit if we've been told to Stop()
+		// even if the handler has returned a different Message.
+		select {
+		case <-s.stopped:
+			return false
+		default:
 		}
 	}
 }
@@ -380,6 +393,21 @@ func run(f StatefulHandler, tid string, cmd <-chan Message) (m Message) {
 // Stop sends a Release message to the state machine through the command chan.
 func (s *stateMachine) Stop() {
 	s.cmds <- Message{Code: Release}
+
+	// Also inform the state machine it should exit since the internal handler
+	// may override the release message causing the task to be unreleaseable.
+	s.stop()
+}
+
+func (s *stateMachine) stop() {
+	s.stopL.Lock()
+	defer s.stopL.Unlock()
+	select {
+	case <-s.stopped:
+		return
+	default:
+		close(s.stopped)
+	}
 }
 
 // apply a message to cause a state transition. Returns false if the state
