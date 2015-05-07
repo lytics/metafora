@@ -9,7 +9,7 @@ Metafora task handlers.
 * Per task state machine; task may intercept commands
 * Flexible state store (see `StateStore` interface)
 * Flexible command sending/receiving (see `Commander`, `CommandListener`, or
-  [the etcd implementation](../m_etcd/commander.go).
+  [the etcd implementation](../m_etcd/commander.go)).
 * Flexible error handling with builtin retry logic (see
   [`errors.go`](errors.go)).
 * States: Runnable, Paused, Sleeping, Fault, Completed, Failed, Killed
