@@ -2,6 +2,7 @@ package statemachine
 
 import (
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/lytics/metafora"
@@ -39,6 +40,19 @@ type State struct {
 	Code   StateCode  `json:"state"`
 	Until  *time.Time `json:"until,omitempty"`
 	Errors []Err      `json:"errors,omitempty"`
+}
+
+// copy state so mutations to Until and Errors aren't shared.
+func (s *State) copy() *State {
+	ns := &State{Code: s.Code}
+	if s.Until != nil {
+		until := *s.Until
+		ns.Until = &until
+	}
+	for i := range s.Errors {
+		ns.Errors = append(ns.Errors, s.Errors[i])
+	}
+	return ns
 }
 
 func (s State) String() string {
@@ -162,6 +176,10 @@ type stateMachine struct {
 	cl         CommandListener
 	cmds       chan Message
 	errHandler ErrHandler
+
+	mu    *sync.RWMutex
+	state *State
+	ts    time.Time
 }
 
 // New handler that creates a state machine and exposes state transitions to
@@ -179,7 +197,24 @@ func New(tid string, h StatefulHandler, ss StateStore, cl CommandListener, e Err
 		ss:         ss,
 		cl:         cl,
 		errHandler: e,
+		mu:         &sync.RWMutex{},
+		ts:         time.Now(),
 	}
+}
+
+// State returns the current state the state machine is in and what time it
+// entered that state. The State may be nil if Run() has yet to be called.
+func (s *stateMachine) State() (*State, time.Time) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.state, s.ts
+}
+
+func (s *stateMachine) setState(state *State) {
+	s.mu.Lock()
+	s.state = state.copy()
+	s.ts = time.Now()
+	s.mu.Unlock()
 }
 
 // Run the state machine enabled handler. Loads the initial state and passes
@@ -222,6 +257,7 @@ func (s *stateMachine) Run() (done bool) {
 		metafora.Warnf("task=%q in terminal state %s - exiting.", s.taskID, state.Code)
 		return true
 	}
+	s.setState(state)
 
 	// Main Run loop
 	done = false
@@ -251,6 +287,9 @@ func (s *stateMachine) Run() (done bool) {
 
 		// Set next state and loop if non-terminal
 		state = newstate
+
+		// Expose the state for introspection
+		s.setState(state)
 
 		// Exit and unschedule task on terminal state.
 		if state.Code.Terminal() {
