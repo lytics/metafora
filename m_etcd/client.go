@@ -69,7 +69,7 @@ func (mc *mclient) SubmitCommand(node string, command metafora.Command) error {
 		metafora.Errorf("Error submitting command: %s to node: %s", command, node)
 		return err
 	}
-	metafora.Debugf("Submitted command: %s to node: %s", command, node)
+	metafora.Debugf("Submitted command: %s to node: %s", string(body), node)
 	return nil
 }
 

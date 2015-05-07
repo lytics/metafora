@@ -159,16 +159,16 @@ func (c *Consumer) Run() {
 			c.balance()
 		case task := <-c.tasks:
 			if c.ignored(task) {
-				Debugf("task=%q ignored", task)
+				Debugf("%s task=%q ignored", c, task)
 				continue
 			}
 			if until, ok := c.bal.CanClaim(task); !ok {
-				Infof("Balancer rejected task=%q until %s", task, until)
+				Infof("%s Balancer rejected task=%q until %s", c, task, until)
 				c.ignore(task, until)
 				break
 			}
 			if !c.coord.Claim(task) {
-				Debugf("Coordinator unable to claim task=%q", task)
+				Debugf("%s Coordinator unable to claim task=%q", c, task)
 				break
 			}
 			c.claimed(task)
@@ -222,7 +222,7 @@ func (c *Consumer) close() {
 
 // shutdown is the actual shutdown logic called when Run() exits.
 func (c *Consumer) shutdown() {
-	Debug("Closing Coordinator")
+	Debug("Closing Coordinator ", c)
 	c.coord.Close()
 
 	// Build list of of currently running tasks
@@ -281,7 +281,7 @@ func (c *Consumer) Tasks() []Task {
 func (c *Consumer) claimed(taskID string) {
 	h := c.handler(taskID)
 
-	Debugf("%s Attempting to start task=%q", c, taskID)
+	Debugf("%s is attempting to start task=%q", c, taskID)
 	// Associate handler with taskID
 	// **This is the only place tasks should be added to c.running**
 	c.runL.Lock()
@@ -289,6 +289,7 @@ func (c *Consumer) claimed(taskID string) {
 	select {
 	case <-c.stop:
 		// We're closing, don't bother starting this task
+		c.coord.Release(taskID)
 		return
 	default:
 	}
@@ -330,6 +331,11 @@ func (c *Consumer) claimed(taskID string) {
 			// Task exited due to Stop() being called
 			Infof("%s Task %q exited (%s) after %s", c, taskID, status, time.Now().Sub(stopped))
 		}
+
+		// **This is the only place tasks should be removed from c.running**
+		c.runL.Lock()
+		delete(c.running, taskID)
+		c.runL.Unlock()
 	}()
 }
 
@@ -346,11 +352,6 @@ func (c *Consumer) runTask(run func() bool, task string) bool {
 				// rescheduled.
 				done = true
 			}
-
-			// **This is the only place tasks should be removed from c.running**
-			c.runL.Lock()
-			delete(c.running, task)
-			c.runL.Unlock()
 		}()
 		done = run()
 	}()
@@ -367,7 +368,7 @@ func (c *Consumer) stopTask(taskID string) {
 
 	if !ok {
 		// This can happen if a task completes during Balance() and is not an error.
-		Warnf("%s Tried to release a non-running task: %s", c, taskID)
+		Warnf("%s tried to release a non-running task=%q", c, taskID)
 		return
 	}
 
