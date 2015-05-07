@@ -140,7 +140,7 @@ func (t Transition) String() string {
 
 var (
 	// Rules is the state transition table.
-	Rules = []Transition{
+	Rules = [...]Transition{
 		// Runnable can transition to anything
 		{Event: Checkpoint, From: Runnable, To: Runnable},
 		{Event: Release, From: Runnable, To: Runnable},
