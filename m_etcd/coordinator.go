@@ -130,7 +130,7 @@ func NewEtcdCoordinator(nodeID, namespace string, client *etcd.Client) metafora.
 	return &EtcdCoordinator{
 		Client:    client,
 		namespace: namespace,
-		name:      "etcd:/" + nodeID + namespace,
+		name:      "etcd:" + namespace + "/" + nodeID,
 
 		taskPath: path.Join(namespace, TasksPath),
 		ClaimTTL: ClaimTTL, //default to the package constant, but allow it to be overwritten
