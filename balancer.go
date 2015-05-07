@@ -125,17 +125,22 @@ func (e *FairBalancer) Balance() []string {
 		return nil
 	}
 
-	releasetasks := []string{}
 	shouldrelease := current[e.nodeid] - e.desiredCount(current)
 	if shouldrelease < 1 {
 		return nil
 	}
 
+	releasetasks := make([]string, 0, shouldrelease)
+	releaseset := make(map[string]struct{}, shouldrelease)
+
 	random := rand.New(rand.NewSource(time.Now().UnixNano()))
 	nodetasks := e.bc.Tasks()
 	for len(releasetasks) < shouldrelease {
 		tid := nodetasks[random.Intn(len(nodetasks))].ID()
-		releasetasks = append(releasetasks, tid)
+		if _, ok := releaseset[tid]; !ok {
+			releasetasks = append(releasetasks, tid)
+			releaseset[tid] = struct{}{}
+		}
 	}
 
 	e.delay = time.Duration(len(releasetasks)) * time.Second
