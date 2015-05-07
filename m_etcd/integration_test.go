@@ -12,8 +12,13 @@ import (
 	"github.com/lytics/metafora/statemachine"
 )
 
-// TestNew is an integration test for m_etcd's New function.
-func TestNew(t *testing.T) {
+// TestAll is an integration test for all of m_etcd's components.
+//
+// While huge integration tests like this are rarely desirable as they can be
+// overly fragile and complex, I found myself manually repeating the tests I've
+// automated here over and over. This is far more reliable than expecting
+// developers to do adhoc testing of all of the m_etcd package's features.
+func TestAll(t *testing.T) {
 	t.Parallel()
 	etcdc := testutil.NewEtcdClient(t)
 
@@ -98,10 +103,10 @@ func TestNew(t *testing.T) {
 
 	// Submit a bunch of tasks to A
 	{
-		tasks := map[string]int{"task2": 1, "task3": 1, "task4": 1, "task5": 1, "task6": 1, "task7": 1}
-		for tid := range tasks {
+		tasks := []string{"task2", "task3", "task4", "task5", "task6", "task7"}
+		for _, tid := range tasks {
 			if err := cliA.SubmitTask(tid); err != nil {
-				t.Fatalf("Error submitting task=%q to a: %v", tid, err)
+				t.Fatalf("Error submitting task=%q to A: %v", tid, err)
 			}
 		}
 
@@ -140,6 +145,51 @@ func TestNew(t *testing.T) {
 		a2tasks = cons2a.Tasks()
 		if len(a2tasks) != len(tasks) {
 			t.Fatalf("Consumer 2a should have received all %d tasks but only has %d.", len(tasks), len(a2tasks))
+		}
+	}
+
+	// Use Namespace B to check Error state handling
+	{
+		tasks := []string{"task8", "error-test"}
+		for _, tid := range tasks {
+			if err := cliB.SubmitTask(tid); err != nil {
+				t.Fatalf("Error submitting task=%q to B: %v", tid, err)
+			}
+		}
+
+		// Give them time to start
+		time.Sleep(500 * time.Millisecond)
+
+		n := len(cons1b.Tasks()) + len(cons2b.Tasks())
+		if n != 3 {
+			t.Fatalf("Expected B to be running 3 tasks but found %d", n)
+		}
+
+		// Resuming error-test 8*2 times should cause it to be failed
+		cmdr := m_etcd.NewCommander("test-b", etcdc)
+		for i := 0; i < statemachine.DefaultErrMax*2; i++ {
+			if err := cmdr.Send("error-test", statemachine.Message{Code: statemachine.Run}); err != nil {
+				t.Fatalf("Unexpected error resuming error-test in B: %v", err)
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+
+		n = len(cons1b.Tasks()) + len(cons2b.Tasks())
+		if n != 2 {
+			t.Fatalf("Expected B to be running 2 tasks but found %d", n)
+		}
+
+		// Resubmitting a failed task shouldn't error but also shouldn't run.
+		if err := cliB.SubmitTask("error-test"); err != nil {
+			t.Fatalf("Error resubmitting error-test task to B: %v", err)
+		}
+
+		// Give the statemachine a moment to load the initial state and exit
+		time.Sleep(200 * time.Millisecond)
+
+		n = len(cons1b.Tasks()) + len(cons2b.Tasks())
+		if n != 2 {
+			t.Fatalf("Expected B to be running 2 tasks but found %d", n)
 		}
 	}
 
