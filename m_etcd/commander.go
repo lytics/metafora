@@ -88,8 +88,6 @@ func (c *cmdrListener) sendErr(err error) {
 }
 
 func (c *cmdrListener) sendMsg(resp *etcd.Response) (index uint64, ok bool) {
-	metafora.Debugf("%#v", resp)
-	metafora.Debugf("%#v", *resp.Node)
 	// Only handle new commands
 	if !newActions[resp.Action] {
 		return resp.Node.ModifiedIndex + 1, true
@@ -126,9 +124,9 @@ func (c *cmdrListener) watcher() {
 	var index uint64
 	var ok bool
 startWatch:
-	const recursive = false
-	const sort = false
-	resp, err := c.cli.Get(c.path, recursive, sort)
+	const notrecursive = false
+	const nosort = false
+	resp, err := c.cli.Get(c.path, notrecursive, nosort)
 	if err != nil {
 		if ee, ok := err.(*etcd.EtcdError); ok && ee.ErrorCode == EcodeKeyNotFound {
 			// No command found; this is normal. Grab index and skip to watching
@@ -146,7 +144,7 @@ startWatch:
 
 watchLoop:
 	for {
-		rr, err := c.cli.RawWatch(c.path, index, recursive, nil, c.stop)
+		rr, err := c.cli.RawWatch(c.path, index, notrecursive, nil, c.stop)
 		if err != nil {
 			if err == etcd.ErrWatchStoppedByUser {
 				return
@@ -176,6 +174,7 @@ watchLoop:
 			return
 		}
 
+		metafora.Debugf("Received command via %s -- sending to statemachine", c.path)
 		if index, ok = c.sendMsg(resp); !ok {
 			return
 		}

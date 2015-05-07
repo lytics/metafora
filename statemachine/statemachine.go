@@ -78,6 +78,21 @@ type Message struct {
 	Err error `json:"error,omitempty"`
 }
 
+// Valid returns true if the Message is valid. Invalid messages sent as
+// commands are discarded by the state machine.
+func (m Message) Valid() bool {
+	switch m.Code {
+	case Run, Pause, Release, Checkpoint, Complete, Kill:
+		return true
+	case Sleep:
+		return m.Until != nil
+	case Error:
+		return m.Err != nil
+	default:
+		return false
+	}
+}
+
 func (m Message) String() string {
 	switch m.Code {
 	case Sleep:
@@ -139,6 +154,7 @@ var (
 		{Event: Run, From: Sleeping, To: Runnable},
 		{Event: Kill, From: Sleeping, To: Killed},
 		{Event: Pause, From: Sleeping, To: Paused},
+		{Event: Error, From: Sleeping, To: Fault},
 
 		// The error state transitions to either sleeping, failed, or released (to
 		// allow custom error handlers to workaround localitly related errors).
@@ -228,6 +244,10 @@ func (s *stateMachine) Run() (done bool) {
 		for {
 			select {
 			case m := <-s.cl.Receive():
+				if !m.Valid() {
+					metafora.Warnf("Ignoring invalid command: %q", m)
+					continue
+				}
 				select {
 				case s.cmds <- m:
 				case <-stopped:
