@@ -83,7 +83,10 @@ func TestRules(t *testing.T) {
 				until := time.Now().Add(10 * time.Millisecond)
 				msg.Until = &until
 			}
-			if err := cmdr.Send("test", Message{Code: trans.Event}); err != nil {
+			if trans.Event == Error {
+				msg.Err = errors.New("test")
+			}
+			if err := cmdr.Send("test", msg); err != nil {
 				t.Fatalf("Error sending message %s: %v", trans.Event, err)
 			}
 		}
