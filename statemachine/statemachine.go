@@ -8,16 +8,18 @@ import (
 	"github.com/lytics/metafora"
 )
 
+// StateCode is the actual state key. The State struct adds additional metadata
+// related to certain StateCodes.
 type StateCode string
 
 const (
 	Runnable  StateCode = "runnable"  // Scheduled
-	Sleeping            = "sleeping"  // Scheduled, not running until time has elapsed
-	Completed           = "completed" // Terminal, not scheduled
-	Killed              = "killed"    // Terminal, not scheduled
-	Failed              = "failed"    // Terminal, not scheduled
-	Fault               = "fault"     // Scheduled, in error handling / retry logic
-	Paused              = "paused"    // Scheduled, not running
+	Sleeping  StateCode = "sleeping"  // Scheduled, not running until time has elapsed
+	Completed StateCode = "completed" // Terminal, not scheduled
+	Killed    StateCode = "killed"    // Terminal, not scheduled
+	Failed    StateCode = "failed"    // Terminal, not scheduled
+	Fault     StateCode = "fault"     // Scheduled, in error handling / retry logic
+	Paused    StateCode = "paused"    // Scheduled, not running
 )
 
 // Terminal states will never run and cannot transition to a non-terminal
@@ -112,12 +114,12 @@ type MessageCode string
 
 const (
 	Run        MessageCode = "run"
-	Sleep                  = "sleep"
-	Pause                  = "pause"
-	Kill                   = "kill"
-	Error                  = "error"
-	Complete               = "complete"
-	Checkpoint             = "checkpoint"
+	Sleep      MessageCode = "sleep"
+	Pause      MessageCode = "pause"
+	Kill       MessageCode = "kill"
+	Error      MessageCode = "error"
+	Complete   MessageCode = "complete"
+	Checkpoint MessageCode = "checkpoint"
 
 	// Special event which triggers state machine to exit without transitioning
 	// between states.

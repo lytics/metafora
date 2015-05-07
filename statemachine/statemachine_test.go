@@ -1,15 +1,16 @@
 package statemachine_test
 
 import (
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/lytics/metafora"
 	"github.com/lytics/metafora/embedded"
-	"github.com/lytics/metafora/statemachine"
+	. "github.com/lytics/metafora/statemachine"
 )
 
-func testhandler(tid string, cmds <-chan statemachine.Message) statemachine.Message {
+func testhandler(tid string, cmds <-chan Message) Message {
 	metafora.Debugf("Starting %s", tid)
 	m := <-cmds
 	metafora.Debugf("%s recvd %s", tid, m.Code)
@@ -17,29 +18,29 @@ func testhandler(tid string, cmds <-chan statemachine.Message) statemachine.Mess
 }
 
 type testStore struct {
-	initial *statemachine.State
-	out     chan<- *statemachine.State
+	initial *State
+	out     chan<- *State
 }
 
-func (s testStore) Load(taskID string) (*statemachine.State, error) {
+func (s testStore) Load(taskID string) (*State, error) {
 	s.out <- s.initial
 	return s.initial, nil
 }
-func (s testStore) Store(taskID string, newstate *statemachine.State) error {
+func (s testStore) Store(taskID string, newstate *State) error {
 	metafora.Debugf("%s storing %s", taskID, newstate.Code)
 	s.out <- newstate
 	return nil
 }
 
 // setup a task with the specified task ID in a stateful handler and run it.
-func setup(t *testing.T, tid string) (*embedded.StateStore, statemachine.Commander, metafora.Handler, chan bool) {
+func setup(t *testing.T, tid string) (*embedded.StateStore, Commander, metafora.Handler, chan bool) {
 	t.Parallel()
 	ss := embedded.NewStateStore().(*embedded.StateStore)
-	ss.Store(tid, &statemachine.State{Code: statemachine.Runnable})
+	ss.Store(tid, &State{Code: Runnable})
 	<-ss.Stored // pop initial state out
 	cmdr := embedded.NewCommander()
 	cmdlistener := cmdr.NewListener(tid)
-	sm := statemachine.New(tid, testhandler, ss, cmdlistener, nil)
+	sm := New(tid, testhandler, ss, cmdlistener, nil)
 	done := make(chan bool)
 	go func() { done <- sm.Run() }()
 	return ss, cmdr, sm, done
@@ -48,16 +49,16 @@ func setup(t *testing.T, tid string) (*embedded.StateStore, statemachine.Command
 //FIXME leaks goroutines
 func TestRules(t *testing.T) {
 	t.Parallel()
-	for i, trans := range statemachine.Rules {
+	for i, trans := range Rules {
 		metafora.Debugf("Trying %s", trans)
 		cmdr := embedded.NewCommander()
 		cmdlistener := cmdr.NewListener("test")
-		store := make(chan *statemachine.State)
+		store := make(chan *State)
 
-		state := &statemachine.State{Code: trans.From}
+		state := &State{Code: trans.From}
 
 		// Sleeping state needs extra Until state
-		if trans.From == statemachine.Sleeping {
+		if trans.From == Sleeping {
 			until := time.Now().Add(100 * time.Millisecond)
 			state.Until = &until
 		}
@@ -65,7 +66,7 @@ func TestRules(t *testing.T) {
 		ts := testStore{initial: state, out: store}
 
 		// Create a new statemachine that starts from the From state
-		sm := statemachine.New("test", testhandler, ts, cmdlistener, nil)
+		sm := New("test", testhandler, ts, cmdlistener, nil)
 		go sm.Run()
 		initial := <-store
 		if initial.Code != trans.From {
@@ -73,21 +74,21 @@ func TestRules(t *testing.T) {
 		}
 
 		// The Fault state transitions itself to either sleeping or failed
-		if trans.From != statemachine.Fault {
+		if trans.From != Fault {
 			// Apply the Event to transition to the To state
-			msg := statemachine.Message{Code: trans.Event}
+			msg := Message{Code: trans.Event}
 
 			// Sleep messages need extra state
-			if trans.Event == statemachine.Sleep {
+			if trans.Event == Sleep {
 				until := time.Now().Add(10 * time.Millisecond)
 				msg.Until = &until
 			}
-			if err := cmdr.Send("test", statemachine.Message{Code: trans.Event}); err != nil {
+			if err := cmdr.Send("test", Message{Code: trans.Event}); err != nil {
 				t.Fatalf("Error sending message %s: %v", trans.Event, err)
 			}
 		}
 		newstate := <-store
-		if trans.From == statemachine.Fault && trans.To == statemachine.Failed {
+		if trans.From == Fault && trans.To == Failed {
 			// continue on as this transition relies on state this test doesn't exercise
 			continue
 		}
@@ -101,7 +102,7 @@ func TestCheckpointRelease(t *testing.T) {
 	ss, cmdr, _, done := setup(t, "test1")
 
 	// Should just cause statemachine to loop
-	if err := cmdr.Send("test1", statemachine.Message{Code: statemachine.Checkpoint}); err != nil {
+	if err := cmdr.Send("test1", Message{Code: Checkpoint}); err != nil {
 		t.Fatalf("Error sending checkpoint: %v", err)
 	}
 	select {
@@ -111,7 +112,7 @@ func TestCheckpointRelease(t *testing.T) {
 	}
 
 	// Should cause the statemachine to exit
-	if err := cmdr.Send("test1", statemachine.Message{Code: statemachine.Release}); err != nil {
+	if err := cmdr.Send("test1", Message{Code: Release}); err != nil {
 		t.Fatalf("Error sending release: %v", err)
 	}
 	select {
@@ -126,7 +127,7 @@ func TestCheckpointRelease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.Code != statemachine.Runnable {
+	if state.Code != Runnable {
 		t.Fatalf("Expected released task to be runnable but found state %q", state.Code)
 	}
 }
@@ -137,12 +138,12 @@ func TestSleep(t *testing.T) {
 	{
 		// Put to sleep forever
 		until := time.Now().Add(9001 * time.Hour)
-		if err := cmdr.Send("sleep-test", statemachine.Message{Code: statemachine.Sleep, Until: &until}); err != nil {
+		if err := cmdr.Send("sleep-test", Message{Code: Sleep, Until: &until}); err != nil {
 			t.Fatalf("Error sending sleep: %v", err)
 		}
 
 		newstate := <-ss.Stored
-		if newstate.State.Code != statemachine.Sleeping || !newstate.State.Until.Equal(until) {
+		if newstate.State.Code != Sleeping || !newstate.State.Until.Equal(until) {
 			t.Fatalf("Expected task to store state Sleeping, but stored: %s", newstate)
 		}
 	}
@@ -158,19 +159,19 @@ func TestSleep(t *testing.T) {
 	dur := 1 * time.Second
 	start := time.Now()
 	until := start.Add(dur)
-	if err := cmdr.Send("sleep-test", statemachine.Message{Code: statemachine.Sleep, Until: &until}); err != nil {
+	if err := cmdr.Send("sleep-test", Message{Code: Sleep, Until: &until}); err != nil {
 		t.Fatalf("Error sending sleep: %v", err)
 	}
 
 	newstate := <-ss.Stored
-	if newstate.State.Code != statemachine.Sleeping || !newstate.State.Until.Equal(until) {
+	if newstate.State.Code != Sleeping || !newstate.State.Until.Equal(until) {
 		t.Fatalf("Expected task to store state Sleeping, but stored: %s", newstate)
 	}
 
 	// Make sure it transitions to Runnable after sleep has elapsed
 	newstate = <-ss.Stored
 	transitioned := time.Now()
-	if newstate.State.Code != statemachine.Runnable || newstate.State.Until != nil {
+	if newstate.State.Code != Runnable || newstate.State.Until != nil {
 		t.Fatalf("Expected task to be runnable without an Until time but found: %s", newstate.State)
 	}
 	elapsed := transitioned.Sub(start)
@@ -184,19 +185,19 @@ func TestTerminal(t *testing.T) {
 	ss, cmdr, sm, done := setup(t, "terminal-test")
 
 	// Kill the task
-	if err := cmdr.Send("terminal-test", statemachine.Message{Code: statemachine.Kill}); err != nil {
+	if err := cmdr.Send("terminal-test", Message{Code: Kill}); err != nil {
 		t.Fatalf("Error sending kill command: %v", err)
 	}
 
 	// Task should be killed and done (unscheduled)
 	newstate := <-ss.Stored
-	if newstate.State.Code != statemachine.Killed {
+	if newstate.State.Code != Killed {
 		t.Fatalf("Expected task to be killed but found: %s", newstate.State)
 	}
 	if !(<-done) {
 		t.Fatal("Expected task to be done.")
 	}
-	if state, err := ss.Load("terminal-test"); err != nil || state.Code != statemachine.Killed {
+	if state, err := ss.Load("terminal-test"); err != nil || state.Code != Killed {
 		t.Fatalf("Failed to load expected killed state for task: state=%s err=%v", state, err)
 	}
 
@@ -219,14 +220,14 @@ func TestPause(t *testing.T) {
 	ss, cmdr, sm, done := setup(t, "test-pause")
 
 	pause := func() {
-		if err := cmdr.Send("test-pause", statemachine.Message{Code: statemachine.Pause}); err != nil {
+		if err := cmdr.Send("test-pause", Message{Code: Pause}); err != nil {
 			t.Fatalf("Error sending pause command to test-pause: %v", err)
 		}
 		newstate := <-ss.Stored
-		if newstate.State.Code != statemachine.Paused {
+		if newstate.State.Code != Paused {
 			t.Fatalf("Expected paused state but found: %s", newstate.State)
 		}
-		if state, err := ss.Load("test-pause"); err != nil || state.Code != statemachine.Paused {
+		if state, err := ss.Load("test-pause"); err != nil || state.Code != Paused {
 			t.Fatalf("Failed to load expected pause state for task: state=%s err=%v", state, err)
 		}
 
@@ -242,14 +243,14 @@ func TestPause(t *testing.T) {
 	pause()
 
 	// Should be able to resume paused work
-	if err := cmdr.Send("test-pause", statemachine.Message{Code: statemachine.Run}); err != nil {
+	if err := cmdr.Send("test-pause", Message{Code: Run}); err != nil {
 		t.Fatalf("Error sending run command to test-pause: %v", err)
 	}
 	newstate := <-ss.Stored
-	if newstate.State.Code != statemachine.Runnable {
+	if newstate.State.Code != Runnable {
 		t.Fatalf("Expected runnable state but found: %s", newstate.State)
 	}
-	if state, err := ss.Load("test-pause"); err != nil || state.Code != statemachine.Runnable {
+	if state, err := ss.Load("test-pause"); err != nil || state.Code != Runnable {
 		t.Fatalf("Failed to load expected runnable state for task: state=%s err=%v", state, err)
 	}
 
@@ -262,7 +263,7 @@ func TestPause(t *testing.T) {
 	// Releasing paused work should make it exit but leave it in the paused state
 	sm.Stop()
 	newstate = <-ss.Stored
-	if newstate.State.Code != statemachine.Paused {
+	if newstate.State.Code != Paused {
 		t.Fatalf("Releasing should not have changed paused state but stored: %s", newstate.State)
 	}
 	select {
@@ -275,7 +276,38 @@ func TestPause(t *testing.T) {
 	}
 
 	// Ensure task is stored with the paused state
-	if state, err := ss.Load("test-pause"); err != nil || state.Code != statemachine.Paused {
+	if state, err := ss.Load("test-pause"); err != nil || state.Code != Paused {
 		t.Fatalf("Failed to load expected paused state for task: state=%s err=%v", state, err)
+	}
+}
+
+func TestMessageValid(t *testing.T) {
+	t.Parallel()
+	until := time.Now()
+	validmsgs := []Message{
+		{Code: Run},
+		{Code: Sleep, Until: &until},
+		{Code: Pause},
+		{Code: Kill},
+		{Code: Error, Err: errors.New("test")},
+		{Code: Complete},
+		{Code: Checkpoint},
+		{Code: Release},
+	}
+	for _, m := range validmsgs {
+		if !m.Valid() {
+			t.Errorf("Expected %s to be valid.", m)
+		}
+	}
+
+	invalidmsgs := []Message{
+		{},
+		{Code: Sleep},
+		{Code: Error},
+	}
+	for _, m := range invalidmsgs {
+		if m.Valid() {
+			t.Errorf("Expected %s to be invalid.", m)
+		}
 	}
 }
