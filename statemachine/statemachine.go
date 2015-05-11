@@ -417,7 +417,13 @@ func apply(cur *State, m Message) (*State, bool) {
 	for _, trans := range Rules {
 		if trans.Event == m.Code && trans.From == cur.Code {
 			metafora.Debugf("Transitioned %s", trans)
-			return &State{Code: trans.To, Until: m.Until}, true
+			if m.Err != nil {
+				// Append errors from message
+				cur.Errors = append(cur.Errors, Err{Time: time.Now(), Err: m.Err.Error()})
+			}
+
+			// New State + Message's Until + Combined Errors
+			return &State{Code: trans.To, Until: m.Until, Errors: cur.Errors}, true
 		}
 	}
 	return cur, false
