@@ -21,8 +21,9 @@ type client interface {
 
 // taskStates hold channels to communicate task state transitions.
 type taskStates struct {
-	done    chan struct{}
-	release chan struct{}
+	done     chan struct{} // tell taskmgr to mark the task as done
+	release  chan struct{} // tell taskmgr to release the task
+	finished chan struct{} // taskmgr informing caller done/release are finished
 }
 
 // taskManager bumps claims to keep them from expiring and deletes them on
@@ -30,7 +31,6 @@ type taskStates struct {
 type taskManager struct {
 	ctx    metafora.CoordinatorContext
 	client client
-	wg     sync.WaitGroup
 	tasks  map[string]taskStates // map of task ID to state chans
 	taskL  sync.Mutex            // protect tasks from concurrent access
 	path   string                // etcd path to tasks
@@ -97,18 +97,18 @@ func (m *taskManager) add(taskID string) bool {
 	metafora.Debugf("Claim successful: %s", key)
 	done := make(chan struct{})
 	release := make(chan struct{})
+	finished := make(chan struct{})
 	m.taskL.Lock()
-	m.tasks[taskID] = taskStates{done: done, release: release}
+	m.tasks[taskID] = taskStates{done: done, release: release, finished: finished}
 	m.taskL.Unlock()
 
 	metafora.Debugf("Starting claim refresher for task %s", taskID)
-	m.wg.Add(1)
 	go func() {
 		defer func() {
 			m.taskL.Lock()
 			delete(m.tasks, taskID)
 			m.taskL.Unlock()
-			m.wg.Done()
+			close(finished)
 		}()
 
 		for {
@@ -141,12 +141,13 @@ func (m *taskManager) add(taskID string) bool {
 	return true
 }
 
-// remove tells a single task's refresher to stop.
+// remove tells a single task's refresher to stop and blocks until the task is
+// handled.
 func (m *taskManager) remove(taskID string, done bool) {
 	m.taskL.Lock()
-	defer m.taskL.Unlock()
 	states, ok := m.tasks[taskID]
 	if !ok {
+		m.taskL.Unlock()
 		metafora.Debugf("Cannot remove task %s from refresher: not present.", taskID)
 		return
 	}
@@ -163,4 +164,9 @@ func (m *taskManager) remove(taskID string, done bool) {
 			close(states.release)
 		}
 	}
+	m.taskL.Unlock()
+
+	// Block until task is released/deleted to prevent races on shutdown where
+	// the process could exit before all tasks are released.
+	<-states.finished
 }

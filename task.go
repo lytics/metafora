@@ -10,7 +10,7 @@ type Task interface {
 	ID() string
 	Started() time.Time
 	Stopped() time.Time
-	json.Marshaler
+	Handler() Handler
 }
 
 // task is the per-task state Metafora tracks internally.
@@ -44,6 +44,7 @@ func (t *task) stop() {
 }
 
 func (t *task) ID() string         { return t.id }
+func (t *task) Handler() Handler   { return t.h }
 func (t *task) Started() time.Time { return t.started }
 func (t *task) Stopped() time.Time {
 	t.stopL.Lock()

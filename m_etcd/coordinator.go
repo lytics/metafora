@@ -130,7 +130,7 @@ func NewEtcdCoordinator(nodeID, namespace string, client *etcd.Client) metafora.
 	return &EtcdCoordinator{
 		Client:    client,
 		namespace: namespace,
-		name:      "etcd:/" + nodeID + namespace,
+		name:      "etcd:" + namespace + "/" + nodeID,
 
 		taskPath: path.Join(namespace, TasksPath),
 		ClaimTTL: ClaimTTL, //default to the package constant, but allow it to be overwritten
@@ -319,7 +319,7 @@ startWatch:
 func (ec *EtcdCoordinator) parseTask(resp *etcd.Response) (task string, ok bool) {
 	// Sanity check / test path invariant
 	if !strings.HasPrefix(resp.Node.Key, ec.taskPath) {
-		metafora.Errorf("Received task from outside task path: %s", resp.Node.Key)
+		metafora.Errorf("%s received task from outside task path: %s", ec.name, resp.Node.Key)
 		return "", false
 	}
 
@@ -331,17 +331,17 @@ func (ec *EtcdCoordinator) parseTask(resp *etcd.Response) (task string, ok bool)
 		// Make sure it's not already claimed before returning it
 		for _, n := range resp.Node.Nodes {
 			if strings.HasSuffix(n.Key, OwnerMarker) {
-				metafora.Debugf("Ignoring task as it's already claimed: %s", parts[2])
+				metafora.Debugf("%s ignoring task as it's already claimed: %s", ec.name, parts[2])
 				return "", false
 			}
 		}
-		metafora.Debugf("Received new task: %s", parts[2])
+		metafora.Debugf("%s received new task: %s", ec.name, parts[2])
 		return parts[2], true
 	}
 
 	// If a claim key is removed, try to claim the task
 	if releaseActions[resp.Action] && len(parts) == 4 && parts[3] == OwnerMarker {
-		metafora.Debugf("Received released task: %s", parts[2])
+		metafora.Debugf("%s received released task: %s", ec.name, parts[2])
 		return parts[2], true
 	}
 

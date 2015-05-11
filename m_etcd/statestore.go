@@ -5,6 +5,7 @@ import (
 	"path"
 
 	"github.com/coreos/go-etcd/etcd"
+	"github.com/lytics/metafora"
 	"github.com/lytics/metafora/statemachine"
 )
 
@@ -31,12 +32,12 @@ func NewStateStore(namespace string, etcdc *etcd.Client) statemachine.StateStore
 // Load retrieves the given task's state from etcd or stores and returns
 // Runnable if no state exists.
 func (s *stateStore) Load(taskID string) (*statemachine.State, error) {
-	const recursive = false
-	const sort = false
-	resp, err := s.c.Get(s.path, recursive, sort)
+	const notrecursive = false
+	const nosort = false
+	resp, err := s.c.Get(path.Join(s.path, taskID), notrecursive, nosort)
 	if err != nil {
 		if ee, ok := err.(*etcd.EtcdError); ok && ee.ErrorCode == EcodeKeyNotFound {
-			// No existing key, default to Runnable
+			metafora.Infof("task=%q has no existing state, default to Runnable", taskID)
 			state := &statemachine.State{Code: statemachine.Runnable}
 			if err := s.Store(taskID, state); err != nil {
 				return nil, err

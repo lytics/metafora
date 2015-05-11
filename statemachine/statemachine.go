@@ -2,21 +2,24 @@ package statemachine
 
 import (
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/lytics/metafora"
 )
 
+// StateCode is the actual state key. The State struct adds additional metadata
+// related to certain StateCodes.
 type StateCode string
 
 const (
 	Runnable  StateCode = "runnable"  // Scheduled
-	Sleeping            = "sleeping"  // Scheduled, not running until time has elapsed
-	Completed           = "completed" // Terminal, not scheduled
-	Killed              = "killed"    // Terminal, not scheduled
-	Failed              = "failed"    // Terminal, not scheduled
-	Fault               = "fault"     // Scheduled, in error handling / retry logic
-	Paused              = "paused"    // Scheduled, not running
+	Sleeping  StateCode = "sleeping"  // Scheduled, not running until time has elapsed
+	Completed StateCode = "completed" // Terminal, not scheduled
+	Killed    StateCode = "killed"    // Terminal, not scheduled
+	Failed    StateCode = "failed"    // Terminal, not scheduled
+	Fault     StateCode = "fault"     // Scheduled, in error handling / retry logic
+	Paused    StateCode = "paused"    // Scheduled, not running
 )
 
 // Terminal states will never run and cannot transition to a non-terminal
@@ -39,6 +42,19 @@ type State struct {
 	Code   StateCode  `json:"state"`
 	Until  *time.Time `json:"until,omitempty"`
 	Errors []Err      `json:"errors,omitempty"`
+}
+
+// copy state so mutations to Until and Errors aren't shared.
+func (s *State) copy() *State {
+	ns := &State{Code: s.Code}
+	if s.Until != nil {
+		until := *s.Until
+		ns.Until = &until
+	}
+	for i := range s.Errors {
+		ns.Errors = append(ns.Errors, s.Errors[i])
+	}
+	return ns
 }
 
 func (s State) String() string {
@@ -64,6 +80,21 @@ type Message struct {
 	Err error `json:"error,omitempty"`
 }
 
+// Valid returns true if the Message is valid. Invalid messages sent as
+// commands are discarded by the state machine.
+func (m Message) Valid() bool {
+	switch m.Code {
+	case Run, Pause, Release, Checkpoint, Complete, Kill:
+		return true
+	case Sleep:
+		return m.Until != nil
+	case Error:
+		return m.Err != nil
+	default:
+		return false
+	}
+}
+
 func (m Message) String() string {
 	switch m.Code {
 	case Sleep:
@@ -83,12 +114,12 @@ type MessageCode string
 
 const (
 	Run        MessageCode = "run"
-	Sleep                  = "sleep"
-	Pause                  = "pause"
-	Kill                   = "kill"
-	Error                  = "error"
-	Complete               = "complete"
-	Checkpoint             = "checkpoint"
+	Sleep      MessageCode = "sleep"
+	Pause      MessageCode = "pause"
+	Kill       MessageCode = "kill"
+	Error      MessageCode = "error"
+	Complete   MessageCode = "complete"
+	Checkpoint MessageCode = "checkpoint"
 
 	// Special event which triggers state machine to exit without transitioning
 	// between states.
@@ -109,7 +140,7 @@ func (t Transition) String() string {
 
 var (
 	// Rules is the state transition table.
-	Rules = []Transition{
+	Rules = [...]Transition{
 		// Runnable can transition to anything
 		{Event: Checkpoint, From: Runnable, To: Runnable},
 		{Event: Release, From: Runnable, To: Runnable},
@@ -125,6 +156,7 @@ var (
 		{Event: Run, From: Sleeping, To: Runnable},
 		{Event: Kill, From: Sleeping, To: Killed},
 		{Event: Pause, From: Sleeping, To: Paused},
+		{Event: Error, From: Sleeping, To: Fault},
 
 		// The error state transitions to either sleeping, failed, or released (to
 		// allow custom error handlers to workaround localitly related errors).
@@ -162,6 +194,13 @@ type stateMachine struct {
 	cl         CommandListener
 	cmds       chan Message
 	errHandler ErrHandler
+
+	mu    *sync.RWMutex
+	state *State
+	ts    time.Time
+
+	stopL   *sync.Mutex
+	stopped chan bool
 }
 
 // New handler that creates a state machine and exposes state transitions to
@@ -179,7 +218,26 @@ func New(tid string, h StatefulHandler, ss StateStore, cl CommandListener, e Err
 		ss:         ss,
 		cl:         cl,
 		errHandler: e,
+		mu:         &sync.RWMutex{},
+		ts:         time.Now(),
+		stopL:      &sync.Mutex{},
+		stopped:    make(chan bool),
 	}
+}
+
+// State returns the current state the state machine is in and what time it
+// entered that state. The State may be nil if Run() has yet to be called.
+func (s *stateMachine) State() (*State, time.Time) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.state, s.ts
+}
+
+func (s *stateMachine) setState(state *State) {
+	s.mu.Lock()
+	s.state = state.copy()
+	s.ts = time.Now()
+	s.mu.Unlock()
 }
 
 // Run the state machine enabled handler. Loads the initial state and passes
@@ -187,18 +245,21 @@ func New(tid string, h StatefulHandler, ss StateStore, cl CommandListener, e Err
 // listener into the handler's commands chan.
 func (s *stateMachine) Run() (done bool) {
 	// Multiplex external (Stop) messages and internal ones
-	stopped := make(chan struct{})
 	s.cmds = make(chan Message)
 	go func() {
 		for {
 			select {
 			case m := <-s.cl.Receive():
+				if !m.Valid() {
+					metafora.Warnf("Ignoring invalid command: %q", m)
+					continue
+				}
 				select {
 				case s.cmds <- m:
-				case <-stopped:
+				case <-s.stopped:
 					return
 				}
-			case <-stopped:
+			case <-s.stopped:
 				return
 			}
 		}
@@ -207,7 +268,7 @@ func (s *stateMachine) Run() (done bool) {
 	// Stop the command listener and internal message multiplexer when Run exits
 	defer func() {
 		s.cl.Stop()
-		close(stopped)
+		s.stop()
 	}()
 
 	// Load the initial state
@@ -222,14 +283,15 @@ func (s *stateMachine) Run() (done bool) {
 		metafora.Warnf("task=%q in terminal state %s - exiting.", s.taskID, state.Code)
 		return true
 	}
+	s.setState(state)
 
-	// Main Run loop
+	// Main Statemachine Loop
 	done = false
 	for {
+		// Enter State
 		metafora.Debugf("task=%q in state %s", s.taskID, state.Code)
 		msg := s.exec(state)
 
-		// Enter State
 		// Apply Message
 		newstate, ok := apply(state, msg)
 		if !ok {
@@ -252,6 +314,9 @@ func (s *stateMachine) Run() (done bool) {
 		// Set next state and loop if non-terminal
 		state = newstate
 
+		// Expose the state for introspection
+		s.setState(state)
+
 		// Exit and unschedule task on terminal state.
 		if state.Code.Terminal() {
 			return true
@@ -260,6 +325,15 @@ func (s *stateMachine) Run() (done bool) {
 		// Release messages indicate the task should exit but not unschedule.
 		if msg.Code == Release {
 			return false
+		}
+
+		// Alternatively Stop() may have been called but the handler may not have
+		// returned the Release message. Always exit if we've been told to Stop()
+		// even if the handler has returned a different Message.
+		select {
+		case <-s.stopped:
+			return false
+		default:
 		}
 	}
 }
@@ -319,6 +393,21 @@ func run(f StatefulHandler, tid string, cmd <-chan Message) (m Message) {
 // Stop sends a Release message to the state machine through the command chan.
 func (s *stateMachine) Stop() {
 	s.cmds <- Message{Code: Release}
+
+	// Also inform the state machine it should exit since the internal handler
+	// may override the release message causing the task to be unreleaseable.
+	s.stop()
+}
+
+func (s *stateMachine) stop() {
+	s.stopL.Lock()
+	defer s.stopL.Unlock()
+	select {
+	case <-s.stopped:
+		return
+	default:
+		close(s.stopped)
+	}
 }
 
 // apply a message to cause a state transition. Returns false if the state
@@ -328,7 +417,13 @@ func apply(cur *State, m Message) (*State, bool) {
 	for _, trans := range Rules {
 		if trans.Event == m.Code && trans.From == cur.Code {
 			metafora.Debugf("Transitioned %s", trans)
-			return &State{Code: trans.To, Until: m.Until}, true
+			if m.Err != nil {
+				// Append errors from message
+				cur.Errors = append(cur.Errors, Err{Time: time.Now(), Err: m.Err.Error()})
+			}
+
+			// New State + Message's Until + Combined Errors
+			return &State{Code: trans.To, Until: m.Until, Errors: cur.Errors}, true
 		}
 	}
 	return cur, false
