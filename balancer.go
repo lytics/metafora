@@ -117,6 +117,13 @@ func (e *FairBalancer) CanClaim(taskid string) (time.Time, bool) {
 // Balance releases tasks if this node has 120% more tasks than the average
 // node in the cluster.
 func (e *FairBalancer) Balance() []string {
+	nodetasks := e.bc.Tasks()
+
+	// If local tasks <= 1 this node should never rebalance
+	if len(nodetasks) < 2 {
+		return nil
+	}
+
 	// Reset delay
 	e.delay = 0
 	current, err := e.clusterstate.NodeTaskCount()
@@ -134,7 +141,6 @@ func (e *FairBalancer) Balance() []string {
 	releaseset := make(map[string]struct{}, shouldrelease)
 
 	random := rand.New(rand.NewSource(time.Now().UnixNano()))
-	nodetasks := e.bc.Tasks()
 	for len(releasetasks) < shouldrelease {
 		tid := nodetasks[random.Intn(len(nodetasks))].ID()
 		if _, ok := releaseset[tid]; !ok {
