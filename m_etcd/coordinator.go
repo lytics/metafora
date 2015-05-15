@@ -489,6 +489,7 @@ func (ec *EtcdCoordinator) watch(path string, index uint64, stop chan bool) (*et
 
 			// This is probably a canceled request panic
 			// Wait a little bit, then continue as normal
+			// Can be removed after Go 1.5 is released
 			if ispanic(err) {
 				time.Sleep(250 * time.Millisecond)
 				continue

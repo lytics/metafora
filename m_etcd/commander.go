@@ -151,6 +151,7 @@ watchLoop:
 			}
 			// This is probably a canceled request panic
 			// Wait a little bit, then continue as normal
+			// Can be removed after Go 1.5 is released
 			if ispanic(err) {
 				continue
 			}
