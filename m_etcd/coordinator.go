@@ -48,7 +48,8 @@ type ownerValue struct {
 }
 
 type EtcdCoordinator struct {
-	Client    *etcd.Client
+	client    *etcd.Client
+	hosts     []string
 	cordCtx   metafora.CoordinatorContext
 	namespace string
 	taskPath  string
@@ -83,29 +84,38 @@ func (ec *EtcdCoordinator) closed() bool {
 // function creates an etcd Coordinator and HandlerFunc for you to pass to
 // metafora.NewConsumer:
 //
-//	coord, hf, bal := m_etcd.New("node1", "work", etcdc, customHandler)
+//	coord, hf, bal, err := m_etcd.New("node1", "work", hosts, customHandler)
+//	if err != nil { /* ...exit... */ }
 //	consumer, err := metafora.NewConsumer(coord, hf, bal)
 //
-func New(nodeID, namespace string, client *etcd.Client, h statemachine.StatefulHandler) (
-	metafora.Coordinator, metafora.HandlerFunc, metafora.Balancer) {
+func New(nodeID, namespace string, hosts []string, h statemachine.StatefulHandler) (
+	metafora.Coordinator, metafora.HandlerFunc, metafora.Balancer, error) {
 
 	// Create the state store
-	ss := NewStateStore(namespace, client)
+	ssc, err := newEtcdClient(hosts)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	ss := NewStateStore(namespace, ssc)
 
 	// Create a HandlerFunc that ties together the command listener, stateful
 	// handler, and statemachine.
 	hf := func(taskID string) metafora.Handler {
-		cl := NewCommandListener(taskID, namespace, client)
+		clc, _ := newEtcdClient(hosts)
+		cl := NewCommandListener(taskID, namespace, clc)
 		return statemachine.New(taskID, h, ss, cl, nil)
 	}
 
 	// Create an etcd coordinator
-	coord := NewEtcdCoordinator(nodeID, namespace, client)
+	coord, err := NewEtcdCoordinator(nodeID, namespace, hosts)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 
 	// Create an etcd backed Fair Balancer (there's no harm in not using it)
-	bal := NewFairBalancer(nodeID, namespace, client)
+	bal := NewFairBalancer(nodeID, namespace, hosts)
 
-	return coord, hf, bal
+	return coord, hf, bal, nil
 }
 
 // NewEtcdCoordinator creates a new Metafora Coordinator implementation using
@@ -114,7 +124,7 @@ func New(nodeID, namespace string, client *etcd.Client, h statemachine.StatefulH
 //
 // Coordinator methods will be called by the core Metafora Consumer. Calling
 // Init, Close, etc. from your own code will lead to undefined behavior.
-func NewEtcdCoordinator(nodeID, namespace string, client *etcd.Client) metafora.Coordinator {
+func NewEtcdCoordinator(nodeID, namespace string, hosts []string) (metafora.Coordinator, error) {
 	// Namespace should be an absolute path with no trailing slash
 	namespace = "/" + strings.Trim(namespace, "/ ")
 
@@ -125,10 +135,13 @@ func NewEtcdCoordinator(nodeID, namespace string, client *etcd.Client) metafora.
 
 	nodeID = strings.Trim(nodeID, "/ ")
 
-	client.SetTransport(transport)
-	client.SetConsistency(etcd.STRONG_CONSISTENCY)
+	client, err := newEtcdClient(hosts)
+	if err != nil {
+		return nil, err
+	}
 	return &EtcdCoordinator{
-		Client:    client,
+		client:    client,
+		hosts:     hosts,
 		namespace: namespace,
 		name:      "etcd:" + namespace + "/" + nodeID,
 
@@ -141,26 +154,34 @@ func NewEtcdCoordinator(nodeID, namespace string, client *etcd.Client) metafora.
 		commandPath: path.Join(namespace, NodesPath, nodeID, CommandsPath),
 
 		stop: make(chan bool),
-	}
+	}, nil
 }
 
 // Init is called once by the consumer to provide a Logger to Coordinator
 // implementations.
 func (ec *EtcdCoordinator) Init(cordCtx metafora.CoordinatorContext) error {
 	metafora.Debugf("Initializing coordinator with namespace: %s and etcd cluster: %s",
-		ec.namespace, strings.Join(ec.Client.GetCluster(), ", "))
+		ec.namespace, strings.Join(ec.client.GetCluster(), ", "))
 
 	ec.cordCtx = cordCtx
 
 	ec.upsertDir(ec.namespace, ForeverTTL)
 	ec.upsertDir(ec.taskPath, ForeverTTL)
-	if _, err := ec.Client.CreateDir(ec.nodePath, ec.nodePathTTL); err != nil {
+	if _, err := ec.client.CreateDir(ec.nodePath, ec.nodePathTTL); err != nil {
 		return err
 	}
+
+	// Create etcd client for task manager
+	tmc, err := newEtcdClient(ec.hosts)
+	if err != nil {
+		return err
+	}
+
+	// Start goroutine to heartbeat node key in etcd
 	go ec.nodeRefresher()
 	ec.upsertDir(ec.commandPath, ForeverTTL)
 
-	ec.taskManager = newManager(cordCtx, ec.Client, ec.taskPath, ec.NodeID, ec.ClaimTTL)
+	ec.taskManager = newManager(cordCtx, tmc, ec.taskPath, ec.NodeID, ec.ClaimTTL)
 	return nil
 }
 
@@ -172,14 +193,14 @@ func (ec *EtcdCoordinator) upsertDir(path string, ttl uint64) {
 	const sorted = false
 	const recursive = false
 
-	_, err := ec.Client.Get(path, sorted, recursive)
+	_, err := ec.client.Get(path, sorted, recursive)
 	if err == nil {
 		return
 	}
 
 	etcdErr, ok := err.(*etcd.EtcdError)
 	if ok && etcdErr.ErrorCode == EcodeKeyNotFound {
-		_, err := ec.Client.CreateDir(path, ttl)
+		_, err := ec.client.CreateDir(path, ttl)
 		if err != nil {
 			metafora.Debugf("Error trying to create directory. path:[%s] error:[ %v ]", path, err)
 		}
@@ -196,7 +217,7 @@ func (ec *EtcdCoordinator) upsertDir(path string, ttl uint64) {
 		}
 		metadataB, _ := json.Marshal(metadata)
 		metadataStr := string(metadataB)
-		ec.Client.Create(pathMarker, metadataStr, ttl)
+		ec.client.Create(pathMarker, metadataStr, ttl)
 	}
 }
 
@@ -211,6 +232,10 @@ func (ec *EtcdCoordinator) nodeRefresher() {
 	if ttl < 1 {
 		ttl = 1
 	}
+
+	// Create a local etcd client since it's not threadsafe, but don't bother
+	// checking for errors at this point.
+	client, _ := newEtcdClient(ec.hosts)
 	for {
 		// Deadline for refreshes to finish by or the coordinator closes.
 		deadline := time.Now().Add(time.Duration(ec.nodePathTTL) * time.Second)
@@ -218,7 +243,7 @@ func (ec *EtcdCoordinator) nodeRefresher() {
 		case <-ec.stop:
 			return
 		case <-time.After(time.Duration(ttl) * time.Second):
-			if err := ec.refreshBy(deadline); err != nil {
+			if err := ec.refreshBy(client, deadline); err != nil {
 				// We're in a bad state; shut everything down
 				metafora.Errorf("Unable to refresh node key before deadline %s. Last error: %v", deadline, err)
 				ec.Close()
@@ -228,7 +253,7 @@ func (ec *EtcdCoordinator) nodeRefresher() {
 }
 
 // refreshBy retries refreshing the node key until the deadline is reached.
-func (ec *EtcdCoordinator) refreshBy(deadline time.Time) (err error) {
+func (ec *EtcdCoordinator) refreshBy(c *etcd.Client, deadline time.Time) (err error) {
 	for time.Now().Before(deadline) {
 		// Make sure we shouldn't exit
 		select {
@@ -237,7 +262,7 @@ func (ec *EtcdCoordinator) refreshBy(deadline time.Time) (err error) {
 		default:
 		}
 
-		_, err = ec.Client.UpdateDir(ec.nodePath, ec.nodePathTTL)
+		_, err = c.UpdateDir(ec.nodePath, ec.nodePathTTL)
 		if err == nil {
 			// It worked!
 			return nil
@@ -257,6 +282,11 @@ func (ec *EtcdCoordinator) Watch(out chan<- string) error {
 	const recursive = true
 	var index uint64
 
+	client, err := newEtcdClient(ec.hosts)
+	if err != nil {
+		return err
+	}
+
 startWatch:
 	for {
 		// Make sure we haven't been told to exit
@@ -267,7 +297,7 @@ startWatch:
 		}
 
 		// Get existing tasks
-		resp, err := ec.Client.Get(ec.taskPath, sorted, recursive)
+		resp, err := client.Get(ec.taskPath, sorted, recursive)
 		if err != nil {
 			metafora.Errorf("%s Error getting the existing tasks: %v", ec.taskPath, err)
 			return err
@@ -290,7 +320,7 @@ startWatch:
 
 		// Start blocking watch
 		for {
-			resp, err := ec.watch(ec.taskPath, index, ec.stop)
+			resp, err := ec.watch(client, ec.taskPath, index, ec.stop)
 			if err != nil {
 				if err == restartWatchError {
 					continue startWatch
@@ -376,12 +406,17 @@ func (ec *EtcdCoordinator) Command() (metafora.Command, error) {
 		return nil, nil
 	}
 
+	client, err := newEtcdClient(ec.hosts)
+	if err != nil {
+		return nil, err
+	}
+
 	const sorted = true
 	const recursive = true
 startWatch:
 	for {
 		// Get existing commands
-		resp, err := ec.Client.Get(ec.commandPath, sorted, recursive)
+		resp, err := client.Get(ec.commandPath, sorted, recursive)
 		if err != nil {
 			metafora.Errorf("%s Error getting the existing commands: %v", ec.commandPath, err)
 			return nil, err
@@ -393,13 +428,13 @@ startWatch:
 
 		// Act like existing keys are newly created
 		for _, node := range resp.Node.Nodes {
-			if cmd := ec.parseCommand(&etcd.Response{Action: "create", Node: node}); cmd != nil {
+			if cmd := ec.parseCommand(client, &etcd.Response{Action: "create", Node: node}); cmd != nil {
 				return cmd, nil
 			}
 		}
 
 		for {
-			resp, err := ec.watch(ec.commandPath, index, ec.stop)
+			resp, err := ec.watch(client, ec.commandPath, index, ec.stop)
 			if err != nil {
 				if err == restartWatchError {
 					continue startWatch
@@ -409,7 +444,7 @@ startWatch:
 				}
 			}
 
-			if cmd := ec.parseCommand(resp); cmd != nil {
+			if cmd := ec.parseCommand(client, resp); cmd != nil {
 				return cmd, nil
 			}
 
@@ -418,14 +453,14 @@ startWatch:
 	}
 }
 
-func (ec *EtcdCoordinator) parseCommand(resp *etcd.Response) metafora.Command {
+func (ec *EtcdCoordinator) parseCommand(c *etcd.Client, resp *etcd.Response) metafora.Command {
 	if strings.HasSuffix(resp.Node.Key, MetadataKey) {
 		// Skip metadata marker
 		return nil
 	}
 
 	const recurse = false
-	if _, err := ec.Client.Delete(resp.Node.Key, recurse); err != nil {
+	if _, err := c.Delete(resp.Node.Key, recurse); err != nil {
 		metafora.Errorf("Error deleting handled command %s: %v", resp.Node.Key, err)
 	}
 
@@ -452,7 +487,7 @@ func (ec *EtcdCoordinator) Close() {
 
 	// Finally remove the node entry
 	const recursive = true
-	_, err := ec.Client.Delete(ec.nodePath, recursive)
+	_, err := ec.client.Delete(ec.nodePath, recursive)
 	if err != nil {
 		if eerr, ok := err.(*etcd.EtcdError); ok {
 			if eerr.ErrorCode == EcodeKeyNotFound {
@@ -476,11 +511,11 @@ func (ec *EtcdCoordinator) Close() {
 //
 //   2. restartWatchError - the specified index is too old, try again with a
 //                          newer index
-func (ec *EtcdCoordinator) watch(path string, index uint64, stop chan bool) (*etcd.Response, error) {
+func (ec *EtcdCoordinator) watch(c *etcd.Client, path string, index uint64, stop chan bool) (*etcd.Response, error) {
 	const recursive = true
 	for {
 		// Start the blocking watch after the last response's index.
-		rawResp, err := protectedRawWatch(ec.Client, path, index+1, recursive, nil, stop)
+		rawResp, err := protectedRawWatch(c, path, index+1, recursive, nil, stop)
 		if err != nil {
 			if err == etcd.ErrWatchStoppedByUser {
 				// This isn't actually an error, the stop chan was closed. Time to stop!

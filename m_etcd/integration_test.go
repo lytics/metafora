@@ -20,7 +20,7 @@ import (
 // developers to do adhoc testing of all of the m_etcd package's features.
 func TestAll(t *testing.T) {
 	t.Parallel()
-	etcdc := testutil.NewEtcdClient(t)
+	etcdc, hosts := testutil.NewEtcdClient(t)
 
 	const recursive = true
 	etcdc.Delete("test-a", recursive)
@@ -35,7 +35,10 @@ func TestAll(t *testing.T) {
 	}
 
 	newC := func(name, ns string) *metafora.Consumer {
-		coord, hf, bal := m_etcd.New(name, ns, etcdc, h)
+		coord, hf, bal, err := m_etcd.New(name, ns, hosts, h)
+		if err != nil {
+			t.Fatalf("Error creating new etcd stack: %v", err)
+		}
 		cons, err := metafora.NewConsumer(coord, hf, bal)
 		if err != nil {
 			t.Fatalf("Error creating consumer %s:%s: %v", ns, name, err)
@@ -50,8 +53,8 @@ func TestAll(t *testing.T) {
 	cons2b := newC("node2", "test-b")
 
 	// Create clients and start some tests
-	cliA := m_etcd.NewClient("test-a", etcdc)
-	cliB := m_etcd.NewClient("test-b", etcdc)
+	cliA := m_etcd.NewClient("test-a", hosts)
+	cliB := m_etcd.NewClient("test-b", hosts)
 
 	if err := cliA.SubmitTask("task1"); err != nil {
 		t.Fatalf("Error submitting task1 to a: %v", err)

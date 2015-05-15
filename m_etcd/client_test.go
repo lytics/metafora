@@ -28,11 +28,11 @@ const (
 // TestNodes tests that client.Nodes() returns the metafora nodes
 // registered in etcd.
 func TestNodes(t *testing.T) {
-	eclient := testutil.NewEtcdClient(t)
+	eclient, hosts := testutil.NewEtcdClient(t)
 	const recursive = true
 	eclient.Delete(Node1Path, recursive)
 
-	mclient := NewClient(Namespace, eclient)
+	mclient := NewClient(Namespace, hosts)
 
 	if _, err := eclient.CreateDir(Node1Path, 0); err != nil {
 		t.Fatalf("AddChild %v returned error: %v", NodesDir, err)
@@ -51,9 +51,9 @@ func TestNodes(t *testing.T) {
 // the proper path in etcd, and that the same task id cannot be
 // submitted more than once.
 func TestSubmitTask(t *testing.T) {
-	eclient := testutil.NewEtcdClient(t)
+	_, hosts := testutil.NewEtcdClient(t)
 
-	mclient := NewClient(Namespace, eclient)
+	mclient := NewClient(Namespace, hosts)
 
 	if err := mclient.DeleteTask("testid1"); err != nil {
 		t.Logf("DeleteTask returned an error, which maybe ok.  Error:%v", err)
@@ -71,9 +71,9 @@ func TestSubmitTask(t *testing.T) {
 // TestSubmitCommand tests that client.SubmitCommand(...) adds a command
 // to the proper node path in etcd, and that it can be read back.
 func TestSubmitCommand(t *testing.T) {
-	eclient := testutil.NewEtcdClient(t)
+	eclient, hosts := testutil.NewEtcdClient(t)
 
-	mclient := NewClient(Namespace, eclient)
+	mclient := NewClient(Namespace, hosts)
 
 	if err := mclient.SubmitCommand(Node1, metafora.CommandFreeze()); err != nil {
 		t.Fatalf("Unable to submit command.   error:%v", err)
@@ -83,9 +83,5 @@ func TestSubmitCommand(t *testing.T) {
 		t.Fatalf("Get on path %v returned error: %v", NodesDir, err)
 	} else if res.Node == nil || res.Node.Nodes == nil {
 		t.Fatalf("Get on path %v returned nil for child nodes", NodesDir)
-	} else {
-		for i, n := range res.Node.Nodes {
-			t.Logf("%v -> %v", i, n)
-		}
 	}
 }

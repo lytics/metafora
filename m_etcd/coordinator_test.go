@@ -9,6 +9,7 @@ import (
 
 	"github.com/coreos/go-etcd/etcd"
 	"github.com/lytics/metafora"
+	"github.com/lytics/metafora/m_etcd/testutil"
 )
 
 /*
@@ -18,11 +19,12 @@ ETCDTESTS=1 go test -v ./...
 */
 
 func TestCoordinatorFirstNodeJoiner(t *testing.T) {
-	coordinator1, client := setupEtcd(t)
+	coordinator1, _ := setupEtcd(t)
 	defer coordinator1.Close()
 	if err := coordinator1.Init(newCtx(t, "coordinator1")); err != nil {
 		t.Fatalf("Unexpected error initialzing coordinator: %v", err)
 	}
+	client, _ := testutil.NewEtcdClient(t)
 
 	const sorted = false
 	const recursive = false
@@ -38,11 +40,12 @@ func TestCoordinatorFirstNodeJoiner(t *testing.T) {
 
 // Ensure that Watch() picks up new tasks and returns them.
 func TestCoordinatorTC1(t *testing.T) {
-	coordinator1, client := setupEtcd(t)
+	coordinator1, _ := setupEtcd(t)
 	if err := coordinator1.Init(newCtx(t, "coordinator1")); err != nil {
 		t.Fatalf("Unexpected error initialzing coordinator: %v", err)
 	}
 	defer coordinator1.Close()
+	client, _ := testutil.NewEtcdClient(t)
 
 	tasks := make(chan string)
 	task001 := "test-task"
@@ -115,12 +118,13 @@ func TestCoordinatorTC2(t *testing.T) {
 // Start two coordinators to ensure that fighting over claims results in only
 // one coordinator winning (and the other not crashing).
 func TestCoordinatorTC3(t *testing.T) {
-	coordinator1, client := setupEtcd(t)
+	coordinator1, hosts := setupEtcd(t)
 	if err := coordinator1.Init(newCtx(t, "coordinator1")); err != nil {
 		t.Fatalf("Unexpected error initialzing coordinator: %v", err)
 	}
 	defer coordinator1.Close()
-	coordinator2 := NewEtcdCoordinator("node2", namespace, client).(*EtcdCoordinator)
+	c2, _ := NewEtcdCoordinator("node2", namespace, hosts)
+	coordinator2 := c2.(*EtcdCoordinator)
 	if err := coordinator2.Init(newCtx(t, "coordinator2")); err != nil {
 		t.Fatalf("Unexpected error initialzing coordinator: %v", err)
 	}
@@ -128,7 +132,7 @@ func TestCoordinatorTC3(t *testing.T) {
 
 	testTasks := []string{"test-claiming-task0001", "test-claiming-task0002", "test-claiming-task0003"}
 
-	mclient := NewClient(namespace, client)
+	mclient := NewClient(namespace, hosts)
 
 	// Start the watchers
 	errc := make(chan error, 2)
@@ -184,11 +188,11 @@ func TestCoordinatorTC3(t *testing.T) {
 // Then call coordinator.Release() on the task to make sure a coordinator picks it
 // up again.
 func TestCoordinatorTC4(t *testing.T) {
-	coordinator1, client := setupEtcd(t)
+	coordinator1, hosts := setupEtcd(t)
 
 	task := "testtask4"
 
-	mclient := NewClient(namespace, client)
+	mclient := NewClient(namespace, hosts)
 
 	err := mclient.SubmitTask(task)
 	if err != nil {
@@ -214,7 +218,8 @@ func TestCoordinatorTC4(t *testing.T) {
 	}
 
 	// Startup a second
-	coordinator2 := NewEtcdCoordinator("node2", namespace, client).(*EtcdCoordinator)
+	c2, _ := NewEtcdCoordinator("node2", namespace, hosts)
+	coordinator2 := c2.(*EtcdCoordinator)
 	if err := coordinator2.Init(newCtx(t, "coordinator2")); err != nil {
 		t.Fatalf("Unexpected error initialzing coordinator: %v", err)
 	}
@@ -251,11 +256,11 @@ func TestCoordinatorTC4(t *testing.T) {
 // TestNodeCleanup ensures the coordinator properly cleans up its node entry
 // upon exit.
 func TestNodeCleanup(t *testing.T) {
-	c1, client := setupEtcd(t)
+	c1, hosts := setupEtcd(t)
 	if err := c1.Init(newCtx(t, "coordinator1")); err != nil {
 		t.Fatalf("Unexpected error initialzing coordinator: %v", err)
 	}
-	c2 := NewEtcdCoordinator("node2", namespace, client).(*EtcdCoordinator)
+	c2, _ := NewEtcdCoordinator("node2", namespace, hosts)
 	if err := c2.Init(newCtx(t, "coordinator2")); err != nil {
 		t.Fatalf("Unexpected error initialzing coordinator: %v", err)
 	}
@@ -263,6 +268,7 @@ func TestNodeCleanup(t *testing.T) {
 	defer c2.Close()
 
 	// Make sure node directories were created
+	client, _ := testutil.NewEtcdClient(t)
 	resp, err := client.Get(namespace+"/nodes/"+nodeID, false, false)
 	if err != nil {
 		t.Fatalf("Error retrieving node key from etcd: %v", err)
@@ -314,12 +320,13 @@ func TestNodeRefresher(t *testing.T) {
 	atomic.StoreUint64(&DefaultNodePathTTL, 3)
 	defer atomic.StoreUint64(&DefaultNodePathTTL, orig)
 
-	coord, client := setupEtcd(t)
+	coord, _ := setupEtcd(t)
 	hf := metafora.HandlerFunc(nil) // we won't be handling any tasks
 	consumer, err := metafora.NewConsumer(coord, hf, metafora.DumbBalancer)
 	if err != nil {
 		t.Fatalf("Error creating consumer: %+v", err)
 	}
+	client, _ := testutil.NewEtcdClient(t)
 
 	defer consumer.Shutdown()
 	runDone := make(chan struct{})

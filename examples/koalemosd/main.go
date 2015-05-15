@@ -21,12 +21,8 @@ func main() {
 	loglvl := flag.String("log", mlvl.String(), "set log level: [debug], info, warn, error")
 	flag.Parse()
 
-	etcdc := etcd.NewClient(strings.Split(*peers, ","))
-
-	if !etcdc.SyncCluster() {
-		metafora.Errorf("Unable to connect to etcd cluster: %s", *peers)
-		os.Exit(1)
-	}
+	hosts := strings.Split(*peers, ",")
+	etcdc := etcd.NewClient(hosts)
 
 	switch strings.ToLower(*loglvl) {
 	case "debug":
@@ -41,8 +37,12 @@ func main() {
 	metafora.SetLogLevel(mlvl)
 
 	hfunc := makeHandlerFunc(etcdc)
-	coord := m_etcd.NewEtcdCoordinator(*name, *namespace, etcdc).(*m_etcd.EtcdCoordinator)
-	bal := m_etcd.NewFairBalancer(*name, *namespace, etcdc)
+	ec, err := m_etcd.NewEtcdCoordinator(*name, *namespace, hosts)
+	if err != nil {
+		metafora.Errorf("Error creating etcd coordinator: %v", err)
+	}
+	coord := ec.(*m_etcd.EtcdCoordinator)
+	bal := m_etcd.NewFairBalancer(*name, *namespace, hosts)
 	c, err := metafora.NewConsumer(coord, hfunc, bal)
 	if err != nil {
 		metafora.Errorf("Error creating consumer: %v", err)

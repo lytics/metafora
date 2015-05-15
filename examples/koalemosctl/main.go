@@ -24,7 +24,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	ec := etcd.NewClient(strings.Split(*peers, ","))
+	hosts := strings.Split(*peers, ",")
+	ec := etcd.NewClient(hosts)
 
 	if !ec.SyncCluster() {
 		fmt.Printf("Unable to connect to etcd cluster: %s\n", *peers)
@@ -45,7 +46,7 @@ func main() {
 	}
 
 	// Finally create the task for metafora
-	mc := m_etcd.NewClient(*namespace, ec)
+	mc := m_etcd.NewClient(*namespace, hosts)
 	if err := mc.SubmitTask(taskID); err != nil {
 		fmt.Println("Error submitting task:", taskID)
 		os.Exit(5)
