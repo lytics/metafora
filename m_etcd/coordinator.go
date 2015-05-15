@@ -480,11 +480,18 @@ func (ec *EtcdCoordinator) watch(path string, index uint64, stop chan bool) (*et
 	const recursive = true
 	for {
 		// Start the blocking watch after the last response's index.
-		rawResp, err := ec.Client.RawWatch(path, index+1, recursive, nil, stop)
+		rawResp, err := protectedRawWatch(ec.Client, path, index+1, recursive, nil, stop)
 		if err != nil {
 			if err == etcd.ErrWatchStoppedByUser {
 				// This isn't actually an error, the stop chan was closed. Time to stop!
 				return nil, err
+			}
+
+			// This is probably a canceled request panic
+			// Wait a little bit, then continue as normal
+			if ispanic(err) {
+				time.Sleep(250 * time.Millisecond)
+				continue
 			}
 
 			// Other RawWatch errors should be retried forever. If the node refresher
