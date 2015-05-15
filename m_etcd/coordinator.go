@@ -278,8 +278,6 @@ func (ec *EtcdCoordinator) refreshBy(c *etcd.Client, deadline time.Time) (err er
 // Watch streams tasks from etcd watches or GETs until Close is called or etcd
 // is unreachable (in which case an error is returned).
 func (ec *EtcdCoordinator) Watch(out chan<- string) error {
-	const sorted = true
-	const recursive = true
 	var index uint64
 
 	client, err := newEtcdClient(ec.hosts)
@@ -297,7 +295,9 @@ startWatch:
 		}
 
 		// Get existing tasks
-		resp, err := client.Get(ec.taskPath, sorted, recursive)
+		const notsorted = false
+		const recursive = true
+		resp, err := client.Get(ec.taskPath, notsorted, recursive)
 		if err != nil {
 			metafora.Errorf("%s Error getting the existing tasks: %v", ec.taskPath, err)
 			return err
