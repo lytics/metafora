@@ -119,13 +119,14 @@ func (e *FairBalancer) CanClaim(taskid string) (time.Time, bool) {
 func (e *FairBalancer) Balance() []string {
 	nodetasks := e.bc.Tasks()
 
+	// Reset delay
+	e.delay = 0
+
 	// If local tasks <= 1 this node should never rebalance
 	if len(nodetasks) < 2 {
 		return nil
 	}
 
-	// Reset delay
-	e.delay = 0
 	current, err := e.clusterstate.NodeTaskCount()
 	if err != nil {
 		Warnf("Error retrieving cluster state: %v", err)
