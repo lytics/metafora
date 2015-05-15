@@ -337,6 +337,11 @@ func (c *Consumer) claimed(taskID string) {
 		delete(c.running, taskID)
 		c.runL.Unlock()
 	}()
+
+	// Pause slightly after a successful claim to give starting tasks some
+	// breathing room and to bias the next claim toward a node that lost this
+	// one.
+	time.Sleep(10 * time.Millisecond)
 }
 
 // runTask executes a handler's Run method and recovers from panic()s.
