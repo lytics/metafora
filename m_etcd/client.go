@@ -9,8 +9,8 @@ import (
 )
 
 // NewClient creates a new client using an etcd backend.
-func NewClient(namespace string, client *etcd.Client) metafora.Client {
-
+func NewClient(namespace string, hosts []string) metafora.Client {
+	client, _ := newEtcdClient(hosts)
 	return &mclient{
 		etcd:      client,
 		namespace: namespace,

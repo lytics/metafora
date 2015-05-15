@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/coreos/go-etcd/etcd"
@@ -62,4 +63,18 @@ func protectedRawWatch(client *etcd.Client, path string, index uint64, recursive
 	}()
 
 	return client.RawWatch(path, index, recursive, receiver, stop)
+}
+
+// newEtcdClient is a simple helper to create a new etcd client with the custom
+// transport and strong consistency level.
+func newEtcdClient(hosts []string) (*etcd.Client, error) {
+	c := etcd.NewClient(hosts)
+	c.SetTransport(transport)
+	if err := c.SetConsistency(etcd.STRONG_CONSISTENCY); err != nil {
+		return nil, err
+	}
+	if !c.SyncCluster() {
+		return nil, fmt.Errorf("Unable to communicate with etcd cluster %q", strings.Join(hosts, ","))
+	}
+	return c, nil
 }

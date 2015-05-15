@@ -11,8 +11,9 @@ import (
 
 // NewFairBalancer creates a new metafora.DefaultFairBalancer that uses etcd
 // for counting tasks per node.
-func NewFairBalancer(nodeid, namespace string, client *etcd.Client) metafora.Balancer {
+func NewFairBalancer(nodeid, namespace string, hosts []string) metafora.Balancer {
 	namespace = "/" + strings.Trim(namespace, "/ ")
+	client, _ := newEtcdClient(hosts)
 	e := etcdClusterState{
 		client:   client,
 		taskPath: path.Join(namespace, "tasks"),

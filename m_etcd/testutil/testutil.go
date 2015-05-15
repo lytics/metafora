@@ -21,7 +21,7 @@ type TestCase interface {
 }
 
 // NewEtcdClient creates a new etcd client for use by the metafora client during testing.
-func NewEtcdClient(t TestCase) *etcd.Client {
+func NewEtcdClient(t TestCase) (*etcd.Client, []string) {
 	if os.Getenv("ETCDTESTS") == "" {
 		t.Skip("ETCDTESTS unset. Skipping etcd tests.")
 	}
@@ -43,5 +43,5 @@ func NewEtcdClient(t TestCase) *etcd.Client {
 
 	eclient.SetConsistency(etcd.STRONG_CONSISTENCY)
 
-	return eclient
+	return eclient, peers
 }

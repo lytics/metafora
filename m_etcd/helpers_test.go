@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/coreos/go-etcd/etcd"
 	"github.com/lytics/metafora"
 	"github.com/lytics/metafora/m_etcd/testutil"
 )
@@ -19,11 +18,15 @@ const (
 //  * Create and return an etcd client
 //  * Create and return an initial etcd coordinator
 //  * Clearing the test namespace in etcd
-func setupEtcd(t *testing.T) (*EtcdCoordinator, *etcd.Client) {
-	client := testutil.NewEtcdClient(t)
+func setupEtcd(t *testing.T) (*EtcdCoordinator, []string) {
+	client, hosts := testutil.NewEtcdClient(t)
 	const recursive = true
 	client.Delete(namespace, recursive)
-	return NewEtcdCoordinator(nodeID, namespace, client).(*EtcdCoordinator), client
+	coord, err := NewEtcdCoordinator(nodeID, namespace, hosts)
+	if err != nil {
+		t.Fatalf("Error creating etcd coordinator: %v", err)
+	}
+	return coord.(*EtcdCoordinator), hosts
 }
 
 type testLogger struct {

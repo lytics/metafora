@@ -8,10 +8,11 @@ import (
 )
 
 func TestFairBalancer(t *testing.T) {
-	coord1, etcdc := setupEtcd(t)
-	coord2 := NewEtcdCoordinator("node2", namespace, etcdc).(*EtcdCoordinator)
+	coord1, hosts := setupEtcd(t)
+	c2, _ := NewEtcdCoordinator("node2", namespace, hosts)
+	coord2 := c2.(*EtcdCoordinator)
 
-	cli := NewClient(namespace, etcdc)
+	cli := NewClient(namespace, hosts)
 
 	h := metafora.SimpleHandler(func(task string, stop <-chan bool) bool {
 		metafora.Debugf("Starting %s", task)
@@ -21,13 +22,13 @@ func TestFairBalancer(t *testing.T) {
 	})
 
 	// Create two consumers
-	b1 := NewFairBalancer(nodeID, namespace, etcdc)
+	b1 := NewFairBalancer(nodeID, namespace, hosts)
 	con1, err := metafora.NewConsumer(coord1, h, b1)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	b2 := NewFairBalancer("node2", namespace, etcdc)
+	b2 := NewFairBalancer("node2", namespace, hosts)
 	con2, err := metafora.NewConsumer(coord2, h, b2)
 	if err != nil {
 		t.Fatal(err)
@@ -91,9 +92,9 @@ func TestFairBalancer(t *testing.T) {
 // Fair balancer shouldn't consider a shutting-down node
 // See https://github.com/lytics/metafora/issues/92
 func TestFairBalancerShutdown(t *testing.T) {
-	metafora.SetLogLevel(metafora.LogLevelDebug)
 	coord1, etcdc := setupEtcd(t)
-	coord2 := NewEtcdCoordinator("node2", namespace, etcdc).(*EtcdCoordinator)
+	c2, _ := NewEtcdCoordinator("node2", namespace, etcdc)
+	coord2 := c2.(*EtcdCoordinator)
 
 	cli := NewClient(namespace, etcdc)
 
@@ -226,5 +227,4 @@ func TestFairBalancerShutdown(t *testing.T) {
 	if len(c1Tasks4) != 6 || len(c2Tasks4) != 0 {
 		t.Fatalf("Expected consumers to have 6|0 tasks: %d|%d", len(c1Tasks4), len(c2Tasks4))
 	}
-
 }
