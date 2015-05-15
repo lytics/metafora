@@ -2,9 +2,12 @@ package m_etcd
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"time"
+
+	"github.com/coreos/go-etcd/etcd"
 )
 
 // etcd has a bug where Watch() dies every 5 minutes and needs restarting --
@@ -34,4 +37,29 @@ func dial(network, addr string) (net.Conn, error) {
 	}
 
 	return tcpConn, nil
+}
+
+func ispanic(err error) bool {
+	_, ok := err.(*panicerror)
+	return ok
+}
+
+type panicerror struct {
+	error
+}
+
+// protectedRawWatch wraps watch in a panic recovery to work around https://github.com/coreos/go-etcd/pull/212
+func protectedRawWatch(client *etcd.Client, path string, index uint64, recursive bool, receiver chan *etcd.RawResponse, stop chan bool) (resp *etcd.RawResponse, err error) {
+	defer func() {
+		if rerr := recover(); rerr != nil {
+			perr, ok := rerr.(error)
+			if ok {
+				err = &panicerror{perr}
+			} else {
+				err = fmt.Errorf("Unknown recover error: %v", rerr)
+			}
+		}
+	}()
+
+	return client.RawWatch(path, index, recursive, receiver, stop)
 }

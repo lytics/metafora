@@ -144,10 +144,16 @@ startWatch:
 
 watchLoop:
 	for {
-		rr, err := c.cli.RawWatch(c.path, index, notrecursive, nil, c.stop)
+		rr, err := protectedRawWatch(c.cli, c.path, index, notrecursive, nil, c.stop)
 		if err != nil {
 			if err == etcd.ErrWatchStoppedByUser {
 				return
+			}
+			// This is probably a canceled request panic
+			// Wait a little bit, then continue as normal
+			// Can be removed after Go 1.5 is released
+			if ispanic(err) {
+				continue
 			}
 			metafora.Errorf("Error watching %s - sending error to stateful handler: %v", c.path, err)
 			c.sendErr(err)
