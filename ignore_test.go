@@ -15,7 +15,7 @@ func TestIgnore(t *testing.T) {
 	im := ignorer(out, stop)
 
 	// Ignore task for 200ms. Yes this is racy. Might need to bump deadline.
-	deadline1 := time.Now().Add(300 * time.Millisecond)
+	deadline1 := time.Now().Add(200 * time.Millisecond)
 	im.add("1", deadline1)
 
 	// Ensure it's ignored
