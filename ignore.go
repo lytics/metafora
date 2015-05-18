@@ -10,12 +10,19 @@ import (
 // their ignore deadline is reached.
 type ignoremgr struct {
 	incoming chan *timetask
-	mu       *sync.RWMutex
-	ignores  map[string]struct{}
+	stop     <-chan struct{}
+
+	mu      *sync.RWMutex
+	ignores map[string]struct{}
 }
 
 func ignorer(tasks chan<- string, stop <-chan struct{}) *ignoremgr {
-	im := &ignoremgr{mu: &sync.RWMutex{}, ignores: make(map[string]struct{}), incoming: make(chan *timetask)}
+	im := &ignoremgr{
+		incoming: make(chan *timetask),
+		stop:     stop,
+		mu:       &sync.RWMutex{},
+		ignores:  make(map[string]struct{}),
+	}
 	go im.monitor(tasks, stop)
 	return im
 }
@@ -25,10 +32,18 @@ func (im *ignoremgr) add(taskID string, until time.Time) {
 	if until.Before(time.Now()) {
 		return
 	}
+
+	// Add to ignore map
 	im.mu.Lock()
 	im.ignores[taskID] = struct{}{}
-	im.incoming <- &timetask{time: until, task: taskID}
 	im.mu.Unlock()
+
+	// Send to monitor for pushing onto time heap
+	select {
+	case im.incoming <- &timetask{time: until, task: taskID}:
+	case <-im.stop:
+		// Don't bother adding ignore if we're just exiting
+	}
 }
 
 func (im *ignoremgr) ignored(taskID string) (ignored bool) {
@@ -61,8 +76,11 @@ func (im *ignoremgr) monitor(tasks chan<- string, stop <-chan struct{}) {
 
 		select {
 		case newtask := <-im.incoming:
+			// Push onto next task and new task onto time heap
 			heap.Push(&times, newtask)
 			heap.Push(&times, next)
+
+			// Stop the existing timer for this loop iteration
 			timer.Stop()
 		case <-timer.C:
 			// Ignore expired, remove the entry
