@@ -104,8 +104,8 @@ func (e *FairBalancer) Init(s BalancerContext) {
 	e.bc = s
 }
 
-// CanClaim rejects tasks if the last balance released tasks. Otherwise all
-// tasks are accepted.
+// CanClaim rejects tasks for a period of time if the last balance released
+// tasks. Otherwise all tasks are accepted.
 func (e *FairBalancer) CanClaim(taskid string) (time.Time, bool) {
 	if e.delay.After(time.Now()) {
 		// Return delay set by Balance()
