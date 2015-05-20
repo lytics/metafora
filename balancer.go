@@ -97,21 +97,21 @@ type FairBalancer struct {
 	clusterstate ClusterState
 
 	releaseThreshold float64
-	delay            time.Duration
+	delay            time.Time
 }
 
 func (e *FairBalancer) Init(s BalancerContext) {
 	e.bc = s
 }
 
-// CanClaim will claim any task if this node wasn't over the task threshold
-// during the last rebalance. If it was over the threshold claims will be
-// delayed proportionally.
+// CanClaim rejects tasks for a period of time if the last balance released
+// tasks. Otherwise all tasks are accepted.
 func (e *FairBalancer) CanClaim(taskid string) (time.Time, bool) {
-	if e.delay == 0 {
-		return NoDelay, true
+	if e.delay.After(time.Now()) {
+		// Return delay set by Balance()
+		return e.delay, false
 	}
-	return time.Now().Add(e.delay), false
+	return NoDelay, true
 }
 
 // Balance releases tasks if this node has 120% more tasks than the average
@@ -120,7 +120,7 @@ func (e *FairBalancer) Balance() []string {
 	nodetasks := e.bc.Tasks()
 
 	// Reset delay
-	e.delay = 0
+	e.delay = time.Time{}
 
 	// If local tasks <= 1 this node should never rebalance
 	if len(nodetasks) < 2 {
@@ -150,7 +150,7 @@ func (e *FairBalancer) Balance() []string {
 		}
 	}
 
-	e.delay = time.Duration(len(releasetasks)) * time.Second
+	e.delay = time.Now().Add(time.Duration(len(releasetasks)) * time.Second)
 	return releasetasks
 }
 
