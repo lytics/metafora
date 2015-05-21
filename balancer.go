@@ -111,6 +111,10 @@ func (e *FairBalancer) CanClaim(taskid string) (time.Time, bool) {
 		// Return delay set by Balance()
 		return e.delay, false
 	}
+
+	// Sleep proportional to number of tasks
+	n := len(e.bc.Tasks())
+	time.Sleep(time.Duration(n>>2) * time.Millisecond)
 	return NoDelay, true
 }
 
