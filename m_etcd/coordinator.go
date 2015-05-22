@@ -21,6 +21,13 @@ const (
 	actionExpire  = "expire"
 	actionDelete  = "delete"
 	actionCAD     = "compareAndDelete"
+
+	// descriptive consts to use for etcd.Client method parameters
+	recursive    = true
+	notrecursive = false
+
+	sorted   = true
+	unsorted = false
 )
 
 var (
@@ -190,10 +197,8 @@ func (ec *EtcdCoordinator) upsertDir(path string, ttl uint64) {
 	//  you have to know about it to find it :).  I'm using it to add some
 	//  info about when the cluster's schema was setup.
 	pathMarker := path + "/" + MetadataKey
-	const sorted = false
-	const recursive = false
 
-	_, err := ec.client.Get(path, sorted, recursive)
+	_, err := ec.client.Get(path, unsorted, notrecursive)
 	if err == nil {
 		return
 	}
@@ -295,9 +300,7 @@ startWatch:
 		}
 
 		// Get existing tasks
-		const notsorted = false
-		const recursive = true
-		resp, err := client.Get(ec.taskPath, notsorted, recursive)
+		resp, err := client.Get(ec.taskPath, unsorted, recursive)
 		if err != nil {
 			metafora.Errorf("%s Error getting the existing tasks: %v", ec.taskPath, err)
 			return err
@@ -380,8 +383,9 @@ func (ec *EtcdCoordinator) parseTask(resp *etcd.Response) (task string, ok bool)
 }
 
 // Claim is called by the Consumer when a Balancer has determined that a task
-// ID can be claimed. Claim returns false if another consumer has already
-// claimed the ID.
+// ID can be claimed. Claim returns false if the task could not be claimed.
+// Either due to error, the task being completed, or another consumer has
+// already claimed it.
 func (ec *EtcdCoordinator) Claim(taskID string) bool {
 	return ec.taskManager.add(taskID)
 }
@@ -411,8 +415,6 @@ func (ec *EtcdCoordinator) Command() (metafora.Command, error) {
 		return nil, err
 	}
 
-	const sorted = true
-	const recursive = true
 startWatch:
 	for {
 		// Get existing commands

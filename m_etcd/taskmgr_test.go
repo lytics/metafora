@@ -2,6 +2,7 @@ package m_etcd
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,34 +16,66 @@ type fakeEtcd struct {
 	cad chan string
 }
 
-func (f fakeEtcd) Create(key, value string, ttl uint64) (*etcd.Response, error) {
+func (f *fakeEtcd) Create(key, value string, ttl uint64) (*etcd.Response, error) {
 	f.add <- key
-	return nil, nil
+
+	// Due to lytics/metafora#124 claims will do a get after a create to make
+	// sure the created index of the task directory doesn't match the created
+	// index of the claim key. If key=="zombie", fake a resurrected task,
+	// otherwise return differing values to avoid triggering this workaround.
+	var index uint64 = 2
+	if strings.HasSuffix(key, "/zombie/owner") {
+		index = 666
+	}
+	resp := &etcd.Response{Node: &etcd.Node{CreatedIndex: index}}
+	return resp, nil
 }
 
-func (f fakeEtcd) Delete(key string, recursive bool) (*etcd.Response, error) {
+func (f *fakeEtcd) Get(key string, sorted, recursive bool) (*etcd.Response, error) {
+	var index uint64 = 1
+	if strings.HasSuffix(key, "/zombie") {
+		// Testing resurrection, see comment in Create above
+		index = 666
+	}
+	return &etcd.Response{Node: &etcd.Node{CreatedIndex: index}}, nil
+}
+
+func (f *fakeEtcd) Delete(key string, recursive bool) (*etcd.Response, error) {
 	f.del <- key
 	return nil, nil
 }
 
-func (f fakeEtcd) CompareAndDelete(k, pv string, _ uint64) (*etcd.Response, error) {
+func (f *fakeEtcd) CompareAndDelete(k, pv string, _ uint64) (*etcd.Response, error) {
 	f.cad <- k
 	return nil, nil
 }
 
-func (f fakeEtcd) CompareAndSwap(k, v string, ttl uint64, pv string, _ uint64) (*etcd.Response, error) {
+func (f *fakeEtcd) CompareAndSwap(k, v string, ttl uint64, pv string, _ uint64) (*etcd.Response, error) {
 	if k == "testns/testlost/owner" {
 		return nil, fmt.Errorf("test error")
 	}
 	f.cas <- k
 	return nil, nil
 }
-func newFakeEtcd() fakeEtcd {
-	return fakeEtcd{
+func newFakeEtcd() *fakeEtcd {
+	return &fakeEtcd{
 		add: make(chan string, 10),
 		del: make(chan string, 10),
 		cas: make(chan string, 10),
 		cad: make(chan string, 10),
+	}
+}
+
+// TestTaskResurrection ensures that attempting to Claim (add) a Done (removed)
+// task doesn't succeed. See https://github.com/lytics/metafora/issues/124
+func TestTaskResurrection(t *testing.T) {
+	t.Parallel()
+
+	client := newFakeEtcd()
+	const ttl = 2
+	mgr := newManager(newCtx(t, "mgr"), client, "testns", "testnode", ttl)
+	if added := mgr.add("zombie"); added {
+		t.Fatal("Added zombie task when it should have been deleted.")
 	}
 }
 
@@ -51,11 +84,14 @@ func TestTaskRefreshing(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping due to -short")
 	}
+	t.Parallel()
 
 	client := newFakeEtcd()
 	const ttl = 2
 	mgr := newManager(newCtx(t, "mgr"), client, "testns", "testnode", ttl)
-	mgr.add("tid")
+	if added := mgr.add("tid"); !added {
+		t.Fatal("Failed to add task!")
+	}
 	for i := 0; i < 2; i++ {
 		select {
 		case <-client.cas:
@@ -73,6 +109,7 @@ func TestTaskRemoval(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping due to -short")
 	}
+	t.Parallel()
 
 	client := newFakeEtcd()
 	const ttl = 2
