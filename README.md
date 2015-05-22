@@ -1,6 +1,8 @@
 metafora
 ========
 
+[![Join the chat at https://gitter.im/lytics/metafora](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/lytics/metafora?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+
 [![Build Status](https://travis-ci.org/lytics/metafora.svg?branch=master)](https://travis-ci.org/lytics/metafora) [![GoDoc](https://godoc.org/github.com/lytics/metafora?status.svg)](https://godoc.org/github.com/lytics/metafora)
 
 Ordasity inspired distributed task runner.
