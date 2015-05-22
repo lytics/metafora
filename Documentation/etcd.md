@@ -1,5 +1,8 @@
 # etcd integration
 
+Requires etcd v2 (etcd 0.4.6 works but is unsupported because it's abandoned
+upstream).
+
 Metafora contains an [etcd](https://github.com/coreos/etcd) implementation of
 the core
 [`Coordinator`](https://godoc.org/github.com/lytics/metafora#Coordinator) and

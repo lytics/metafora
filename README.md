@@ -1,9 +1,9 @@
 metafora
 ========
 
-[![Build Status](https://travis-ci.org/lytics/metafora.svg?branch=master)](https://travis-ci.org/lytics/metafora) [![GoDoc](https://godoc.org/github.com/lytics/metafora?status.svg)](https://godoc.org/github.com/lytics/metafora)
-
-Ordasity inspired distributed task runner.
+[![Join the chat at https://gitter.im/lytics/metafora](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/lytics/metafora?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+[![Build Status](https://travis-ci.org/lytics/metafora.svg?branch=master)](https://travis-ci.org/lytics/metafora)
+[![GoDoc](https://godoc.org/github.com/lytics/metafora?status.svg)](https://godoc.org/github.com/lytics/metafora)
 
 Metafora is a [Go](https://golang.org) library designed to run long-running
 (minutes to permanent) tasks in a cluster.
@@ -13,18 +13,26 @@ IRC: `#metafora` on Freenode
 Features
 --------
 
-* **Distributed** - horizontally scalable, elastic
-* **Masterless** - work stealing, not assigning, automatic rebalancing
+* **Distributed** - horizontally scalable
+* **Elastic** - online cluster resizing with automated rebalancing
+* **Masterless** - work stealing, not assigning, pluggable balancing
 * **Fault tolerant** - tasks are reassigned if nodes disappear
 * **Simple** - few states, no checkpointing, no configuration management
 * **Extensible** - well defined interfaces for implementing balancing and
   coordinating
-* **Exactly-once** - attempts to ensure one-and-only-one instance of each
+* **Exactly-once** - designed to enforce one-and-only-one instance of each
   submitted task is running
 
-Many aspects of task running are left up to the *Handler* implementation such
-as checkpointing work progress, configuration management, and more complex
-state transitions than Metafora provides (such as Paused, Sleep, etc.).
+Metafora is a library for building distributed task work systems. You're
+responsible for creating a `main()` entrypoint for your application, writing a
+`metafora.Handler` and `HandlerFunc` to actually process tasks, and then
+starting Metafora's `Consumer`.
+
+Metafora's task state machine is implemented as a `Handler` adapter. Simply
+implement your task processor as a
+[`StatefulHandler`](https://godoc.org/github.com/lytics/metafora/statemachine#StatefulHandler)
+function, and create a `metafora.Handler` with
+[`statemachine.New`](https://godoc.org/github.com/lytics/metafora/statemachine#New).
 
 Example
 -------
@@ -45,6 +53,9 @@ koalemosd
 go get -v -u github.com/lytics/metafora/examples/koalemosctl
 koalemosctl sleep 3 # where "sleep 3" is any command on your $PATH
 ```
+
+Since koalemosd is a simple wrapper around OS processes, it does not use the
+state machine (`statemachine.StatefulHandler`).
 
 Terms
 -----
@@ -81,10 +92,8 @@ FAQ
 **Q. Is it ready for production use?**
 
 *Yes.* Metafora with the etcd coordinator has been the production work system at
-[Lytics](http://lytics.io) since January 2014.
-
-We're in the process of migrating more of our internal work system into
-Metafora.
+[Lytics](http://lytics.io) since January 2014 and runs thousands of tasks
+concurrently across a cluster of VMs.
 
 Since Metafora is still under heavy development, you probably want to pin the
 dependencies to a commit hash or
@@ -98,47 +107,4 @@ It doesn't exist. Metafora is library for you to import and use in a service
 you write. Metafora handles task management but leaves implementation details
 such as task implementation and daemonization up to the user.
 
-**Q. Why not use [Ordasity](https://github.com/boundary/ordasity)?**
-
-[We](http://lytics.io) have an existing work running system written in Go and
-needed a new distribution library for it. There's over 25k lines of Go we'd
-like to reuse and couldn't with Ordasity as it runs on the JVM.
-
-**Q. Why not use [donut](https://github.com/dforsyth/donut)?**
-
-[We](http://lytics.io) evaluated donut and found it far from production use.
-While we've been inspired by many of its basic interfaces there really wasn't
-much code we were interested in reusing. At ~600 lines of code in donut,
-starting from scratch didn't seem like it would lose us much.
-
-That being said we're very appreciative of donut! It heavily influenced our
-design.
-
-**Q. Why not use [goworker](http://www.goworker.org/)?**
-
-goworker does not support rebalancing and appears to be more focused on a high
-rate (>1/s) of short lived work items. Metafora is designed for a low rate
-(<1/s) of long lived work items. This means rebalancing running work is
-critical.
-
-**Q. Why not use a cluster management framework like
-[Mesos](http://mesos.apache.org/) or [Kubernetes](http://kubernetes.io/)?**
-
-You can use a cluster management framework to run Metafora, but you *shouldn't*
-use Metafora as a cluster management framework.
-
-While Metafora tasks are long lived, they're often not individually large or
-resource intensive.  Cluster management frameworks' smallest unit of work tends
-to be an operating system process. We wanted to run many tasks per process.
-
-Cluster management frameworks are quite large in terms of code and operational
-complexity -- for good reason! They're a much more powerful and general purpose
-tool than Metafora. Metafora is being written, deployed, and maintained by a
-very small team, so minimizing operational complexity and overhead is a key
-feature.
-
-**Q. What does metafora mean?**
-
-It's Greek for "transfer" and also refers to a winch on boats.
-[We](http://lytics.io) borrowed the Greek naval naming theme from
-[Kubernetes](http://kubernetes.io/).
+[FAQ continued in Documentation...](Documentation/faq.md)
