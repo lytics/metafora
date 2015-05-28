@@ -19,8 +19,8 @@ import (
 // automated here over and over. This is far more reliable than expecting
 // developers to do adhoc testing of all of the m_etcd package's features.
 func TestAll(t *testing.T) {
-	t.Parallel()
 	etcdc, hosts := testutil.NewEtcdClient(t)
+	t.Parallel()
 
 	const recursive = true
 	etcdc.Delete("test-a", recursive)
@@ -218,5 +218,45 @@ func TestAll(t *testing.T) {
 		if len(node.Nodes) > 0 {
 			t.Fatalf("%s has %d nodes. First key: %s", node.Key, len(node.Nodes), node.Nodes[0].Key)
 		}
+	}
+}
+
+// TestTaskResurrectionInt ensures that a Claim won't recreate a task that had
+// been deleted (marked as done). taskmgr has a non-integration version of this
+// test.
+func TestTaskResurrectionInt(t *testing.T) {
+	etcdc, hosts := testutil.NewEtcdClient(t)
+	t.Parallel()
+
+	const recursive = true
+	etcdc.Delete("test-resurrect", recursive)
+
+	coord, err := m_etcd.NewEtcdCoordinator("r-node", "test-resurrect", hosts)
+	if err != nil {
+		t.Fatalf("Error creating coordinator: %v", err)
+	}
+	if err := coord.Init(nil); err != nil {
+		t.Fatalf("Error initializing coordinator: %v", err)
+	}
+
+	// Try to claim a nonexistent
+	if claimed := coord.Claim("xyz"); claimed {
+		t.Fatal("Claiming a nonexistent task should not work but did!")
+	}
+
+	// Create a task, mark it as done, and try to claim it again
+	client := m_etcd.NewClient("test-resurrect", hosts)
+	if err := client.SubmitTask("xyz"); err != nil {
+		t.Fatalf("Error submitting task xyz: %v", err)
+	}
+
+	if claimed := coord.Claim("xyz"); !claimed {
+		t.Fatal("Failed to claim task xyz")
+	}
+
+	coord.Done("xyz")
+
+	if claimed := coord.Claim("xyz"); claimed {
+		t.Fatal("Reclaimed task that was marked as done.")
 	}
 }

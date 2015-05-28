@@ -14,6 +14,7 @@ import (
 // Don't depend directly on etcd.Client to make testing easier.
 type client interface {
 	Create(key, value string, ttl uint64) (*etcd.Response, error)
+	Get(key string, sort, recursive bool) (*etcd.Response, error)
 	Delete(key string, recursive bool) (*etcd.Response, error)
 	CompareAndDelete(key, prevValue string, index uint64) (*etcd.Response, error)
 	CompareAndSwap(key, value string, ttl uint64, prevValue string, index uint64) (*etcd.Response, error)
@@ -82,7 +83,7 @@ func (m *taskManager) ownerNode(taskID string) (key, value string) {
 func (m *taskManager) add(taskID string) bool {
 	// Attempt to claim the node
 	key, value := m.ownerNode(taskID)
-	_, err := m.client.Create(key, value, m.ttl)
+	resp, err := m.client.Create(key, value, m.ttl)
 	if err != nil {
 		etcdErr, ok := err.(*etcd.EtcdError)
 		if !ok || etcdErr.ErrorCode != EcodeNodeExist {
@@ -90,6 +91,35 @@ func (m *taskManager) add(taskID string) bool {
 		} else {
 			metafora.Debugf("Claim of %s failed, already claimed", key)
 		}
+		return false
+	}
+
+	index := resp.Node.CreatedIndex
+
+	// lytics/metafora#124 - the successful create above may have resurrected a
+	// deleted (done) task. Compare the CreatedIndex of the directory with the
+	// CreatedIndex of the claim key, if they're equal this claim ressurected a
+	// done task and should cleanup.
+	resp, err = m.client.Get(m.taskPath(taskID), unsorted, notrecursive)
+	if err != nil {
+		// Erroring here is BAD as we may have resurrected a done task, and because
+		// of this failure there's no way to tell. The claim will eventually
+		// timeout and the task will get reclaimed.
+		metafora.Errorf("Error retrieving task path %q after claiming %q: %v", m.taskPath(taskID), taskID, err)
+		return false
+	}
+
+	if resp.Node.CreatedIndex == index {
+		metafora.Debugf("Task %s resurrected due to claim/done race. Re-deleting.", taskID)
+		if _, err = m.client.Delete(m.taskPath(taskID), recursive); err != nil {
+			// This is as bad as it gets. We *know* we resurrected a task, but we
+			// failed to re-delete it.
+			metafora.Errorf("Task %s was resurrected and could not be removed! %s should be manually removed. Error: %v",
+				taskID, m.taskPath(taskID), err)
+		}
+
+		// Regardless of whether or not the delete succeeded, never treat
+		// resurrected tasks as claimed.
 		return false
 	}
 
