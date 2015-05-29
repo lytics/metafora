@@ -8,7 +8,7 @@ metafora
 Metafora is a [Go](https://golang.org) library designed to run long-running
 (minutes to permanent) tasks in a cluster.
 
-IRC: `#metafora` on Freenode
+IRC: `#lytics/metafora` on [irc.gitter.im](https://irc.gitter.im)
 
 Features
 --------
