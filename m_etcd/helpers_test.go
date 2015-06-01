@@ -20,7 +20,6 @@ const (
 //  * Clearing the test namespace in etcd
 func setupEtcd(t *testing.T) (*EtcdCoordinator, []string) {
 	client, hosts := testutil.NewEtcdClient(t)
-	const recursive = true
 	client.Delete(namespace, recursive)
 	coord, err := NewEtcdCoordinator(nodeID, namespace, hosts)
 	if err != nil {

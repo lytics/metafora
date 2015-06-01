@@ -487,7 +487,6 @@ func (ec *EtcdCoordinator) Close() {
 	close(ec.stop)
 
 	// Finally remove the node entry
-	const recursive = true
 	_, err := ec.client.Delete(ec.nodePath, recursive)
 	if err != nil {
 		if eerr, ok := err.(*etcd.EtcdError); ok {
@@ -513,7 +512,6 @@ func (ec *EtcdCoordinator) Close() {
 //   2. restartWatchError - the specified index is too old, try again with a
 //                          newer index
 func (ec *EtcdCoordinator) watch(c *etcd.Client, path string, index uint64, stop chan bool) (*etcd.Response, error) {
-	const recursive = true
 	for {
 		// Start the blocking watch after the last response's index.
 		rawResp, err := protectedRawWatch(c, path, index+1, recursive, nil, stop)
