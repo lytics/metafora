@@ -108,8 +108,7 @@ func New(nodeID, namespace string, hosts []string, h statemachine.StatefulHandle
 	// Create a HandlerFunc that ties together the command listener, stateful
 	// handler, and statemachine.
 	hf := func(taskID string) metafora.Handler {
-		clc, _ := newEtcdClient(hosts)
-		cl := NewCommandListener(taskID, namespace, clc)
+		cl := NewCommandListener(taskID, namespace, hosts)
 		return statemachine.New(taskID, h, ss, cl, nil)
 	}
 

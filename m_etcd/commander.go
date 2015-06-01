@@ -54,10 +54,11 @@ type cmdrListener struct {
 // NewCommandListener makes a statemachine.CommandListener implementation
 // backed by etcd. The namespace should be the same as the coordinator as
 // commands use a separate path within a namespace than tasks or nodes.
-func NewCommandListener(taskID, namespace string, c *etcd.Client) statemachine.CommandListener {
+func NewCommandListener(taskID, namespace string, hosts []string) statemachine.CommandListener {
 	if namespace[0] != '/' {
 		namespace = "/" + namespace
 	}
+	c, _ := newEtcdClient(hosts)
 	cl := &cmdrListener{
 		path:     path.Join(namespace, commandPath, taskID),
 		cli:      c,
