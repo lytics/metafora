@@ -381,3 +381,34 @@ func TestNodeRefresher(t *testing.T) {
 		t.Fatal("Consumer didn't exit even though node directory disappeared!")
 	}
 }
+
+// TestExpiration ensures that expired claims get reclaimed properly.
+func TestExpiration(t *testing.T) {
+	metafora.SetLogLevel(metafora.LogLevelDebug)
+	coord, _ := setupEtcd(t)
+	hf := metafora.HandlerFunc(metafora.SimpleHandler(func(taskID string, stop <-chan bool) bool {
+		<-stop
+		return true
+	}))
+	consumer, err := metafora.NewConsumer(coord, hf, metafora.DumbBalancer)
+	if err != nil {
+		t.Fatalf("Error creating consumer: %+v", err)
+	}
+	client, _ := testutil.NewEtcdClient(t)
+
+	_, err = client.Create(path.Join(namespace, TasksPath, "abc", OwnerMarker), `{"node":"--"}`, 1)
+	if err != nil {
+		t.Fatalf("Error creating fake claim: %v", err)
+	}
+
+	defer consumer.Shutdown()
+	go consumer.Run()
+
+	// Wait for claim to expire and coordinator to pick up task
+	time.Sleep(2 * time.Second)
+
+	tasks := consumer.Tasks()
+	if len(tasks) != 1 {
+		t.Fatalf("Expected 1 task to be claimed but found: %v", tasks)
+	}
+}
