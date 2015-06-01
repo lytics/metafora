@@ -2,6 +2,9 @@ package m_etcd_test
 
 import (
 	"errors"
+	"os"
+	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -11,6 +14,8 @@ import (
 	"github.com/lytics/metafora/m_etcd/testutil"
 	"github.com/lytics/metafora/statemachine"
 )
+
+const recursive = true
 
 // TestAll is an integration test for all of m_etcd's components.
 //
@@ -22,7 +27,6 @@ func TestAll(t *testing.T) {
 	etcdc, hosts := testutil.NewEtcdClient(t)
 	t.Parallel()
 
-	const recursive = true
 	etcdc.Delete("test-a", recursive)
 	etcdc.Delete("test-b", recursive)
 
@@ -188,7 +192,7 @@ func TestAll(t *testing.T) {
 		}
 
 		// Give the statemachine a moment to load the initial state and exit
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(500 * time.Millisecond)
 
 		n = len(cons1b.Tasks()) + len(cons2b.Tasks())
 		if n != 2 {
@@ -228,7 +232,6 @@ func TestTaskResurrectionInt(t *testing.T) {
 	etcdc, hosts := testutil.NewEtcdClient(t)
 	t.Parallel()
 
-	const recursive = true
 	etcdc.Delete("test-resurrect", recursive)
 
 	coord, err := m_etcd.NewEtcdCoordinator("r-node", "test-resurrect", hosts)
@@ -259,4 +262,73 @@ func TestTaskResurrectionInt(t *testing.T) {
 	if claimed := coord.Claim("xyz"); claimed {
 		t.Fatal("Reclaimed task that was marked as done.")
 	}
+}
+
+// TestStress stress tests a metafora cluster.
+func TestStress(t *testing.T) {
+	if os.Getenv("stress") == "" {
+		t.Skip("Skipping stress test because 'stress' was unset")
+	}
+	etcdc, hosts := testutil.NewEtcdClient(t)
+	etcdc.Delete("test-stress", recursive)
+
+	claims := int64(0)
+	stressHandler := func(tid string, commands <-chan statemachine.Message) statemachine.Message {
+		atomic.AddInt64(&claims, 1)
+		c := <-commands
+		atomic.AddInt64(&claims, -1)
+		return c
+	}
+
+	// Seed cluster with 10k tasks
+	const numt = 10000
+	client := m_etcd.NewClient("test-stress", hosts)
+	tstartfill := time.Now()
+	for i := 0; i < numt; i++ {
+		if err := client.SubmitTask(strconv.Itoa(i)); err != nil {
+			t.Fatalf("Failed after %d tasks submitted: %v", i, err)
+		}
+	}
+	elapsed := time.Now().Sub(tstartfill)
+	metafora.Infof("Finished submitting %d tasks in %s (%d/s)", numt, elapsed, numt/uint64(elapsed/time.Second))
+
+	// Create 100 metafora instances
+	cons := make([]*metafora.Consumer, 100)
+	for i := 0; i < len(cons); i++ {
+		coord, hf, bal, err := m_etcd.New("node-"+strconv.Itoa(i), "test-stress", hosts, stressHandler)
+		if err != nil {
+			t.Fatalf("Failed after %d new coordinators: %v", i, err)
+		}
+		cons[i], err = metafora.NewConsumer(coord, hf, bal)
+		if err != nil {
+			t.Fatalf("Failed after %d new consumers: %v", i, err)
+		}
+	}
+
+	// Prep run methods
+	starter := make(chan bool)
+	for _, con := range cons {
+		go func(c *metafora.Consumer) {
+			<-starter
+			c.Run()
+		}(con)
+	}
+
+	// Go!
+	tstart := time.Now()
+	close(starter)
+
+	for {
+		time.Sleep(100 * time.Millisecond)
+		c := atomic.LoadInt64(&claims)
+		if c == numt {
+			break
+		}
+		if time.Now().After(tstart.Add(5 * time.Minute)) {
+			t.Fatalf("Failed to claim all tasks (%d/%d) after 5 minutes", c, numt)
+		}
+	}
+
+	tclaimed := time.Now()
+	t.Logf("Time to fully claimed: %s", tclaimed.Sub(tstart))
 }
