@@ -152,6 +152,7 @@ var (
 
 		// Sleeping can return to Runnable or be Killed/Paused
 		{Event: Checkpoint, From: Sleeping, To: Sleeping},
+		{Event: Release, From: Sleeping, To: Sleeping},
 		{Event: Sleep, From: Sleeping, To: Sleeping},
 		{Event: Run, From: Sleeping, To: Runnable},
 		{Event: Kill, From: Sleeping, To: Killed},
@@ -361,9 +362,9 @@ func (s *stateMachine) exec(state *State) Message {
 			return Message{Code: Run}
 		case msg := <-s.cmds:
 			timer.Stop()
-			// Checkpoint is a special case that shouldn't affect sleep time, so
-			// maintain it across the state transition
-			if msg.Code == Checkpoint {
+			// Checkpoint & Release are special cases that shouldn't affect sleep
+			// time, so maintain it across the state transition
+			if msg.Code == Checkpoint || msg.Code == Release {
 				msg.Until = state.Until
 			}
 			return msg
