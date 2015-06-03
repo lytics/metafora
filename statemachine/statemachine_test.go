@@ -184,6 +184,37 @@ func TestSleep(t *testing.T) {
 	t.Logf("Statemachine latency: %s", elapsed-dur)
 }
 
+func TestSleepRelease(t *testing.T) {
+	ss, cmdr, _, returned := setup(t, "sleep-test")
+
+	until := time.Now().Add(9001 * time.Hour)
+	{
+		// Put to sleep forever
+		if err := cmdr.Send("sleep-test", Message{Code: Sleep, Until: &until}); err != nil {
+			t.Fatalf("Error sending sleep: %v", err)
+		}
+
+		newstate := <-ss.Stored
+		if newstate.State.Code != Sleeping || !newstate.State.Until.Equal(until) {
+			t.Fatalf("Expected task to store state Sleeping, but stored: %s", newstate)
+		}
+	}
+
+	{
+		// Releasing should maintain sleep state but exit
+		if err := cmdr.Send("sleep-test", Message{Code: Release}); err != nil {
+			t.Fatalf("Error sending release: %v", err)
+		}
+		newstate := <-ss.Stored
+		if newstate.State.Code != Sleeping || newstate.State.Until == nil || !newstate.State.Until.Equal(until) {
+			t.Fatalf("Releasing unexpectedly changed state: %s != Sleeping || %v != %s", newstate.State.Code, newstate.State.Until, until)
+		}
+		if done := <-returned; done {
+			t.Fatal("Releasing should not have returned done.")
+		}
+	}
+}
+
 func TestTerminal(t *testing.T) {
 	ss, cmdr, sm, done := setup(t, "terminal-test")
 
