@@ -18,18 +18,19 @@ func TestSleepTest(t *testing.T) {
 	etcdc, hosts := testutil.NewEtcdClient(t)
 	t.Parallel()
 	const namespace = "sleeptest-metafora"
-	const nonsleepingtask = "task1"
 	const sleepingtasks = "sleeping-task1"
 
 	const recursive = true
 	etcdc.Delete(namespace, recursive)
 
+	holdtask := make(chan bool)
 	h := func(tid string, cmds <-chan statemachine.Message) statemachine.Message {
 
 		if tid == sleepingtasks {
 			sleeptil := 5 * time.Second
 			nextstarttime := (time.Now().Add(sleeptil))
 			t.Logf("sleeping task:%v sleepfor:%v", tid, nextstarttime)
+			<-holdtask
 			return statemachine.Message{Code: statemachine.Sleep, Until: &nextstarttime}
 		}
 
@@ -48,22 +49,12 @@ func TestSleepTest(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Error creating consumer %s:%s: %v", ns, name, err)
 		}
-		go cons.Run()
+		go func() {
+			cons.Run()
+			t.Logf("Consumer:%s exited.", name)
+		}()
 		return cons
 	}
-	// Start 2 consumers
-	cons1 := newC("node1", namespace)
-	cons2 := newC("node2", namespace)
-
-	// Create clients and start some tests
-	cliA := m_etcd.NewClient(namespace, hosts)
-
-	if err := cliA.SubmitTask(nonsleepingtask); err != nil {
-		t.Fatalf("Error submitting task1 to a: %v", err)
-	}
-
-	// Give consumers a bit to pick up tasks
-	time.Sleep(500 * time.Millisecond)
 
 	assertRunning := func(tid string, cons ...*metafora.Consumer) {
 		found := false
@@ -84,32 +75,27 @@ func TestSleepTest(t *testing.T) {
 		}
 	}
 
-	assertRunning(nonsleepingtask, cons1, cons2)
+	// Start 2 consumers
+	cons1 := newC("node1", namespace)
+	cons2 := newC("node2", namespace)
 
-	// Kill task1 in A
-	{
-		cmdr := m_etcd.NewCommander(namespace, etcdc)
-		if err := cmdr.Send(nonsleepingtask, statemachine.Message{Code: statemachine.Kill}); err != nil {
-			t.Fatalf("Error sending kill to task1: %v", err)
-		}
-		time.Sleep(400 * time.Millisecond)
-
-		for _, c := range []*metafora.Consumer{cons1, cons2} {
-			tasks := c.Tasks()
-			if len(tasks) != 0 {
-				t.Fatalf("Expected no tasks but found: %d", len(tasks))
-			}
-		}
-	}
+	// Create clients and start some tests
+	cliA := m_etcd.NewClient(namespace, hosts)
 
 	if err := cliA.SubmitTask(sleepingtasks); err != nil {
 		t.Fatalf("Error submitting task1 to a: %v", err)
 	}
 
 	// Give consumers a bit to pick up tasks
-	time.Sleep(1 * time.Second)
+	time.Sleep(500 * time.Millisecond)
 
 	assertRunning(sleepingtasks, cons1, cons2)
+
+	holdtask <- true
+	// Give consumers a bit to pick up tasks
+	time.Sleep(500 * time.Millisecond)
+
+	assertRunning(sleepingtasks, cons1, cons2) // not sure if this should be true or false.
 
 	wait1 := make(chan bool)
 	go func() {
