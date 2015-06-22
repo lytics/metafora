@@ -12,6 +12,129 @@ import (
 	"github.com/lytics/metafora/statemachine"
 )
 
+// TestSleepTest is an integration test for all of m_etcd's components.
+//
+func TestSleepTest(t *testing.T) {
+	etcdc, hosts := testutil.NewEtcdClient(t)
+	t.Parallel()
+	const namespace = "sleeptest-metafora"
+	const nonsleepingtask = "task1"
+	const sleepingtasks = "sleeping-task1"
+
+	const recursive = true
+	etcdc.Delete(namespace, recursive)
+
+	h := func(tid string, cmds <-chan statemachine.Message) statemachine.Message {
+
+		if tid == sleepingtasks {
+			sleeptil := 5 * time.Second
+			nextstarttime := (time.Now().Add(sleeptil))
+			t.Logf("sleeping task:%v sleepfor:%v", tid, nextstarttime)
+			return statemachine.Message{Code: statemachine.Sleep, Until: &nextstarttime}
+		}
+
+		cmd := <-cmds
+		t.Logf("non sleeping task:%v", tid)
+
+		return cmd
+	}
+
+	newC := func(name, ns string) *metafora.Consumer {
+		coord, hf, bal, err := m_etcd.New(name, ns, hosts, h)
+		if err != nil {
+			t.Fatalf("Error creating new etcd stack: %v", err)
+		}
+		cons, err := metafora.NewConsumer(coord, hf, bal)
+		if err != nil {
+			t.Fatalf("Error creating consumer %s:%s: %v", ns, name, err)
+		}
+		go cons.Run()
+		return cons
+	}
+	// Start 2 consumers
+	cons1 := newC("node1", namespace)
+	cons2 := newC("node2", namespace)
+
+	// Create clients and start some tests
+	cliA := m_etcd.NewClient(namespace, hosts)
+
+	if err := cliA.SubmitTask(nonsleepingtask); err != nil {
+		t.Fatalf("Error submitting task1 to a: %v", err)
+	}
+
+	// Give consumers a bit to pick up tasks
+	time.Sleep(500 * time.Millisecond)
+
+	assertRunning := func(tid string, cons ...*metafora.Consumer) {
+		found := false
+		for _, c := range cons {
+			tasks := c.Tasks()
+			if len(tasks) > 0 && found {
+				t.Fatal("Task already found running but another task is running on a different consumer")
+			}
+			if len(tasks) > 1 {
+				t.Fatalf("Expected at most 1 task, but found: %d", len(tasks))
+			}
+			if len(tasks) == 1 && tasks[0].ID() == tid {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("Could not find task=%q", tid)
+		}
+	}
+
+	assertRunning(nonsleepingtask, cons1, cons2)
+
+	// Kill task1 in A
+	{
+		cmdr := m_etcd.NewCommander(namespace, etcdc)
+		if err := cmdr.Send(nonsleepingtask, statemachine.Message{Code: statemachine.Kill}); err != nil {
+			t.Fatalf("Error sending kill to task1: %v", err)
+		}
+		time.Sleep(400 * time.Millisecond)
+
+		for _, c := range []*metafora.Consumer{cons1, cons2} {
+			tasks := c.Tasks()
+			if len(tasks) != 0 {
+				t.Fatalf("Expected no tasks but found: %d", len(tasks))
+			}
+		}
+	}
+
+	if err := cliA.SubmitTask(sleepingtasks); err != nil {
+		t.Fatalf("Error submitting task1 to a: %v", err)
+	}
+
+	// Give consumers a bit to pick up tasks
+	time.Sleep(1 * time.Second)
+
+	assertRunning(sleepingtasks, cons1, cons2)
+
+	wait1 := make(chan bool)
+	go func() {
+		defer close(wait1)
+		// Shutdown
+		cons1.Shutdown()
+		cons2.Shutdown()
+	}()
+
+	timeout := time.NewTimer(5 * time.Second)
+	select {
+	case <-wait1:
+	case <-timeout.C:
+		t.Fatalf("failed waiting for shutdown")
+	}
+
+	//	make sure all tasks are released
+	for _, c := range []*metafora.Consumer{cons1, cons2} {
+		tasks := c.Tasks()
+		for _, work := range tasks {
+			t.Fatalf("work id %v is still running", work)
+		}
+	}
+}
+
 // TestAll is an integration test for all of m_etcd's components.
 //
 // While huge integration tests like this are rarely desirable as they can be
@@ -114,13 +237,13 @@ func TestAll(t *testing.T) {
 		}
 
 		// Give them time to start
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(800 * time.Millisecond)
 
 		// Ensure they're balanced
 		if err := cliA.SubmitCommand("node1", metafora.CommandBalance()); err != nil {
 			t.Fatalf("Error submitting balance command to cons1a: %v", err)
 		}
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(800 * time.Millisecond)
 		if err := cliA.SubmitCommand("node2", metafora.CommandBalance()); err != nil {
 			t.Fatalf("Error submitting balance command to cons1a: %v", err)
 		}
@@ -133,7 +256,7 @@ func TestAll(t *testing.T) {
 		for _, task := range a2tasks {
 			metafora.Debug("A2: ", task.ID(), " - ", task.Stopped().IsZero())
 		}
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(800 * time.Millisecond)
 
 		a1tasks = cons1a.Tasks()
 		a2tasks = cons2a.Tasks()
@@ -143,7 +266,7 @@ func TestAll(t *testing.T) {
 
 		// Shutting down a consumer should migrate all tasks to the other
 		cons1a.Shutdown()
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(800 * time.Millisecond)
 
 		a2tasks = cons2a.Tasks()
 		if len(a2tasks) != len(tasks) {
