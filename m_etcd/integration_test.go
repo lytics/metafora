@@ -105,7 +105,7 @@ func TestSleepTest(t *testing.T) {
 		cons2.Shutdown()
 	}()
 
-	timeout := time.NewTimer(5 * time.Second)
+	timeout := time.NewTimer(1 * time.Second)
 	select {
 	case <-wait1:
 	case <-timeout.C:
