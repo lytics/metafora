@@ -406,8 +406,7 @@ func run(f StatefulHandler, tid string, cmd <-chan Message) (m Message) {
 	}()
 	defer close(stopped)
 
-	m = f(tid, internalcmd)
-	return m
+	return f(tid, internalcmd)
 }
 
 // Stop sends a Release message to the state machine through the command chan.
