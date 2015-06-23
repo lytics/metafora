@@ -387,8 +387,26 @@ func run(f StatefulHandler, tid string, cmd <-chan Message) (m Message) {
 			m = Message{Code: Error, Err: fmt.Errorf("panic: %v", r)}
 		}
 	}()
-	m = f(tid, cmd)
-	return m
+
+	// Defensive code to give handlers a *copy* of the command chan. That way if
+	// a handler keeps receiving on the command chan in a goroutine past the
+	// handler's lifetime it doesn't intercept commands intended for the
+	// statemachine.
+	internalcmd := make(chan Message)
+	stopped := make(chan struct{})
+	go func() {
+		for {
+			select {
+			case c := <-cmd:
+				internalcmd <- c
+			case <-stopped:
+				return
+			}
+		}
+	}()
+	defer close(stopped)
+
+	return f(tid, internalcmd)
 }
 
 // Stop sends a Release message to the state machine through the command chan.
