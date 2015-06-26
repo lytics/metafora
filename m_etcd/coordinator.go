@@ -138,7 +138,7 @@ func NewEtcdCoordinator(nodeID, namespace string, hosts []string) (metafora.Coor
 
 	if nodeID == "" {
 		hn, _ := os.Hostname()
-		nodeID = fmt.Sprintf("%s-%x", hn, rand.Int63())
+		nodeID = fmt.Sprintf("%s-%x", hn, rand.New(rand.NewSource(time.Now().UnixNano())).Int63())
 	}
 
 	nodeID = strings.Trim(nodeID, "/ ")

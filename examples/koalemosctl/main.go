@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/coreos/go-etcd/etcd"
 	"github.com/lytics/metafora/m_etcd"
@@ -31,6 +32,7 @@ func main() {
 		os.Exit(2)
 	}
 
+	rand.Seed(time.Now().UnixNano())
 	taskID := fmt.Sprintf("%x", rand.Int63())
 
 	// First create the task body
