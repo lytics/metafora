@@ -4,10 +4,10 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"math/rand"
 	"os"
 	"strings"
-
-	"code.google.com/p/go-uuid/uuid"
+	"time"
 
 	"github.com/coreos/go-etcd/etcd"
 	"github.com/lytics/metafora/m_etcd"
@@ -32,7 +32,8 @@ func main() {
 		os.Exit(2)
 	}
 
-	taskID := uuid.NewUUID().String()
+	rand.Seed(time.Now().UnixNano())
+	taskID := fmt.Sprintf("%x", rand.Int63())
 
 	// First create the task body
 	body, err := json.Marshal(&struct{ Args []string }{Args: args})
