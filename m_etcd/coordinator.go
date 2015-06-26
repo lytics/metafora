@@ -3,12 +3,13 @@ package m_etcd
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"math/rand"
 	"os"
 	"path"
 	"strings"
 	"time"
 
-	"code.google.com/p/go-uuid/uuid"
 	"github.com/coreos/go-etcd/etcd"
 	"github.com/lytics/metafora"
 	"github.com/lytics/metafora/statemachine"
@@ -137,7 +138,7 @@ func NewEtcdCoordinator(nodeID, namespace string, hosts []string) (metafora.Coor
 
 	if nodeID == "" {
 		hn, _ := os.Hostname()
-		nodeID = hn + "-" + uuid.NewRandom().String()
+		nodeID = fmt.Sprintf("%s-%x", hn, rand.Int63())
 	}
 
 	nodeID = strings.Trim(nodeID, "/ ")
