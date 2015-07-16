@@ -57,7 +57,7 @@ func (s *State) copy() *State {
 	return ns
 }
 
-func (s State) String() string {
+func (s *State) String() string {
 	switch s.Code {
 	case Sleeping:
 		return fmt.Sprintf("%s until %s", s.Code, s.Until)
@@ -80,9 +80,19 @@ type Message struct {
 	Err error `json:"error,omitempty"`
 }
 
+// ErrorMessage is a simpler helper for creating error messages from an error.
+func ErrorMessage(err error) Message {
+	return Message{Code: Error, Err: err}
+}
+
+// SleepMessage is a simpler helper for creating sleep messages from a time.
+func SleepMessage(t time.Time) Message {
+	return Message{Code: Sleep, Until: &t}
+}
+
 // Valid returns true if the Message is valid. Invalid messages sent as
 // commands are discarded by the state machine.
-func (m Message) Valid() bool {
+func (m *Message) Valid() bool {
 	switch m.Code {
 	case Run, Pause, Release, Checkpoint, Complete, Kill:
 		return true
@@ -95,7 +105,7 @@ func (m Message) Valid() bool {
 	}
 }
 
-func (m Message) String() string {
+func (m *Message) String() string {
 	switch m.Code {
 	case Sleep:
 		if m.Until != nil {
