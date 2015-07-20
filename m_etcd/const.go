@@ -6,6 +6,7 @@ const (
 	CommandsPath = "commands"
 	MetadataKey  = "_metafora" // _{KEYs} are hidden files, so this will not trigger our watches
 	OwnerMarker  = "owner"
+	PropsKey     = "props"
 
 	ForeverTTL = 0 //Ref: https://github.com/coreos/go-etcd/blob/e10c58ee110f54c2f385ac99764e8a7ca4cb13df/etcd/requests.go#L356
 

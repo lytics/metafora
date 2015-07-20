@@ -21,6 +21,7 @@ that implementing Metafora with etcd in your own work system is quick and easy.
     │
     ├── tasks
     │   └── <task_id>
+    │       ├── props          JSON value (optional)
     │       └── owner          Ephemeral, JSON value
     │
     ├── state                  Optional, only if using state store
@@ -49,6 +50,16 @@ The JSON format is:
 ```
 
 Note that Metafora does not handle task parameters or configuration.
+
+#### Task Properties
+
+Optionally tasks may have a properties key with a JSON value. The value must be
+immutable for the life of the task.
+
+Users may set a custom `NewTask` function on their `EtcdCoordinator` in order
+to unmarshal properties into a custom struct. The struct must implement the
+`metafora.Task` interface and code that wishes to use implementation specific
+methods or fields will have to type assert.
 
 ### Node Commands
 

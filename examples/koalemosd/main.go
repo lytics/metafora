@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"os"
 	"os/signal"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/coreos/go-etcd/etcd"
 	"github.com/lytics/metafora"
+	"github.com/lytics/metafora/examples/koalemos"
 	"github.com/lytics/metafora/m_etcd"
 )
 
@@ -27,6 +29,8 @@ func main() {
 	switch strings.ToLower(*loglvl) {
 	case "debug":
 		mlvl = metafora.LogLevelDebug
+	case "info":
+		mlvl = metafora.LogLevelInfo
 	case "warn":
 		mlvl = metafora.LogLevelWarn
 	case "error":
@@ -41,16 +45,29 @@ func main() {
 	if err != nil {
 		metafora.Errorf("Error creating etcd coordinator: %v", err)
 	}
-	coord := ec.(*m_etcd.EtcdCoordinator)
+
+	// Replace NewTask func with one that returns a *koalemos.Task
+	ec.NewTask = func(id, value string) metafora.Task {
+		t := koalemos.NewTask(id)
+		if value == "" {
+			return t
+		}
+		if err := json.Unmarshal([]byte(value), t); err != nil {
+			metafora.Errorf("Unable to unmarshal task %s: %v", t.ID(), err)
+			return nil
+		}
+		return t
+	}
+
 	bal := m_etcd.NewFairBalancer(*name, *namespace, hosts)
-	c, err := metafora.NewConsumer(coord, hfunc, bal)
+	c, err := metafora.NewConsumer(ec, hfunc, bal)
 	if err != nil {
 		metafora.Errorf("Error creating consumer: %v", err)
 		os.Exit(2)
 	}
 	metafora.Infof(
 		"Starting koalsmosd with etcd=%s; namespace=%s; name=%s; loglvl=%s",
-		*peers, *namespace, coord.NodeID, mlvl)
+		*peers, *namespace, ec.NodeID, mlvl)
 	consumerRunning := make(chan struct{})
 	go func() {
 		defer close(consumerRunning)

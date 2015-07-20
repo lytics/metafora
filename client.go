@@ -2,7 +2,7 @@ package metafora
 
 type Client interface {
 	// SubmitTask submits a task to the system, the task id must be unique.
-	SubmitTask(taskId string) error
+	SubmitTask(Task) error
 
 	// Delete a task
 	DeleteTask(taskId string) error

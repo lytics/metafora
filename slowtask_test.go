@@ -14,12 +14,12 @@ func (b *releaseAllBalancer) Init(c BalancerContext) {
 	b.ctx = c
 	b.balances = make(chan int)
 }
-func (b *releaseAllBalancer) CanClaim(string) (time.Time, bool) { return NoDelay, true }
+func (b *releaseAllBalancer) CanClaim(Task) (time.Time, bool) { return NoDelay, true }
 func (b *releaseAllBalancer) Balance() []string {
 	b.balances <- 1
 	ids := []string{}
 	for _, task := range b.ctx.Tasks() {
-		ids = append(ids, task.ID())
+		ids = append(ids, task.Task().ID())
 	}
 	return ids
 }
@@ -29,7 +29,7 @@ func TestDoubleRelease(t *testing.T) {
 
 	started := make(chan int)
 	reallyStop := make(chan bool)
-	h := SimpleHandler(func(task string, stop <-chan bool) bool {
+	h := SimpleHandler(func(task Task, stop <-chan bool) bool {
 		started <- 1
 		t.Logf("TestDoubleRelease handler recieved %s - blocking until reallyStop closed.", task)
 		<-reallyStop
@@ -46,7 +46,7 @@ func TestDoubleRelease(t *testing.T) {
 	go c.Run()
 
 	// This won't exit when told to
-	tc.Tasks <- "1"
+	tc.Tasks <- testTask{"1"}
 	<-started
 
 	// Make sure balancing/mainloop isn't blocked

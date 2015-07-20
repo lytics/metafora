@@ -26,7 +26,7 @@ func setupEtcd(t *testing.T) (*EtcdCoordinator, []string) {
 	if err != nil {
 		t.Fatalf("Error creating etcd coordinator: %v", err)
 	}
-	return coord.(*EtcdCoordinator), hosts
+	return coord, hosts
 }
 
 type testLogger struct {
@@ -50,7 +50,7 @@ func newCtx(t *testing.T, prefix string) *testCoordCtx {
 	}
 }
 
-func (t *testCoordCtx) Lost(taskID string) {
-	t.Log(metafora.LogLevelDebug, "Lost(%s)", taskID)
-	t.lost <- taskID
+func (t *testCoordCtx) Lost(task metafora.Task) {
+	t.Log(metafora.LogLevelDebug, "Lost(%s)", task.ID())
+	t.lost <- task.ID()
 }

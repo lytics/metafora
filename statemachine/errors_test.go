@@ -7,6 +7,10 @@ import (
 	. "github.com/lytics/metafora/statemachine"
 )
 
+type task string
+
+func (t task) ID() string { return string(t) }
+
 func TestDefaultErrHandler(t *testing.T) {
 	t.Parallel()
 	tid := ""
@@ -14,7 +18,7 @@ func TestDefaultErrHandler(t *testing.T) {
 	errs := []Err{{Time: time.Now()}}
 
 	{
-		msg, errs := DefaultErrHandler(tid, errs)
+		msg, errs := DefaultErrHandler(task(tid), errs)
 		if len(errs) != 1 {
 			t.Fatalf("Expected 1 err, found: %d", len(errs))
 		}
@@ -29,7 +33,7 @@ func TestDefaultErrHandler(t *testing.T) {
 	}
 
 	{
-		msg, errs := DefaultErrHandler(tid, errs)
+		msg, errs := DefaultErrHandler(task(tid), errs)
 		if len(errs) > DefaultErrMax {
 			t.Fatalf("Expected %d errors but received: %d", DefaultErrMax, len(errs))
 		}

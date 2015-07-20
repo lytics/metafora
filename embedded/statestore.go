@@ -3,6 +3,7 @@ package embedded
 import (
 	"sync"
 
+	"github.com/lytics/metafora"
 	"github.com/lytics/metafora/statemachine"
 )
 
@@ -32,21 +33,21 @@ func NewStateStore() statemachine.StateStore {
 	}
 }
 
-func (s *StateStore) Load(tid string) (*statemachine.State, error) {
+func (s *StateStore) Load(task metafora.Task) (*statemachine.State, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	state, ok := s.store[tid]
+	state, ok := s.store[task.ID()]
 	if !ok {
 		return &statemachine.State{Code: statemachine.Runnable}, nil
 	}
 	return state, nil
 }
 
-func (s *StateStore) Store(tid string, state *statemachine.State) error {
+func (s *StateStore) Store(task metafora.Task, state *statemachine.State) error {
 	s.mu.Lock()
-	s.store[tid] = state
+	s.store[task.ID()] = state
 	s.mu.Unlock()
-	stored := StateChanged{TaskID: tid, State: state}
+	stored := StateChanged{TaskID: task.ID(), State: state}
 	select {
 	case s.Stored <- stored:
 	default:

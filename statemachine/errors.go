@@ -3,6 +3,8 @@ package statemachine
 import (
 	"errors"
 	"time"
+
+	"github.com/lytics/metafora"
 )
 
 // ExceededErrorRate is returned by error handlers in an Error Message when
@@ -21,7 +23,7 @@ type Err struct {
 //
 // Either ErrHandler and/or StateStore should trim the error slice to keep it
 // from growing without bound.
-type ErrHandler func(taskID string, errs []Err) (Message, []Err)
+type ErrHandler func(task metafora.Task, errs []Err) (Message, []Err)
 
 const (
 	DefaultErrLifetime = -4 * time.Hour
@@ -31,7 +33,7 @@ const (
 // DefaultErrHandler returns a Fail message if 8 errors have occurred in 4
 // hours. Otherwise it enters the Sleep state for 10 minutes before trying
 // again.
-func DefaultErrHandler(_ string, errs []Err) (Message, []Err) {
+func DefaultErrHandler(_ metafora.Task, errs []Err) (Message, []Err) {
 	recent := time.Now().Add(DefaultErrLifetime)
 	strikes := 0
 	for _, err := range errs {

@@ -13,9 +13,9 @@ func TestEmbedded(t *testing.T) {
 	tc := newTestCounter()
 	adds := make(chan string, 4)
 
-	thfunc := metafora.SimpleHandler(func(id string, _ <-chan bool) bool {
-		tc.Add(id)
-		adds <- id
+	thfunc := metafora.SimpleHandler(func(task metafora.Task, _ <-chan bool) bool {
+		tc.Add(task.ID())
+		adds <- task.ID()
 		return true
 	})
 
@@ -25,7 +25,7 @@ func TestEmbedded(t *testing.T) {
 	go runner.Run()
 
 	for _, taskid := range []string{"one", "two", "three", "four"} {
-		err := client.SubmitTask(taskid)
+		err := client.SubmitTask(&Task{TID: taskid})
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -54,7 +54,7 @@ func TestEmbeddedShutdown(t *testing.T) {
 	const n = 4
 	runs := make(chan int, n)
 	stops := make(chan int, n)
-	thfunc := metafora.SimpleHandler(func(id string, s <-chan bool) bool {
+	thfunc := metafora.SimpleHandler(func(_ metafora.Task, s <-chan bool) bool {
 		runs <- 1
 		select {
 		case <-s:
@@ -75,7 +75,7 @@ func TestEmbeddedShutdown(t *testing.T) {
 
 	// submit tasks
 	for _, taskid := range tasks {
-		err := client.SubmitTask(taskid)
+		err := client.SubmitTask(&Task{TID: taskid})
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}

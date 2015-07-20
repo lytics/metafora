@@ -9,15 +9,14 @@ import (
 
 func TestFairBalancer(t *testing.T) {
 	coord1, hosts := setupEtcd(t)
-	c2, _ := NewEtcdCoordinator("node2", namespace, hosts)
-	coord2 := c2.(*EtcdCoordinator)
+	coord2, _ := NewEtcdCoordinator("node2", namespace, hosts)
 
 	cli := NewClient(namespace, hosts)
 
-	h := metafora.SimpleHandler(func(task string, stop <-chan bool) bool {
-		metafora.Debugf("Starting %s", task)
+	h := metafora.SimpleHandler(func(task metafora.Task, stop <-chan bool) bool {
+		metafora.Debugf("Starting %s", task.ID())
 		<-stop
-		metafora.Debugf("Stopping %s", task)
+		metafora.Debugf("Stopping %s", task.ID())
 		return false // never done
 	})
 
@@ -37,12 +36,12 @@ func TestFairBalancer(t *testing.T) {
 	// Start the first and let it claim a bunch of tasks
 	go con1.Run()
 	defer con1.Shutdown()
-	cli.SubmitTask("t1")
-	cli.SubmitTask("t2")
-	cli.SubmitTask("t3")
-	cli.SubmitTask("t4")
-	cli.SubmitTask("t5")
-	cli.SubmitTask("t6")
+	cli.SubmitTask(DefaultTaskFunc("t1", ""))
+	cli.SubmitTask(DefaultTaskFunc("t2", ""))
+	cli.SubmitTask(DefaultTaskFunc("t3", ""))
+	cli.SubmitTask(DefaultTaskFunc("t4", ""))
+	cli.SubmitTask(DefaultTaskFunc("t5", ""))
+	cli.SubmitTask(DefaultTaskFunc("t6", ""))
 
 	time.Sleep(500 * time.Millisecond)
 
@@ -93,16 +92,15 @@ func TestFairBalancer(t *testing.T) {
 // See https://github.com/lytics/metafora/issues/92
 func TestFairBalancerShutdown(t *testing.T) {
 	coord1, etcdc := setupEtcd(t)
-	c2, _ := NewEtcdCoordinator("node2", namespace, etcdc)
-	coord2 := c2.(*EtcdCoordinator)
+	coord2, _ := NewEtcdCoordinator("node2", namespace, etcdc)
 
 	cli := NewClient(namespace, etcdc)
 
 	// This handler always returns immediately
-	h1 := metafora.SimpleHandler(func(task string, stop <-chan bool) bool {
-		metafora.Debugf("H1 Starting %s", task)
+	h1 := metafora.SimpleHandler(func(task metafora.Task, stop <-chan bool) bool {
+		metafora.Debugf("H1 Starting %s", task.ID())
 		<-stop
-		metafora.Debugf("H1 Stopping %s", task)
+		metafora.Debugf("H1 Stopping %s", task.ID())
 		return false // never done
 	})
 
@@ -110,14 +108,14 @@ func TestFairBalancerShutdown(t *testing.T) {
 	stop2 := make(chan struct{})
 	stopr := make(chan chan struct{}, 1)
 	stopr <- stop2
-	h2 := metafora.SimpleHandler(func(task string, stop <-chan bool) bool {
-		metafora.Debugf("H2 Starting %s", task)
+	h2 := metafora.SimpleHandler(func(task metafora.Task, stop <-chan bool) bool {
+		metafora.Debugf("H2 Starting %s", task.ID())
 		blockchan, ok := <-stopr
 		if ok {
 			<-blockchan
 		}
 		<-stop
-		metafora.Debugf("H2 Stopping %s", task)
+		metafora.Debugf("H2 Stopping %s", task.ID())
 		return false // never done
 	})
 
@@ -137,12 +135,12 @@ func TestFairBalancerShutdown(t *testing.T) {
 	// Start the first and let it claim a bunch of tasks
 	go con1.Run()
 	defer con1.Shutdown()
-	cli.SubmitTask("t1")
-	cli.SubmitTask("t2")
-	cli.SubmitTask("t3")
-	cli.SubmitTask("t4")
-	cli.SubmitTask("t5")
-	cli.SubmitTask("t6")
+	cli.SubmitTask(DefaultTaskFunc("t1", ""))
+	cli.SubmitTask(DefaultTaskFunc("t2", ""))
+	cli.SubmitTask(DefaultTaskFunc("t3", ""))
+	cli.SubmitTask(DefaultTaskFunc("t4", ""))
+	cli.SubmitTask(DefaultTaskFunc("t5", ""))
+	cli.SubmitTask(DefaultTaskFunc("t6", ""))
 
 	time.Sleep(500 * time.Millisecond)
 

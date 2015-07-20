@@ -31,15 +31,15 @@ func NewStateStore(namespace string, etcdc *etcd.Client) statemachine.StateStore
 
 // Load retrieves the given task's state from etcd or stores and returns
 // Runnable if no state exists.
-func (s *stateStore) Load(taskID string) (*statemachine.State, error) {
+func (s *stateStore) Load(task metafora.Task) (*statemachine.State, error) {
 	const notrecursive = false
 	const nosort = false
-	resp, err := s.c.Get(path.Join(s.path, taskID), notrecursive, nosort)
+	resp, err := s.c.Get(path.Join(s.path, task.ID()), notrecursive, nosort)
 	if err != nil {
 		if ee, ok := err.(*etcd.EtcdError); ok && ee.ErrorCode == EcodeKeyNotFound {
-			metafora.Infof("task=%q has no existing state, default to Runnable", taskID)
+			metafora.Infof("task=%q has no existing state, default to Runnable", task.ID())
 			state := &statemachine.State{Code: statemachine.Runnable}
-			if err := s.Store(taskID, state); err != nil {
+			if err := s.Store(task, state); err != nil {
 				return nil, err
 			}
 			return state, nil
@@ -58,12 +58,12 @@ func (s *stateStore) Load(taskID string) (*statemachine.State, error) {
 }
 
 // Store taskID's state in etcd overwriting any prior state.
-func (s *stateStore) Store(taskID string, state *statemachine.State) error {
+func (s *stateStore) Store(task metafora.Task, state *statemachine.State) error {
 	buf, err := json.Marshal(state)
 	if err != nil {
 		return err
 	}
 
-	_, err = s.c.Set(path.Join(s.path, taskID), string(buf), ForeverTTL)
+	_, err = s.c.Set(path.Join(s.path, task.ID()), string(buf), ForeverTTL)
 	return err
 }

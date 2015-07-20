@@ -22,28 +22,28 @@ func (testlogger) Output(int, string) error { return nil }
 type testHandler struct {
 	stop     chan int
 	t        *testing.T
-	id       string
+	task     Task
 	tasksRun chan string
 }
 
 func (h *testHandler) Run() bool {
-	h.tasksRun <- h.id
-	h.t.Logf("Run(%s)", h.id)
+	h.tasksRun <- h.task.ID()
+	h.t.Logf("Run(%s)", h.task.ID())
 	<-h.stop
-	h.t.Logf("Stop received for %s", h.id)
+	h.t.Logf("Stop received for %s", h.task.ID())
 	return true
 }
 
 func (h *testHandler) Stop() {
-	h.t.Logf("Stopping %s", h.id)
+	h.t.Logf("Stopping %s", h.task.ID())
 	close(h.stop)
 }
 
 func newTestHandlerFunc(t *testing.T) (HandlerFunc, chan string) {
 	tasksRun := make(chan string, 10)
-	return func(tid string) Handler {
+	return func(task Task) Handler {
 		return &testHandler{
-			id:       tid,
+			task:     task,
 			stop:     make(chan int),
 			t:        t,
 			tasksRun: tasksRun,
@@ -58,8 +58,8 @@ func TestConsumer(t *testing.T) {
 
 	// Setup some tasks to run in a fake coordinator
 	tc := NewTestCoord()
-	tc.Tasks <- "test1"
-	tc.Tasks <- "test2"
+	tc.Tasks <- testTask{"test1"}
+	tc.Tasks <- testTask{"test2"}
 
 	// Setup a handler func that lets us know what tasks are running
 	hf, tasksRun := newTestHandlerFunc(t)
@@ -115,10 +115,11 @@ type testBalancer struct {
 }
 
 func (b *testBalancer) Init(c BalancerContext) { b.c = c }
-func (b *testBalancer) CanClaim(taskID string) (time.Time, bool) {
-	b.t.Logf("CanClaim(%s) -> %t", taskID, taskID == "ok-task")
-	return time.Now().Add(100 * time.Hour), taskID == "ok-task"
+func (b *testBalancer) CanClaim(task Task) (time.Time, bool) {
+	b.t.Logf("CanClaim(%s) -> %t", task.ID(), task.ID() == "ok-task")
+	return time.Now().Add(100 * time.Hour), task.ID() == "ok-task"
 }
+
 func (b *testBalancer) Balance() []string {
 	if b.secondRun {
 		return nil
@@ -129,7 +130,7 @@ func (b *testBalancer) Balance() []string {
 		b.t.Errorf("len(ConsumerState.Tasks()) != 1 ==> %v", tsks)
 		return nil
 	}
-	if tsks[0].ID() != "ok-task" {
+	if tsks[0].Task().ID() != "ok-task" {
 		b.t.Errorf("Wrong task in ConsumerState.Tasks(): %v", tsks)
 	}
 	close(b.done)
@@ -148,9 +149,9 @@ func TestBalancer(t *testing.T) {
 	c, _ := NewConsumer(tc, hf, &testBalancer{t: t, done: balDone})
 	c.balEvery = 0
 	go c.Run()
-	tc.Tasks <- "test1"
-	tc.Tasks <- "ok-task"
-	tc.Tasks <- "test2"
+	tc.Tasks <- testTask{"test1"}
+	tc.Tasks <- testTask{"ok-task"}
+	tc.Tasks <- testTask{"test2"}
 
 	// Wait for balance
 	select {
@@ -196,11 +197,11 @@ func (noopHandler) Stop()     {}
 
 // TestHandleTask ensures that tasks are marked as done once handled.
 func TestHandleTask(t *testing.T) {
-	hf := func(string) Handler { return noopHandler{} }
+	hf := func(Task) Handler { return noopHandler{} }
 	coord := NewTestCoord()
 	c, _ := NewConsumer(coord, hf, DumbBalancer)
 	go c.Run()
-	coord.Tasks <- "task1"
+	coord.Tasks <- testTask{"task1"}
 	select {
 	case <-coord.Releases:
 		t.Errorf("Release called, expected Done!")
@@ -214,15 +215,15 @@ func TestHandleTask(t *testing.T) {
 // TestTaskPanic ensures panics from Run methods are turned into Done calls.
 func TestTaskPanic(t *testing.T) {
 	t.Parallel()
-	hf := SimpleHandler(func(string, <-chan bool) bool {
+	hf := SimpleHandler(func(Task, <-chan bool) bool {
 		panic("TestTaskPanic")
 	})
 	coord := NewTestCoord()
 	c, _ := NewConsumer(coord, hf, DumbBalancer)
 	go c.Run()
-	coord.Tasks <- "1"
-	coord.Tasks <- "2"
-	coord.Tasks <- "3"
+	coord.Tasks <- testTask{"1"}
+	coord.Tasks <- testTask{"2"}
+	coord.Tasks <- testTask{"3"}
 	for i := 3; i > 0; i-- {
 		select {
 		case task := <-coord.Dones:
@@ -239,16 +240,16 @@ func TestTaskPanic(t *testing.T) {
 // TestShutdown ensures Shutdown causes Run() to exit cleanly.
 func TestShutdown(t *testing.T) {
 	t.Parallel()
-	hf := SimpleHandler(func(_ string, c <-chan bool) bool {
+	hf := SimpleHandler(func(_ Task, c <-chan bool) bool {
 		<-c
 		return false
 	})
 	coord := NewTestCoord()
 	c, _ := NewConsumer(coord, hf, DumbBalancer)
 	go c.Run()
-	coord.Tasks <- "1"
-	coord.Tasks <- "2"
-	coord.Tasks <- "3"
+	coord.Tasks <- testTask{"1"}
+	coord.Tasks <- testTask{"2"}
+	coord.Tasks <- testTask{"3"}
 	time.Sleep(100 * time.Millisecond)
 	if len(coord.Dones)+len(coord.Releases) > 0 {
 		t.Fatalf("Didn't expect any tasks to exit before Shutdown was called.")

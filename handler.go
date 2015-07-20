@@ -34,28 +34,28 @@ type Handler interface {
 // are called concurrently, any state used by both should be initialized in the
 // HandlerFunc. Since Handlerfunc is uninterruptable, only the minimum amount
 // of work necessary to initialize a handler should be done.
-type HandlerFunc func(taskID string) Handler
+type HandlerFunc func(Task) Handler
 
 // SimpleHander creates a HandlerFunc for a simple function that accepts a stop
 // channel. The channel will be closed when Stop is called.
-func SimpleHandler(f func(taskID string, stop <-chan bool) bool) HandlerFunc {
-	return func(taskID string) Handler {
+func SimpleHandler(f func(t Task, stop <-chan bool) bool) HandlerFunc {
+	return func(t Task) Handler {
 		return &simpleHandler{
-			taskID: taskID,
-			stop:   make(chan bool),
-			f:      f,
+			task: t,
+			stop: make(chan bool),
+			f:    f,
 		}
 	}
 }
 
 type simpleHandler struct {
-	taskID string
-	stop   chan bool
-	f      func(string, <-chan bool) bool
+	task Task
+	stop chan bool
+	f    func(Task, <-chan bool) bool
 }
 
 func (h *simpleHandler) Run() bool {
-	return h.f(h.taskID, h.stop)
+	return h.f(h.task, h.stop)
 }
 
 func (h *simpleHandler) Stop() {

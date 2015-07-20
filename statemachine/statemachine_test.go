@@ -10,10 +10,10 @@ import (
 	. "github.com/lytics/metafora/statemachine"
 )
 
-func testhandler(tid string, cmds <-chan Message) Message {
-	metafora.Debugf("Starting %s", tid)
+func testhandler(task metafora.Task, cmds <-chan Message) Message {
+	metafora.Debugf("Starting %s", task.ID())
 	m := <-cmds
-	metafora.Debugf("%s recvd %s", tid, m.Code)
+	metafora.Debugf("%s recvd %s", task.ID(), m.Code)
 	return m
 }
 
@@ -22,12 +22,12 @@ type testStore struct {
 	out     chan<- *State
 }
 
-func (s testStore) Load(taskID string) (*State, error) {
+func (s testStore) Load(metafora.Task) (*State, error) {
 	s.out <- s.initial
 	return s.initial, nil
 }
-func (s testStore) Store(taskID string, newstate *State) error {
-	metafora.Debugf("%s storing %s", taskID, newstate.Code)
+func (s testStore) Store(task metafora.Task, newstate *State) error {
+	metafora.Debugf("%s storing %s", task.ID(), newstate.Code)
 	s.out <- newstate
 	return nil
 }
@@ -36,11 +36,11 @@ func (s testStore) Store(taskID string, newstate *State) error {
 func setup(t *testing.T, tid string) (*embedded.StateStore, Commander, metafora.Handler, chan bool) {
 	t.Parallel()
 	ss := embedded.NewStateStore().(*embedded.StateStore)
-	ss.Store(tid, &State{Code: Runnable})
+	ss.Store(task(tid), &State{Code: Runnable})
 	<-ss.Stored // pop initial state out
 	cmdr := embedded.NewCommander()
 	cmdlistener := cmdr.NewListener(tid)
-	sm := New(tid, testhandler, ss, cmdlistener, nil)
+	sm := New(task(tid), testhandler, ss, cmdlistener, nil)
 	done := make(chan bool)
 	go func() { done <- sm.Run() }()
 	return ss, cmdr, sm, done
@@ -66,7 +66,7 @@ func TestRules(t *testing.T) {
 		ts := testStore{initial: state, out: store}
 
 		// Create a new statemachine that starts from the From state
-		sm := New("test", testhandler, ts, cmdlistener, nil)
+		sm := New(task("test"), testhandler, ts, cmdlistener, nil)
 		go sm.Run()
 		initial := <-store
 		if initial.Code != trans.From {
@@ -126,7 +126,7 @@ func TestCheckpointRelease(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 		t.Fatalf("Expected statemachine to exit but it did not.")
 	}
-	state, err := ss.Load("test1")
+	state, err := ss.Load(task("test1"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,7 +231,7 @@ func TestTerminal(t *testing.T) {
 	if !(<-done) {
 		t.Fatal("Expected task to be done.")
 	}
-	if state, err := ss.Load("terminal-test"); err != nil || state.Code != Killed {
+	if state, err := ss.Load(task("terminal-test")); err != nil || state.Code != Killed {
 		t.Fatalf("Failed to load expected killed state for task: state=%s err=%v", state, err)
 	}
 
@@ -261,7 +261,7 @@ func TestPause(t *testing.T) {
 		if newstate.State.Code != Paused {
 			t.Fatalf("Expected paused state but found: %s", newstate.State)
 		}
-		if state, err := ss.Load("test-pause"); err != nil || state.Code != Paused {
+		if state, err := ss.Load(task("test-pause")); err != nil || state.Code != Paused {
 			t.Fatalf("Failed to load expected pause state for task: state=%s err=%v", state, err)
 		}
 
@@ -284,7 +284,7 @@ func TestPause(t *testing.T) {
 	if newstate.State.Code != Runnable {
 		t.Fatalf("Expected runnable state but found: %s", newstate.State)
 	}
-	if state, err := ss.Load("test-pause"); err != nil || state.Code != Runnable {
+	if state, err := ss.Load(task("test-pause")); err != nil || state.Code != Runnable {
 		t.Fatalf("Failed to load expected runnable state for task: state=%s err=%v", state, err)
 	}
 
@@ -310,7 +310,7 @@ func TestPause(t *testing.T) {
 	}
 
 	// Ensure task is stored with the paused state
-	if state, err := ss.Load("test-pause"); err != nil || state.Code != Paused {
+	if state, err := ss.Load(task("test-pause")); err != nil || state.Code != Paused {
 		t.Fatalf("Failed to load expected paused state for task: state=%s err=%v", state, err)
 	}
 }

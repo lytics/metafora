@@ -15,13 +15,13 @@ type tc struct {
 }
 
 func (*tc) Init(metafora.CoordinatorContext) error { return nil }
-func (c *tc) Watch(chan<- string) error {
+func (c *tc) Watch(chan<- metafora.Task) error {
 	<-c.stop
 	return nil
 }
-func (c *tc) Claim(string) bool { return false }
-func (c *tc) Release(string)    {}
-func (c *tc) Done(string)       {}
+func (c *tc) Claim(metafora.Task) bool { return false }
+func (c *tc) Release(metafora.Task)    {}
+func (c *tc) Done(metafora.Task)       {}
 func (c *tc) Command() (metafora.Command, error) {
 	<-c.stop
 	return nil, nil

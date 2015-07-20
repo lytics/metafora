@@ -12,6 +12,8 @@ import (
 	"github.com/lytics/metafora/statemachine"
 )
 
+const recursive = true
+
 // TestSleepTest is an integration test for all of m_etcd's components.
 //
 func TestSleepTest(t *testing.T) {
@@ -20,22 +22,21 @@ func TestSleepTest(t *testing.T) {
 	const namespace = "sleeptest-metafora"
 	const sleepingtasks = "sleeping-task1"
 
-	const recursive = true
 	etcdc.Delete(namespace, recursive)
 
 	holdtask := make(chan bool)
-	h := func(tid string, cmds <-chan statemachine.Message) statemachine.Message {
+	h := func(task metafora.Task, cmds <-chan statemachine.Message) statemachine.Message {
 
-		if tid == sleepingtasks {
+		if task.ID() == sleepingtasks {
 			sleeptil := 5 * time.Second
 			nextstarttime := (time.Now().Add(sleeptil))
-			t.Logf("sleeping task:%v sleepfor:%v", tid, nextstarttime)
+			t.Logf("sleeping task:%v sleepfor:%v", task, nextstarttime)
 			<-holdtask
 			return statemachine.Message{Code: statemachine.Sleep, Until: &nextstarttime}
 		}
 
 		cmd := <-cmds
-		t.Logf("non sleeping task:%v", tid)
+		t.Logf("non sleeping task:%v", task)
 
 		return cmd
 	}
@@ -66,7 +67,7 @@ func TestSleepTest(t *testing.T) {
 			if len(tasks) > 1 {
 				t.Fatalf("Expected at most 1 task, but found: %d", len(tasks))
 			}
-			if len(tasks) == 1 && tasks[0].ID() == tid {
+			if len(tasks) == 1 && tasks[0].Task().ID() == tid {
 				found = true
 			}
 		}
@@ -82,7 +83,7 @@ func TestSleepTest(t *testing.T) {
 	// Create clients and start some tests
 	cliA := m_etcd.NewClient(namespace, hosts)
 
-	if err := cliA.SubmitTask(sleepingtasks); err != nil {
+	if err := cliA.SubmitTask(m_etcd.DefaultTaskFunc(sleepingtasks, "")); err != nil {
 		t.Fatalf("Error submitting task1 to a: %v", err)
 	}
 
@@ -131,13 +132,12 @@ func TestAll(t *testing.T) {
 	etcdc, hosts := testutil.NewEtcdClient(t)
 	t.Parallel()
 
-	const recursive = true
 	etcdc.Delete("test-a", recursive)
 	etcdc.Delete("test-b", recursive)
 
-	h := func(tid string, cmds <-chan statemachine.Message) statemachine.Message {
+	h := func(task metafora.Task, cmds <-chan statemachine.Message) statemachine.Message {
 		cmd := <-cmds
-		if tid == "error-test" {
+		if task.ID() == "error-test" {
 			return statemachine.Message{Code: statemachine.Error, Err: errors.New("error-test")}
 		}
 		return cmd
@@ -165,10 +165,10 @@ func TestAll(t *testing.T) {
 	cliA := m_etcd.NewClient("test-a", hosts)
 	cliB := m_etcd.NewClient("test-b", hosts)
 
-	if err := cliA.SubmitTask("task1"); err != nil {
+	if err := cliA.SubmitTask(m_etcd.DefaultTaskFunc("task1", "")); err != nil {
 		t.Fatalf("Error submitting task1 to a: %v", err)
 	}
-	if err := cliB.SubmitTask("task1"); err != nil {
+	if err := cliB.SubmitTask(m_etcd.DefaultTaskFunc("task1", "")); err != nil {
 		t.Fatalf("Error submitting task1 to b: %v", err)
 	}
 
@@ -185,7 +185,7 @@ func TestAll(t *testing.T) {
 			if len(tasks) > 1 {
 				t.Fatalf("Expected at most 1 task, but found: %d", len(tasks))
 			}
-			if len(tasks) == 1 && tasks[0].ID() == tid {
+			if len(tasks) == 1 && tasks[0].Task().ID() == tid {
 				found = true
 			}
 		}
@@ -217,7 +217,7 @@ func TestAll(t *testing.T) {
 	{
 		tasks := []string{"task2", "task3", "task4", "task5", "task6", "task7"}
 		for _, tid := range tasks {
-			if err := cliA.SubmitTask(tid); err != nil {
+			if err := cliA.SubmitTask(m_etcd.DefaultTaskFunc(tid, "")); err != nil {
 				t.Fatalf("Error submitting task=%q to A: %v", tid, err)
 			}
 		}
@@ -237,10 +237,10 @@ func TestAll(t *testing.T) {
 		a1tasks := cons1a.Tasks()
 		a2tasks := cons2a.Tasks()
 		for _, task := range a1tasks {
-			metafora.Debug("A1: ", task.ID(), " - ", task.Stopped().IsZero())
+			metafora.Debug("A1: ", task.Task(), " - ", task.Stopped().IsZero())
 		}
 		for _, task := range a2tasks {
-			metafora.Debug("A2: ", task.ID(), " - ", task.Stopped().IsZero())
+			metafora.Debug("A2: ", task.Task(), " - ", task.Stopped().IsZero())
 		}
 		time.Sleep(800 * time.Millisecond)
 
@@ -264,7 +264,7 @@ func TestAll(t *testing.T) {
 	{
 		tasks := []string{"task8", "error-test"}
 		for _, tid := range tasks {
-			if err := cliB.SubmitTask(tid); err != nil {
+			if err := cliB.SubmitTask(m_etcd.DefaultTaskFunc(tid, "")); err != nil {
 				t.Fatalf("Error submitting task=%q to B: %v", tid, err)
 			}
 		}
@@ -292,7 +292,7 @@ func TestAll(t *testing.T) {
 		}
 
 		// Resubmitting a failed task shouldn't error but also shouldn't run.
-		if err := cliB.SubmitTask("error-test"); err != nil {
+		if err := cliB.SubmitTask(m_etcd.DefaultTaskFunc("error-test", "")); err != nil {
 			t.Fatalf("Error resubmitting error-test task to B: %v", err)
 		}
 
@@ -324,8 +324,8 @@ func TestAll(t *testing.T) {
 	nodes = append(nodes, respA.Node.Nodes...)
 	nodes = append(nodes, respB.Node.Nodes...)
 	for _, node := range nodes {
-		if len(node.Nodes) > 0 {
-			t.Fatalf("%s has %d nodes. First key: %s", node.Key, len(node.Nodes), node.Nodes[0].Key)
+		if len(node.Nodes) > 1 {
+			t.Fatalf("%s has %d (>1) nodes. First 2: %s, %s", node.Key, len(node.Nodes), node.Nodes[0].Key, node.Nodes[1].Key)
 		}
 	}
 }
@@ -337,8 +337,9 @@ func TestTaskResurrectionInt(t *testing.T) {
 	etcdc, hosts := testutil.NewEtcdClient(t)
 	t.Parallel()
 
-	const recursive = true
 	etcdc.Delete("test-resurrect", recursive)
+
+	task := m_etcd.DefaultTaskFunc("xyz", "")
 
 	coord, err := m_etcd.NewEtcdCoordinator("r-node", "test-resurrect", hosts)
 	if err != nil {
@@ -349,23 +350,23 @@ func TestTaskResurrectionInt(t *testing.T) {
 	}
 
 	// Try to claim a nonexistent
-	if claimed := coord.Claim("xyz"); claimed {
+	if claimed := coord.Claim(task); claimed {
 		t.Fatal("Claiming a nonexistent task should not work but did!")
 	}
 
 	// Create a task, mark it as done, and try to claim it again
 	client := m_etcd.NewClient("test-resurrect", hosts)
-	if err := client.SubmitTask("xyz"); err != nil {
+	if err := client.SubmitTask(m_etcd.DefaultTaskFunc("xyz", "")); err != nil {
 		t.Fatalf("Error submitting task xyz: %v", err)
 	}
 
-	if claimed := coord.Claim("xyz"); !claimed {
+	if claimed := coord.Claim(task); !claimed {
 		t.Fatal("Failed to claim task xyz")
 	}
 
-	coord.Done("xyz")
+	coord.Done(task)
 
-	if claimed := coord.Claim("xyz"); claimed {
+	if claimed := coord.Claim(task); claimed {
 		t.Fatal("Reclaimed task that was marked as done.")
 	}
 }
