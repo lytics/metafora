@@ -65,6 +65,10 @@ type EtcdCoordinator struct {
 
 	ClaimTTL uint64 // seconds
 
+	// NewTask creates a new Task compatible with etcd and metafora's Task
+	// interfaces. It may be replaced with a custom TaskFunc.
+	NewTask TaskFunc
+
 	NodeID      string
 	nodePath    string
 	nodePathTTL uint64
@@ -108,10 +112,10 @@ func New(nodeID, namespace string, hosts []string, h statemachine.StatefulHandle
 
 	// Create a HandlerFunc that ties together the command listener, stateful
 	// handler, and statemachine.
-	hf := func(taskID string) metafora.Handler {
+	hf := func(task metafora.Task) metafora.Handler {
 		clc, _ := newEtcdClient(hosts)
-		cl := NewCommandListener(taskID, namespace, clc)
-		return statemachine.New(taskID, h, ss, cl, nil)
+		cl := NewCommandListener(task, namespace, clc)
+		return statemachine.New(task, h, ss, cl, nil)
 	}
 
 	// Create an etcd coordinator
@@ -132,7 +136,7 @@ func New(nodeID, namespace string, hosts []string, h statemachine.StatefulHandle
 //
 // Coordinator methods will be called by the core Metafora Consumer. Calling
 // Init, Close, etc. from your own code will lead to undefined behavior.
-func NewEtcdCoordinator(nodeID, namespace string, hosts []string) (metafora.Coordinator, error) {
+func NewEtcdCoordinator(nodeID, namespace string, hosts []string) (*EtcdCoordinator, error) {
 	// Namespace should be an absolute path with no trailing slash
 	namespace = "/" + strings.Trim(namespace, "/ ")
 
@@ -155,6 +159,7 @@ func NewEtcdCoordinator(nodeID, namespace string, hosts []string) (metafora.Coor
 
 		taskPath: path.Join(namespace, TasksPath),
 		ClaimTTL: ClaimTTL, //default to the package constant, but allow it to be overwritten
+		NewTask:  DefaultTaskFunc,
 
 		NodeID:      nodeID,
 		nodePath:    path.Join(namespace, NodesPath, nodeID),
@@ -283,7 +288,7 @@ func (ec *EtcdCoordinator) refreshBy(c *etcd.Client, deadline time.Time) (err er
 
 // Watch streams tasks from etcd watches or GETs until Close is called or etcd
 // is unreachable (in which case an error is returned).
-func (ec *EtcdCoordinator) Watch(out chan<- string) error {
+func (ec *EtcdCoordinator) Watch(out chan<- metafora.Task) error {
 	var index uint64
 
 	client, err := newEtcdClient(ec.hosts)
@@ -313,7 +318,7 @@ startWatch:
 
 		// Act like existing keys are newly created
 		for _, node := range resp.Node.Nodes {
-			if task, ok := ec.parseTask(&etcd.Response{Action: "create", Node: node}); ok {
+			if task := ec.parseTask(&etcd.Response{Action: "create", Node: node}); task != nil {
 				select {
 				case out <- task:
 				case <-ec.stop:
@@ -336,7 +341,7 @@ startWatch:
 			}
 
 			// Found a claimable task! Return it if it's not Ignored.
-			if task, ok := ec.parseTask(resp); ok {
+			if task := ec.parseTask(resp); task != nil {
 				select {
 				case out <- task:
 				case <-ec.stop:
@@ -350,11 +355,11 @@ startWatch:
 	}
 }
 
-func (ec *EtcdCoordinator) parseTask(resp *etcd.Response) (task string, ok bool) {
+func (ec *EtcdCoordinator) parseTask(resp *etcd.Response) metafora.Task {
 	// Sanity check / test path invariant
 	if !strings.HasPrefix(resp.Node.Key, ec.taskPath) {
 		metafora.Errorf("%s received task from outside task path: %s", ec.name, resp.Node.Key)
-		return "", false
+		return nil
 	}
 
 	key := strings.Trim(resp.Node.Key, "/") // strip leading and trailing /s
@@ -366,41 +371,68 @@ func (ec *EtcdCoordinator) parseTask(resp *etcd.Response) (task string, ok bool)
 		for _, n := range resp.Node.Nodes {
 			if strings.HasSuffix(n.Key, OwnerMarker) {
 				metafora.Debugf("%s ignoring task as it's already claimed: %s", ec.name, parts[2])
-				return "", false
+				return nil
 			}
 		}
 		metafora.Debugf("%s received new task: %s", ec.name, parts[2])
-		return parts[2], true
+		props := ""
+		for _, n := range resp.Node.Nodes {
+			if strings.HasSuffix(n.Key, "/"+PropsKey) {
+				props = n.Value
+				break
+			}
+		}
+		return ec.NewTask(parts[2], props)
+	}
+
+	if newActions[resp.Action] && len(parts) == 4 && parts[3] == PropsKey {
+		metafora.Debugf("%s received task with properties: %s", ec.name, parts[2])
+		return ec.NewTask(parts[2], resp.Node.Value)
 	}
 
 	// If a claim key is removed, try to claim the task
 	if releaseActions[resp.Action] && len(parts) == 4 && parts[3] == OwnerMarker {
 		metafora.Debugf("%s received released task: %s", ec.name, parts[2])
-		return parts[2], true
+
+		// Sadly we need to fail parsing this task if there's an error getting the
+		// props file as trying to claim a task without properly knowing its
+		// properties could cause major issues.
+		parts[3] = PropsKey
+		propsnode, err := ec.client.Get(path.Join(parts...), unsorted, notrecursive)
+		if err != nil {
+			if ee, ok := err.(*etcd.EtcdError); ok && ee.ErrorCode == EcodeKeyNotFound {
+				// No props file
+				return ec.NewTask(parts[2], "")
+			}
+
+			metafora.Errorf("%s error getting properties while handling %s", ec.name, parts[2])
+			return nil
+		}
+		return ec.NewTask(parts[2], propsnode.Node.Value)
 	}
 
 	// Ignore any other key events (_metafora keys, task deletion, etc.)
-	return "", false
+	return nil
 }
 
 // Claim is called by the Consumer when a Balancer has determined that a task
 // ID can be claimed. Claim returns false if the task could not be claimed.
 // Either due to error, the task being completed, or another consumer has
 // already claimed it.
-func (ec *EtcdCoordinator) Claim(taskID string) bool {
-	return ec.taskManager.add(taskID)
+func (ec *EtcdCoordinator) Claim(task metafora.Task) bool {
+	return ec.taskManager.add(task)
 }
 
 // Release deletes the claim file.
-func (ec *EtcdCoordinator) Release(taskID string) {
+func (ec *EtcdCoordinator) Release(task metafora.Task) {
 	const done = false
-	ec.taskManager.remove(taskID, done)
+	ec.taskManager.remove(task.ID(), done)
 }
 
 // Done deletes the task.
-func (ec *EtcdCoordinator) Done(taskID string) {
+func (ec *EtcdCoordinator) Done(task metafora.Task) {
 	const done = true
-	ec.taskManager.remove(taskID, done)
+	ec.taskManager.remove(task.ID(), done)
 }
 
 // Command blocks until a command for this node is received from the broker

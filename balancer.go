@@ -19,10 +19,10 @@ var NoDelay = time.Time{}
 // BalancerContext is a limited interface exposed to Balancers from the
 // Consumer for access to limited Consumer state.
 type BalancerContext interface {
-	// Tasks returns a sorted list of task IDs run by this Consumer. The Consumer
-	// stops task manipulations during claiming and balancing, so the list will
-	// be accurate unless a task naturally completes.
-	Tasks() []Task
+	// Tasks returns a sorted list of task IDs owned by this Consumer. The
+	// Consumer stops task manipulations during claiming and balancing, so the
+	// list will be accurate unless a task naturally completes.
+	Tasks() []RunningTask
 }
 
 // Balancer is the core task balancing interface. Without a master Metafora
@@ -38,7 +38,7 @@ type Balancer interface {
 	//
 	// When denying a claim by returning false, CanClaim should return the time
 	// at which to reconsider the task for claiming.
-	CanClaim(taskID string) (ignoreUntil time.Time, claim bool)
+	CanClaim(task Task) (ignoreUntil time.Time, claim bool)
 
 	// Balance should return the list of Task IDs that should be released. The
 	// criteria used to determine which tasks should be released is left up to
@@ -56,7 +56,7 @@ type dumbBalancer struct{}
 func (dumbBalancer) Init(BalancerContext) {}
 
 // CanClaim always returns true.
-func (dumbBalancer) CanClaim(string) (time.Time, bool) { return NoDelay, true }
+func (dumbBalancer) CanClaim(Task) (time.Time, bool) { return NoDelay, true }
 
 // Balance never returns any tasks to balance.
 func (dumbBalancer) Balance() []string { return nil }
@@ -106,7 +106,7 @@ func (e *FairBalancer) Init(s BalancerContext) {
 
 // CanClaim rejects tasks for a period of time if the last balance released
 // tasks. Otherwise all tasks are accepted.
-func (e *FairBalancer) CanClaim(taskid string) (time.Time, bool) {
+func (e *FairBalancer) CanClaim(task Task) (time.Time, bool) {
 	if e.delay.After(time.Now()) {
 		// Return delay set by Balance()
 		return e.delay, false
@@ -147,7 +147,7 @@ func (e *FairBalancer) Balance() []string {
 
 	random := rand.New(rand.NewSource(time.Now().UnixNano()))
 	for len(releasetasks) < shouldrelease {
-		tid := nodetasks[random.Intn(len(nodetasks))].ID()
+		tid := nodetasks[random.Intn(len(nodetasks))].Task().ID()
 		if _, ok := releaseset[tid]; !ok {
 			releasetasks = append(releasetasks, tid)
 			releaseset[tid] = struct{}{}

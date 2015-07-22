@@ -3,7 +3,13 @@ package statemachine
 import (
 	"testing"
 	"time"
+
+	"github.com/lytics/metafora"
 )
+
+type task string
+
+func (t task) ID() string { return string(t) }
 
 // TestCommandBlackhole is meant to demonstrate what happens if a
 // StatefulHandler implementation receives commands in a goroutine that lives
@@ -21,7 +27,7 @@ func TestCommandBlackhole(t *testing.T) {
 	rdy := make(chan int, 1)
 	defer close(stop)
 
-	f := func(_ string, c <-chan Message) Message {
+	f := func(_ metafora.Task, c <-chan Message) Message {
 		go func() {
 			rdy <- 1
 			select {
@@ -37,7 +43,7 @@ func TestCommandBlackhole(t *testing.T) {
 
 	// Ignore the return message, the point is to make sure it doesn't intercept
 	// further commands.
-	run(f, "test-task", cmds)
+	run(f, task("test-task"), cmds)
 
 	go func() { cmds <- Message{Code: Run} }()
 

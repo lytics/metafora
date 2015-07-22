@@ -74,7 +74,7 @@ func TestTaskResurrection(t *testing.T) {
 	client := newFakeEtcd()
 	const ttl = 2
 	mgr := newManager(newCtx(t, "mgr"), client, "testns", "testnode", ttl)
-	if added := mgr.add("zombie"); added {
+	if added := mgr.add(&task{id: "zombie"}); added {
 		t.Fatal("Added zombie task when it should have been deleted.")
 	}
 }
@@ -89,7 +89,7 @@ func TestTaskRefreshing(t *testing.T) {
 	client := newFakeEtcd()
 	const ttl = 2
 	mgr := newManager(newCtx(t, "mgr"), client, "testns", "testnode", ttl)
-	if added := mgr.add("tid"); !added {
+	if added := mgr.add(&task{id: "tid"}); !added {
 		t.Fatal("Failed to add task!")
 	}
 	for i := 0; i < 2; i++ {
@@ -114,7 +114,7 @@ func TestTaskRemoval(t *testing.T) {
 	client := newFakeEtcd()
 	const ttl = 2
 	mgr := newManager(newCtx(t, "mgr"), client, "testns", "testnode", ttl)
-	mgr.add("tid")
+	mgr.add(&task{id: "tid"})
 	mgr.remove("tid", false)
 	select {
 	case <-client.add:
@@ -147,9 +147,9 @@ func TestFullTaskMgr(t *testing.T) {
 	mgr := newManager(newCtx(t, "mgr"), client, "testns", "testnode", ttl)
 
 	// Add a few tasks and remove one
-	mgr.add("tid1")
-	mgr.add("tid2")
-	mgr.add("tid3")
+	mgr.add(&task{id: "tid1"})
+	mgr.add(&task{id: "tid2"})
+	mgr.add(&task{id: "tid3"})
 	mgr.remove("tid2", false)
 
 	delDone := false
@@ -208,7 +208,7 @@ func TestTaskLost(t *testing.T) {
 	const ttl = 2
 	mgr := newManager(ctx, client, "testns", "testnode", ttl)
 
-	mgr.add("testlost")
+	mgr.add(&task{id: "testlost"})
 
 	// Wait for the CAS to fail
 	time.Sleep(ttl * time.Second)
@@ -243,8 +243,8 @@ func TestTaskDone(t *testing.T) {
 	const ttl = 2
 	mgr := newManager(ctx, client, "testns", "testnode", ttl)
 
-	mgr.add("t1")
-	mgr.add("t2")
+	mgr.add(&task{id: "t1"})
+	mgr.add(&task{id: "t2"})
 	mgr.remove("t1", true)
 	mgr.remove("t2", false)
 

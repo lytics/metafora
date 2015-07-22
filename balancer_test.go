@@ -24,7 +24,7 @@ func TestFairBalancerOneNode(t *testing.T) {
 	fb := NewDefaultFairBalancer("node1", clusterstate)
 	fb.Init(consumerstate)
 
-	if _, ok := fb.CanClaim("23"); !ok {
+	if _, ok := fb.CanClaim(testTask{"23"}); !ok {
 		t.Fatal("Expected claim to be true")
 	}
 
@@ -50,7 +50,7 @@ func TestFairBalanceOver(t *testing.T) {
 	fb := NewDefaultFairBalancer("node1", clusterstate)
 	fb.Init(consumerstate)
 
-	if _, ok := fb.CanClaim("23"); !ok {
+	if _, ok := fb.CanClaim(testTask{"23"}); !ok {
 		t.Fatal("Expected claim to be true")
 	}
 
@@ -77,7 +77,7 @@ func TestFairBalanceNothing(t *testing.T) {
 	fb := NewDefaultFairBalancer("node1", clusterstate)
 	fb.Init(consumerstate)
 
-	if _, ok := fb.CanClaim("23"); !ok {
+	if _, ok := fb.CanClaim(testTask{"23"}); !ok {
 		t.Fatal("Expected claim to be true")
 	}
 
@@ -88,6 +88,12 @@ func TestFairBalanceNothing(t *testing.T) {
 	}
 
 }
+
+type testTask struct {
+	id string
+}
+
+func (t testTask) ID() string { return t.id }
 
 type TestClusterState struct {
 	Current map[string]int
@@ -106,10 +112,10 @@ type TestConsumerState struct {
 	Current []string
 }
 
-func (tc *TestConsumerState) Tasks() []Task {
-	tasks := []Task{}
+func (tc *TestConsumerState) Tasks() []RunningTask {
+	tasks := []RunningTask{}
 	for _, id := range tc.Current {
-		tasks = append(tasks, newTask(id, nil))
+		tasks = append(tasks, newTask(testTask{id}, nil))
 	}
 	return tasks
 }
@@ -121,10 +127,10 @@ type sbCtx struct {
 	tasks []string
 }
 
-func (ctx *sbCtx) Tasks() []Task {
-	tasks := []Task{}
+func (ctx *sbCtx) Tasks() []RunningTask {
+	tasks := []RunningTask{}
 	for _, id := range ctx.tasks {
-		tasks = append(tasks, newTask(id, nil))
+		tasks = append(tasks, newTask(testTask{id}, nil))
 	}
 	return tasks
 }

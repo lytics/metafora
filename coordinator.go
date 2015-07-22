@@ -8,7 +8,7 @@ type CoordinatorContext interface {
 	//
 	// Since this implies there is a window of time where the task is executing
 	// more than once, this is a sign of an unhealthy cluster.
-	Lost(taskID string)
+	Lost(Task)
 }
 
 // Coordinator is the core interface Metafora uses to discover, claim, and
@@ -18,23 +18,23 @@ type Coordinator interface {
 	// implementations. NewConsumer will return Init's return value.
 	Init(CoordinatorContext) error
 
-	// Watch the broker for tasks. Watch blocks until Close is called or it
-	// encounters an error. Tasks are sent to consumer via the tasks chan.
-	Watch(tasks chan<- string) (err error)
+	// Watch the broker for claimable tasks. Watch blocks until Close is called
+	// or it encounters an error. Tasks are sent to consumer via the tasks chan.
+	Watch(tasks chan<- Task) (err error)
 
 	// Claim is called by the Consumer when a Balancer has determined that a task
 	// ID can be claimed. Claim returns false if another consumer has already
 	// claimed the ID.
-	Claim(taskID string) bool
+	Claim(Task) bool
 
 	// Release a task for other consumers to claim. May be called after Close.
-	Release(taskID string)
+	Release(Task)
 
 	// Done is called by Metafora when a task has been completed and should never
 	// be scheduled to run again (in other words: deleted from the broker).
 	//
 	// May be called after Close.
-	Done(taskID string)
+	Done(Task)
 
 	// Command blocks until a command for this node is received from the broker
 	// by the coordinator. Command must return (nil, nil) when Close is called.
@@ -55,7 +55,8 @@ type coordinatorContext struct {
 
 // Lost is a light wrapper around Coordinator.stopTask to make it suitable for
 // calling by Coordinator implementations via the CoordinatorContext interface.
-func (ctx *coordinatorContext) Lost(taskID string) {
-	Errorf("Lost task %s", taskID)
-	ctx.stopTask(taskID)
+func (ctx *coordinatorContext) Lost(t Task) {
+	tid := t.ID()
+	Errorf("Lost task %s", tid)
+	ctx.stopTask(tid)
 }

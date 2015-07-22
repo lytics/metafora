@@ -1,6 +1,7 @@
 package m_etcd
 
 import (
+	"encoding/json"
 	"fmt"
 	"path"
 
@@ -38,19 +39,25 @@ func (mc *mclient) cmdPath(node string) string {
 	return path.Join("/", mc.namespace, NodesPath, node, "commands")
 }
 
-// SubmitTask creates a new taskId, represented as a directory in etcd.
-func (mc *mclient) SubmitTask(taskId string) error {
-	fullpath := mc.tskPath(taskId)
-	_, err := mc.etcd.CreateDir(fullpath, ForeverTTL)
-	metafora.Debugf("task submitted [%s]", fullpath)
-	return err
+// SubmitTask creates a new task in etcd
+func (mc *mclient) SubmitTask(task metafora.Task) error {
+	fullpath := path.Join(mc.tskPath(task.ID()), PropsKey)
+	buf, err := json.Marshal(task)
+	if err != nil {
+		return err
+	}
+	if _, err := mc.etcd.Create(fullpath, string(buf), ForeverTTL); err != nil {
+		return err
+	}
+	metafora.Debugf("task %s submitted: %s", task.ID(), fullpath)
+	return nil
 }
 
 // Delete a task
 func (mc *mclient) DeleteTask(taskId string) error {
 	fullpath := mc.tskPath(taskId)
-	_, err := mc.etcd.DeleteDir(fullpath)
-	metafora.Debugf("task deleted [%s]", fullpath)
+	_, err := mc.etcd.Delete(fullpath, recursive)
+	metafora.Debugf("task %s deleted: %s", taskId, fullpath)
 	return err
 }
 

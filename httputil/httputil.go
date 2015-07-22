@@ -13,7 +13,7 @@ import (
 // introspection endpoints.
 type Consumer interface {
 	Frozen() bool
-	Tasks() []metafora.Task
+	Tasks() []metafora.RunningTask
 	String() string
 }
 
@@ -51,7 +51,7 @@ func MakeInfoHandler(c Consumer, started time.Time) http.HandlerFunc {
 		}
 		for i, task := range tasks {
 			resp.Tasks[i] = Task{
-				ID:      task.ID(),
+				ID:      task.Task().ID(),
 				Started: task.Started(),
 			}
 

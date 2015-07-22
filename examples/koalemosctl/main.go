@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
 	"math/rand"
@@ -10,6 +9,7 @@ import (
 	"time"
 
 	"github.com/coreos/go-etcd/etcd"
+	"github.com/lytics/metafora/examples/koalemos"
 	"github.com/lytics/metafora/m_etcd"
 )
 
@@ -33,24 +33,15 @@ func main() {
 	}
 
 	rand.Seed(time.Now().UnixNano())
-	taskID := fmt.Sprintf("%x", rand.Int63())
 
-	// First create the task body
-	body, err := json.Marshal(&struct{ Args []string }{Args: args})
-	if err != nil {
-		fmt.Printf("Error marshaling task body: %v", err)
-		os.Exit(3)
-	}
-	if _, err := ec.Set("/koalemos-tasks/"+taskID, string(body), 30*24*60*60); err != nil {
-		fmt.Printf("Error creating task body: %v", err)
-		os.Exit(4)
-	}
+	task := koalemos.NewTask(fmt.Sprintf("%x", rand.Int63()))
+	task.Args = args
 
 	// Finally create the task for metafora
 	mc := m_etcd.NewClient(*namespace, hosts)
-	if err := mc.SubmitTask(taskID); err != nil {
-		fmt.Println("Error submitting task:", taskID)
-		os.Exit(5)
+	if err := mc.SubmitTask(task); err != nil {
+		fmt.Println("Error submitting task:", task.ID())
+		os.Exit(2)
 	}
-	fmt.Println(taskID)
+	fmt.Println(task.ID())
 }

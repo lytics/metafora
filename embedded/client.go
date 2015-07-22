@@ -2,18 +2,18 @@ package embedded
 
 import "github.com/lytics/metafora"
 
-func NewEmbeddedClient(taskchan chan string, cmdchan chan *NodeCommand, nodechan chan []string) metafora.Client {
+func NewEmbeddedClient(taskchan chan metafora.Task, cmdchan chan *NodeCommand, nodechan chan []string) metafora.Client {
 	return &EmbeddedClient{taskchan, cmdchan, nodechan}
 }
 
 type EmbeddedClient struct {
-	taskchan chan<- string
+	taskchan chan<- metafora.Task
 	cmdchan  chan<- *NodeCommand
 	nodechan <-chan []string
 }
 
-func (ec *EmbeddedClient) SubmitTask(taskid string) error {
-	ec.taskchan <- taskid
+func (ec *EmbeddedClient) SubmitTask(t metafora.Task) error {
+	ec.taskchan <- t
 	return nil
 }
 

@@ -55,15 +55,17 @@ func TestSubmitTask(t *testing.T) {
 
 	mclient := NewClient(Namespace, hosts)
 
-	if err := mclient.DeleteTask("testid1"); err != nil {
+	task := DefaultTaskFunc("testid1", "")
+
+	if err := mclient.DeleteTask(task.ID()); err != nil {
 		t.Logf("DeleteTask returned an error, which maybe ok.  Error:%v", err)
 	}
 
-	if err := mclient.SubmitTask("testid1"); err != nil {
+	if err := mclient.SubmitTask(task); err != nil {
 		t.Fatalf("Submit task failed on initial submission, error: %v", err)
 	}
 
-	if err := mclient.SubmitTask("testid1"); err == nil {
+	if err := mclient.SubmitTask(task); err == nil {
 		t.Fatalf("Submit task did not fail, but should of, when using existing tast id")
 	}
 }

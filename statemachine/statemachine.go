@@ -57,7 +57,7 @@ func (s *State) copy() *State {
 	return ns
 }
 
-func (s State) String() string {
+func (s *State) String() string {
 	switch s.Code {
 	case Sleeping:
 		return fmt.Sprintf("%s until %s", s.Code, s.Until)
@@ -80,9 +80,19 @@ type Message struct {
 	Err error `json:"error,omitempty"`
 }
 
+// ErrorMessage is a simpler helper for creating error messages from an error.
+func ErrorMessage(err error) Message {
+	return Message{Code: Error, Err: err}
+}
+
+// SleepMessage is a simpler helper for creating sleep messages from a time.
+func SleepMessage(t time.Time) Message {
+	return Message{Code: Sleep, Until: &t}
+}
+
 // Valid returns true if the Message is valid. Invalid messages sent as
 // commands are discarded by the state machine.
-func (m Message) Valid() bool {
+func (m *Message) Valid() bool {
 	switch m.Code {
 	case Run, Pause, Release, Checkpoint, Complete, Kill:
 		return true
@@ -95,7 +105,7 @@ func (m Message) Valid() bool {
 	}
 }
 
-func (m Message) String() string {
+func (m *Message) String() string {
 	switch m.Code {
 	case Sleep:
 		if m.Until != nil {
@@ -186,10 +196,10 @@ var (
 // a different Message. For example if it encounters an error during shutdown,
 // it may choose to return that error as an Error Message as opposed to the
 // original command.
-type StatefulHandler func(taskID string, commands <-chan Message) Message
+type StatefulHandler func(task metafora.Task, commands <-chan Message) Message
 
 type stateMachine struct {
-	taskID     string
+	task       metafora.Task
 	h          StatefulHandler
 	ss         StateStore
 	cl         CommandListener
@@ -209,12 +219,12 @@ type stateMachine struct {
 // the HandlerFunc you use with metafora's Consumer.
 //
 // If ErrHandler is nil DefaultErrHandler will be used.
-func New(tid string, h StatefulHandler, ss StateStore, cl CommandListener, e ErrHandler) metafora.Handler {
+func New(task metafora.Task, h StatefulHandler, ss StateStore, cl CommandListener, e ErrHandler) metafora.Handler {
 	if e == nil {
 		e = DefaultErrHandler
 	}
 	return &stateMachine{
-		taskID:     tid,
+		task:       task,
 		h:          h,
 		ss:         ss,
 		cl:         cl,
@@ -272,16 +282,18 @@ func (s *stateMachine) Run() (done bool) {
 		s.stop()
 	}()
 
+	tid := s.task.ID()
+
 	// Load the initial state
-	state, err := s.ss.Load(s.taskID)
+	state, err := s.ss.Load(s.task)
 	if err != nil {
 		// A failure to load the state for a task is *fatal* - the task will be
 		// unscheduled and requires operator intervention to reschedule.
-		metafora.Errorf("task=%q could not load initial state. Marking done! Error: %v", s.taskID, err)
+		metafora.Errorf("task=%q could not load initial state. Marking done! Error: %v", tid, err)
 		return true
 	}
 	if state.Code.Terminal() {
-		metafora.Warnf("task=%q in terminal state %s - exiting.", s.taskID, state.Code)
+		metafora.Warnf("task=%q in terminal state %s - exiting.", tid, state.Code)
 		return true
 	}
 	s.setState(state)
@@ -290,25 +302,25 @@ func (s *stateMachine) Run() (done bool) {
 	done = false
 	for {
 		// Enter State
-		metafora.Debugf("task=%q in state %s", s.taskID, state.Code)
+		metafora.Debugf("task=%q in state %s", tid, state.Code)
 		msg := s.exec(state)
 
 		// Apply Message
 		newstate, ok := apply(state, msg)
 		if !ok {
-			metafora.Warnf("task=%q Invalid state transition=%q returned by task. Old state=%q", s.taskID, msg.Code, state.Code)
+			metafora.Warnf("task=%q Invalid state transition=%q returned by task. Old state=%q", tid, msg.Code, state.Code)
 			msg = Message{Code: Error, Err: err}
 			if newstate, ok = apply(state, msg); !ok {
-				metafora.Errorf("task=%q Unable to transition to error state! Exiting with state=%q", s.taskID, state.Code)
+				metafora.Errorf("task=%q Unable to transition to error state! Exiting with state=%q", tid, state.Code)
 				return state.Code.Terminal()
 			}
 		}
 
-		metafora.Infof("task=%q transitioning %s --> %s --> %s", s.taskID, state, msg, newstate)
+		metafora.Infof("task=%q transitioning %s --> %s --> %s", tid, state, msg, newstate)
 
 		// Save state
-		if err := s.ss.Store(s.taskID, newstate); err != nil {
-			metafora.Errorf("task=%q Unable to persist state=%q. Unscheduling.", s.taskID, newstate.Code)
+		if err := s.ss.Store(s.task, newstate); err != nil {
+			metafora.Errorf("task=%q Unable to persist state=%q. Unscheduling.", tid, newstate.Code)
 			return true
 		}
 
@@ -344,18 +356,18 @@ func (s *stateMachine) exec(state *State) Message {
 	switch state.Code {
 	case Runnable:
 		// Runnable passes control to the stateful handler
-		return run(s.h, s.taskID, s.cmds)
+		return run(s.h, s.task, s.cmds)
 	case Paused:
 		// Paused until a message arrives
 		return <-s.cmds
 	case Sleeping:
 		// Sleeping until the specified time (or a message)
 		if state.Until == nil {
-			metafora.Warnf("task=%q told to sleep without a time. Resuming.", s.taskID)
+			metafora.Warnf("task=%q told to sleep without a time. Resuming.", s.task.ID())
 			return Message{Code: Run}
 		}
 		dur := state.Until.Sub(time.Now())
-		metafora.Infof("task=%q sleeping for %s", s.taskID, dur)
+		metafora.Infof("task=%q sleeping for %s", s.task.ID(), dur)
 		timer := time.NewTimer(dur)
 		select {
 		case <-timer.C:
@@ -373,17 +385,17 @@ func (s *stateMachine) exec(state *State) Message {
 		// Special case where we potentially trim the current state to keep
 		// errors from growing without bound.
 		var msg Message
-		msg, state.Errors = s.errHandler(s.taskID, state.Errors)
+		msg, state.Errors = s.errHandler(s.task, state.Errors)
 		return msg
 	default:
 		panic("invalid state: " + state.String())
 	}
 }
 
-func run(f StatefulHandler, tid string, cmd <-chan Message) (m Message) {
+func run(f StatefulHandler, task metafora.Task, cmd <-chan Message) (m Message) {
 	defer func() {
 		if r := recover(); r != nil {
-			metafora.Errorf("task=%q Run method panic()d! Applying Error message. Panic: %v", tid, r)
+			metafora.Errorf("task=%q Run method panic()d! Applying Error message. Panic: %v", task.ID(), r)
 			m = Message{Code: Error, Err: fmt.Errorf("panic: %v", r)}
 		}
 	}()
@@ -406,16 +418,19 @@ func run(f StatefulHandler, tid string, cmd <-chan Message) (m Message) {
 	}()
 	defer close(stopped)
 
-	return f(tid, internalcmd)
+	return f(task, internalcmd)
 }
 
 // Stop sends a Release message to the state machine through the command chan.
 func (s *stateMachine) Stop() {
-	s.cmds <- Message{Code: Release}
-
-	// Also inform the state machine it should exit since the internal handler
-	// may override the release message causing the task to be unreleaseable.
-	s.stop()
+	select {
+	case s.cmds <- Message{Code: Release}:
+		// Also inform the state machine it should exit since the internal handler
+		// may override the release message causing the task to be unreleaseable.
+		s.stop()
+	case <-s.stopped:
+		// Already stopped!
+	}
 }
 
 func (s *stateMachine) stop() {

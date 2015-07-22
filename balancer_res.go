@@ -91,19 +91,19 @@ func (b *ResourceBalancer) Balance() []string {
 	}
 
 	// Release the oldest task that isn't already stopping
-	var task Task
+	var oldest RunningTask
 	for _, t := range b.ctx.Tasks() {
-		if t.Stopped().IsZero() && (task == nil || task.Started().After(t.Started())) {
-			task = t
+		if t.Stopped().IsZero() && (oldest == nil || oldest.Started().After(t.Started())) {
+			oldest = t
 		}
 	}
 
 	// No tasks or all tasks are stopping, don't bother rebalancing
-	if task == nil {
+	if oldest == nil {
 		return nil
 	}
 
 	Infof("Releasing task %s (started %s) because %d > %d (%d of %d %s used)",
-		task.ID(), task.Started(), threshold, b.releaseLimit, used, total, b.reporter)
-	return []string{task.ID()}
+		oldest.Task().ID(), oldest.Started(), threshold, b.releaseLimit, used, total, b.reporter)
+	return []string{oldest.Task().ID()}
 }

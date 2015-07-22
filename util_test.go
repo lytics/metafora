@@ -8,40 +8,40 @@ import "errors"
 
 type TestCoord struct {
 	name     string
-	Tasks    chan string // will be returned in order, "" indicates return an error
+	Tasks    chan Task // will be returned in order, "" indicates return an error
 	Commands chan Command
-	Releases chan string
-	Dones    chan string
+	Releases chan Task
+	Dones    chan Task
 	closed   chan bool
 }
 
 func NewTestCoord() *TestCoord {
 	return &TestCoord{
 		name:     "testcoord",
-		Tasks:    make(chan string, 10),
+		Tasks:    make(chan Task, 10),
 		Commands: make(chan Command, 10),
-		Releases: make(chan string, 10),
-		Dones:    make(chan string, 10),
+		Releases: make(chan Task, 10),
+		Dones:    make(chan Task, 10),
 		closed:   make(chan bool),
 	}
 }
 
 func (*TestCoord) Init(CoordinatorContext) error { return nil }
-func (*TestCoord) Claim(string) bool             { return true }
+func (*TestCoord) Claim(Task) bool               { return true }
 func (c *TestCoord) Close()                      { close(c.closed) }
-func (c *TestCoord) Release(task string)         { c.Releases <- task }
-func (c *TestCoord) Done(task string)            { c.Dones <- task }
+func (c *TestCoord) Release(task Task)           { c.Releases <- task }
+func (c *TestCoord) Done(task Task)              { c.Dones <- task }
 func (c *TestCoord) Name() string                { return c.name }
 
 // Watch sends tasks from the Tasks channel unless an empty string is sent.
 // Then an error is returned.
-func (c *TestCoord) Watch(out chan<- string) error {
-	task := ""
+func (c *TestCoord) Watch(out chan<- Task) error {
+	var task Task
 	for {
 		select {
 		case task = <-c.Tasks:
 			Debugf("TestCoord recvd: %s", task)
-			if task == "" {
+			if task == nil || task.ID() == "" {
 				return errors.New("test error")
 			}
 		case <-c.closed:
