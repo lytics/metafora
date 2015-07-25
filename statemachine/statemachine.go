@@ -81,14 +81,20 @@ type Message struct {
 }
 
 // ErrorMessage is a simpler helper for creating error messages from an error.
-func ErrorMessage(err error) Message {
-	return Message{Code: Error, Err: err}
+func ErrorMessage(err error) *Message {
+	return &Message{Code: Error, Err: err}
 }
 
 // SleepMessage is a simpler helper for creating sleep messages from a time.
-func SleepMessage(t time.Time) Message {
-	return Message{Code: Sleep, Until: &t}
+func SleepMessage(t time.Time) *Message {
+	return &Message{Code: Sleep, Until: &t}
 }
+
+func RunMessage() *Message        { return &Message{Code: Run} }
+func PauseMessage() *Message      { return &Message{Code: Pause} }
+func KillMessage() *Message       { return &Message{Code: Kill} }
+func CheckpointMessage() *Message { return &Message{Code: Checkpoint} }
+func ReleaseMessage() *Message    { return &Message{Code: Release} }
 
 // Valid returns true if the Message is valid. Invalid messages sent as
 // commands are discarded by the state machine.
@@ -196,14 +202,14 @@ var (
 // a different Message. For example if it encounters an error during shutdown,
 // it may choose to return that error as an Error Message as opposed to the
 // original command.
-type StatefulHandler func(task metafora.Task, commands <-chan Message) Message
+type StatefulHandler func(task metafora.Task, commands <-chan *Message) *Message
 
 type stateMachine struct {
 	task       metafora.Task
 	h          StatefulHandler
 	ss         StateStore
 	cl         CommandListener
-	cmds       chan Message
+	cmds       chan *Message
 	errHandler ErrHandler
 
 	mu    *sync.RWMutex
@@ -256,7 +262,7 @@ func (s *stateMachine) setState(state *State) {
 // listener into the handler's commands chan.
 func (s *stateMachine) Run() (done bool) {
 	// Multiplex external (Stop) messages and internal ones
-	s.cmds = make(chan Message)
+	s.cmds = make(chan *Message)
 	go func() {
 		for {
 			select {
@@ -292,11 +298,18 @@ func (s *stateMachine) Run() (done bool) {
 		metafora.Errorf("task=%q could not load initial state. Marking done! Error: %v", tid, err)
 		return true
 	}
+	if state == nil {
+		// Note to StateStore implementors: This should not happen! Either state or
+		// err must be non-nil. This code is simply to prevent a nil pointer panic.
+		metafora.Errorf("statestore %T returned nil state and err for task=%q - unscheduling")
+		return true
+	}
 	if state.Code.Terminal() {
 		metafora.Warnf("task=%q in terminal state %s - exiting.", tid, state.Code)
 		return true
 	}
-	s.setState(state)
+
+	s.setState(state) // for introspection/debugging
 
 	// Main Statemachine Loop
 	done = false
@@ -309,7 +322,7 @@ func (s *stateMachine) Run() (done bool) {
 		newstate, ok := apply(state, msg)
 		if !ok {
 			metafora.Warnf("task=%q Invalid state transition=%q returned by task. Old state=%q", tid, msg.Code, state.Code)
-			msg = Message{Code: Error, Err: err}
+			msg = ErrorMessage(err)
 			if newstate, ok = apply(state, msg); !ok {
 				metafora.Errorf("task=%q Unable to transition to error state! Exiting with state=%q", tid, state.Code)
 				return state.Code.Terminal()
@@ -352,7 +365,7 @@ func (s *stateMachine) Run() (done bool) {
 }
 
 // execute non-terminal states
-func (s *stateMachine) exec(state *State) Message {
+func (s *stateMachine) exec(state *State) *Message {
 	switch state.Code {
 	case Runnable:
 		// Runnable passes control to the stateful handler
@@ -364,14 +377,14 @@ func (s *stateMachine) exec(state *State) Message {
 		// Sleeping until the specified time (or a message)
 		if state.Until == nil {
 			metafora.Warnf("task=%q told to sleep without a time. Resuming.", s.task.ID())
-			return Message{Code: Run}
+			return RunMessage()
 		}
 		dur := state.Until.Sub(time.Now())
 		metafora.Infof("task=%q sleeping for %s", s.task.ID(), dur)
 		timer := time.NewTimer(dur)
 		select {
 		case <-timer.C:
-			return Message{Code: Run}
+			return RunMessage()
 		case msg := <-s.cmds:
 			timer.Stop()
 			// Checkpoint & Release are special cases that shouldn't affect sleep
@@ -384,7 +397,7 @@ func (s *stateMachine) exec(state *State) Message {
 	case Fault:
 		// Special case where we potentially trim the current state to keep
 		// errors from growing without bound.
-		var msg Message
+		var msg *Message
 		msg, state.Errors = s.errHandler(s.task, state.Errors)
 		return msg
 	default:
@@ -392,11 +405,11 @@ func (s *stateMachine) exec(state *State) Message {
 	}
 }
 
-func run(f StatefulHandler, task metafora.Task, cmd <-chan Message) (m Message) {
+func run(f StatefulHandler, task metafora.Task, cmd <-chan *Message) (m *Message) {
 	defer func() {
 		if r := recover(); r != nil {
 			metafora.Errorf("task=%q Run method panic()d! Applying Error message. Panic: %v", task.ID(), r)
-			m = Message{Code: Error, Err: fmt.Errorf("panic: %v", r)}
+			m = &Message{Code: Error, Err: fmt.Errorf("panic: %v", r)}
 		}
 	}()
 
@@ -404,7 +417,7 @@ func run(f StatefulHandler, task metafora.Task, cmd <-chan Message) (m Message) 
 	// a handler keeps receiving on the command chan in a goroutine past the
 	// handler's lifetime it doesn't intercept commands intended for the
 	// statemachine.
-	internalcmd := make(chan Message)
+	internalcmd := make(chan *Message)
 	stopped := make(chan struct{})
 	go func() {
 		for {
@@ -424,7 +437,7 @@ func run(f StatefulHandler, task metafora.Task, cmd <-chan Message) (m Message) 
 // Stop sends a Release message to the state machine through the command chan.
 func (s *stateMachine) Stop() {
 	select {
-	case s.cmds <- Message{Code: Release}:
+	case s.cmds <- ReleaseMessage():
 		// Also inform the state machine it should exit since the internal handler
 		// may override the release message causing the task to be unreleaseable.
 		s.stop()
@@ -446,7 +459,7 @@ func (s *stateMachine) stop() {
 
 // apply a message to cause a state transition. Returns false if the state
 // transition is invalid.
-func apply(cur *State, m Message) (*State, bool) {
+func apply(cur *State, m *Message) (*State, bool) {
 	//XXX Is a linear scan of all rules really the best option here?
 	for _, trans := range Rules {
 		if trans.Event == m.Code && trans.From == cur.Code {

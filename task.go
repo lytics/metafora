@@ -12,6 +12,12 @@ type Task interface {
 	ID() string
 }
 
+type basictask string
+
+// NewTask creates the most basic Task implementation: just a string ID.
+func NewTask(id string) Task   { return basictask(id) }
+func (t basictask) ID() string { return string(t) }
+
 // RunningTask represents tasks running within a consumer.
 type RunningTask interface {
 	Task() Task

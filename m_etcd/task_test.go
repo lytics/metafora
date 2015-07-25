@@ -40,18 +40,18 @@ func TestAltTask(t *testing.T) {
 	// Create a handler that returns results through a chan for synchronization
 	results := make(chan string, 1)
 
-	h := func(task metafora.Task, _ <-chan statemachine.Message) statemachine.Message {
+	h := func(task metafora.Task, _ <-chan *statemachine.Message) *statemachine.Message {
 		alttask, ok := task.(*exTask)
 		if !ok {
 			results <- fmt.Sprintf("%q is of type %T", task.ID(), task)
-			return statemachine.Message{Code: statemachine.Pause}
+			return statemachine.PauseMessage()
 		}
 		if alttask.UserID == "" {
 			results <- "missing UserID"
-			return statemachine.Message{Code: statemachine.Pause}
+			return statemachine.PauseMessage()
 		}
 		results <- "ok"
-		return statemachine.Message{Code: statemachine.Pause}
+		return statemachine.PauseMessage()
 	}
 
 	coord, hf, bal, err := m_etcd.New("node1", namespace, hosts, h)

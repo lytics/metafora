@@ -27,7 +27,7 @@ func TestCommandBlackhole(t *testing.T) {
 	rdy := make(chan int, 1)
 	defer close(stop)
 
-	f := func(_ metafora.Task, c <-chan Message) Message {
+	f := func(_ metafora.Task, c <-chan *Message) *Message {
 		go func() {
 			rdy <- 1
 			select {
@@ -37,15 +37,15 @@ func TestCommandBlackhole(t *testing.T) {
 				return
 			}
 		}()
-		return Message{}
+		return nil
 	}
-	cmds := make(chan Message)
+	cmds := make(chan *Message)
 
 	// Ignore the return message, the point is to make sure it doesn't intercept
 	// further commands.
 	run(f, task("test-task"), cmds)
 
-	go func() { cmds <- Message{Code: Run} }()
+	go func() { cmds <- RunMessage() }()
 
 	<-rdy
 

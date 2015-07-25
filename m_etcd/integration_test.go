@@ -25,14 +25,14 @@ func TestSleepTest(t *testing.T) {
 	etcdc.Delete(namespace, recursive)
 
 	holdtask := make(chan bool)
-	h := func(task metafora.Task, cmds <-chan statemachine.Message) statemachine.Message {
+	h := func(task metafora.Task, cmds <-chan *statemachine.Message) *statemachine.Message {
 
 		if task.ID() == sleepingtasks {
 			sleeptil := 5 * time.Second
 			nextstarttime := (time.Now().Add(sleeptil))
 			t.Logf("sleeping task:%v sleepfor:%v", task, nextstarttime)
 			<-holdtask
-			return statemachine.Message{Code: statemachine.Sleep, Until: &nextstarttime}
+			return statemachine.SleepMessage(nextstarttime)
 		}
 
 		cmd := <-cmds
@@ -135,10 +135,10 @@ func TestAll(t *testing.T) {
 	etcdc.Delete("test-a", recursive)
 	etcdc.Delete("test-b", recursive)
 
-	h := func(task metafora.Task, cmds <-chan statemachine.Message) statemachine.Message {
+	h := func(task metafora.Task, cmds <-chan *statemachine.Message) *statemachine.Message {
 		cmd := <-cmds
 		if task.ID() == "error-test" {
-			return statemachine.Message{Code: statemachine.Error, Err: errors.New("error-test")}
+			return statemachine.ErrorMessage(errors.New("error-test"))
 		}
 		return cmd
 	}
@@ -200,7 +200,7 @@ func TestAll(t *testing.T) {
 	// Kill task1 in A
 	{
 		cmdr := m_etcd.NewCommander("test-a", etcdc)
-		if err := cmdr.Send("task1", statemachine.Message{Code: statemachine.Kill}); err != nil {
+		if err := cmdr.Send("task1", statemachine.KillMessage()); err != nil {
 			t.Fatalf("Error sending kill to task1: %v", err)
 		}
 		time.Sleep(250 * time.Millisecond)
@@ -280,7 +280,7 @@ func TestAll(t *testing.T) {
 		// Resuming error-test 8*2 times should cause it to be failed
 		cmdr := m_etcd.NewCommander("test-b", etcdc)
 		for i := 0; i < statemachine.DefaultErrMax*2; i++ {
-			if err := cmdr.Send("error-test", statemachine.Message{Code: statemachine.Run}); err != nil {
+			if err := cmdr.Send("error-test", statemachine.RunMessage()); err != nil {
 				t.Fatalf("Unexpected error resuming error-test in B: %v", err)
 			}
 			time.Sleep(200 * time.Millisecond)
