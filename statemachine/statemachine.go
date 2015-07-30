@@ -1,11 +1,17 @@
 package statemachine
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/lytics/metafora"
+)
+
+var (
+	MissingUntilError  = errors.New("sleeping state missing deadline")
+	MissingErrorsError = errors.New("fault state has no errors")
 )
 
 // StateCode is the actual state key. The State struct adds additional metadata
@@ -31,7 +37,8 @@ func (s StateCode) Terminal() bool {
 	case Completed, Killed, Failed:
 		return true
 	default:
-		panic("unknown state " + s)
+		metafora.Error("unknown state: ", s)
+		return false
 	}
 }
 
@@ -66,6 +73,23 @@ func (s *State) String() string {
 	default:
 		return string(s.Code)
 	}
+}
+
+func (s *State) Valid() error {
+	switch s.Code {
+	case Completed, Failed, Killed, Paused, Runnable:
+	case Sleeping:
+		if s.Until == nil {
+			return MissingUntilError
+		}
+	case Fault:
+		if len(s.Errors) == 0 {
+			return MissingErrorsError
+		}
+	default:
+		return fmt.Errorf("unknown state: %q", s.Code)
+	}
+	return nil
 }
 
 // Messages are events that cause state transitions. Until and Err are used by
