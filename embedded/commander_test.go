@@ -14,13 +14,13 @@ func TestEmbeddedCommander(t *testing.T) {
 	cl1 := cmdr.NewListener("task1")
 	cl2 := cmdr.NewListener("task2")
 
-	if err := cmdr.Send("task1", statemachine.Message{Code: statemachine.Run}); err != nil {
+	if err := cmdr.Send("task1", statemachine.RunMessage()); err != nil {
 		t.Fatalf("Error sending message to task1: %v", err)
 	}
-	if err := cmdr.Send("task2", statemachine.Message{Code: statemachine.Release}); err != nil {
+	if err := cmdr.Send("task2", statemachine.ReleaseMessage()); err != nil {
 		t.Fatalf("Error sending message to task2: %v", err)
 	}
-	if err := cmdr.Send("invalid-task", statemachine.Message{Code: statemachine.Pause}); err == nil {
+	if err := cmdr.Send("invalid-task", statemachine.PauseMessage()); err == nil {
 		t.Fatal("Expected an error when sending to an invalid task, but didn't receive one.")
 	}
 

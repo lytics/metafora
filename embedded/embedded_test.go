@@ -25,7 +25,7 @@ func TestEmbedded(t *testing.T) {
 	go runner.Run()
 
 	for _, taskid := range []string{"one", "two", "three", "four"} {
-		err := client.SubmitTask(&Task{TID: taskid})
+		err := client.SubmitTask(metafora.NewTask(taskid))
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -75,7 +75,7 @@ func TestEmbeddedShutdown(t *testing.T) {
 
 	// submit tasks
 	for _, taskid := range tasks {
-		err := client.SubmitTask(&Task{TID: taskid})
+		err := client.SubmitTask(metafora.NewTask(taskid))
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}

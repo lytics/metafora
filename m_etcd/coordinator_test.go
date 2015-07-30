@@ -382,7 +382,6 @@ func TestNodeRefresher(t *testing.T) {
 
 // TestExpiration ensures that expired claims get reclaimed properly.
 func TestExpiration(t *testing.T) {
-	metafora.SetLogLevel(metafora.LogLevelDebug)
 	coord, _ := setupEtcd(t)
 	hf := metafora.HandlerFunc(metafora.SimpleHandler(func(_ metafora.Task, stop <-chan bool) bool {
 		<-stop

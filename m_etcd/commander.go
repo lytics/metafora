@@ -31,7 +31,7 @@ func NewCommander(namespace string, c *etcd.Client) statemachine.Commander {
 }
 
 // Send command to a task. Overwrites existing commands.
-func (c *cmdr) Send(taskID string, m statemachine.Message) error {
+func (c *cmdr) Send(taskID string, m *statemachine.Message) error {
 	buf, err := json.Marshal(m)
 	if err != nil {
 		return err
@@ -45,7 +45,7 @@ type cmdrListener struct {
 	cli  *etcd.Client
 	path string
 
-	commands chan statemachine.Message
+	commands chan *statemachine.Message
 
 	mu   *sync.Mutex
 	stop chan bool
@@ -61,7 +61,7 @@ func NewCommandListener(task metafora.Task, namespace string, c *etcd.Client) st
 	cl := &cmdrListener{
 		path:     path.Join(namespace, commandPath, task.ID()),
 		cli:      c,
-		commands: make(chan statemachine.Message),
+		commands: make(chan *statemachine.Message),
 		mu:       &sync.Mutex{},
 		stop:     make(chan bool),
 	}
@@ -69,7 +69,7 @@ func NewCommandListener(task metafora.Task, namespace string, c *etcd.Client) st
 	return cl
 }
 
-func (c *cmdrListener) Receive() <-chan statemachine.Message { return c.commands }
+func (c *cmdrListener) Receive() <-chan *statemachine.Message { return c.commands }
 func (c *cmdrListener) Stop() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -82,7 +82,7 @@ func (c *cmdrListener) Stop() {
 
 func (c *cmdrListener) sendErr(err error) {
 	select {
-	case c.commands <- statemachine.Message{Code: statemachine.Error, Err: err}:
+	case c.commands <- statemachine.ErrorMessage(err):
 	case <-c.stop:
 	}
 }
@@ -105,8 +105,8 @@ func (c *cmdrListener) sendMsg(resp *etcd.Response) (index uint64, ok bool) {
 		return 0, false
 	}
 
-	msg := statemachine.Message{}
-	if err := json.Unmarshal([]byte(resp.Node.Value), &msg); err != nil {
+	msg := &statemachine.Message{}
+	if err := json.Unmarshal([]byte(resp.Node.Value), msg); err != nil {
 		metafora.Errorf("Error unmarshalling command from %s - sending error to stateful handler: %v", c.path, err)
 		c.sendErr(err)
 		return 0, false

@@ -10,7 +10,7 @@ import (
 	. "github.com/lytics/metafora/statemachine"
 )
 
-func testhandler(task metafora.Task, cmds <-chan Message) Message {
+func testhandler(task metafora.Task, cmds <-chan *Message) *Message {
 	metafora.Debugf("Starting %s", task.ID())
 	m := <-cmds
 	metafora.Debugf("%s recvd %s", task.ID(), m.Code)
@@ -76,7 +76,7 @@ func TestRules(t *testing.T) {
 		// The Fault state transitions itself to either sleeping or failed
 		if trans.From != Fault {
 			// Apply the Event to transition to the To state
-			msg := Message{Code: trans.Event}
+			msg := &Message{Code: trans.Event}
 
 			// Sleep messages need extra state
 			if trans.Event == Sleep {
@@ -105,7 +105,7 @@ func TestCheckpointRelease(t *testing.T) {
 	ss, cmdr, _, done := setup(t, "test1")
 
 	// Should just cause statemachine to loop
-	if err := cmdr.Send("test1", Message{Code: Checkpoint}); err != nil {
+	if err := cmdr.Send("test1", CheckpointMessage()); err != nil {
 		t.Fatalf("Error sending checkpoint: %v", err)
 	}
 	select {
@@ -115,7 +115,7 @@ func TestCheckpointRelease(t *testing.T) {
 	}
 
 	// Should cause the statemachine to exit
-	if err := cmdr.Send("test1", Message{Code: Release}); err != nil {
+	if err := cmdr.Send("test1", ReleaseMessage()); err != nil {
 		t.Fatalf("Error sending release: %v", err)
 	}
 	select {
@@ -141,7 +141,7 @@ func TestSleep(t *testing.T) {
 	{
 		// Put to sleep forever
 		until := time.Now().Add(9001 * time.Hour)
-		if err := cmdr.Send("sleep-test", Message{Code: Sleep, Until: &until}); err != nil {
+		if err := cmdr.Send("sleep-test", SleepMessage(until)); err != nil {
 			t.Fatalf("Error sending sleep: %v", err)
 		}
 
@@ -162,7 +162,7 @@ func TestSleep(t *testing.T) {
 	dur := 1 * time.Second
 	start := time.Now()
 	until := start.Add(dur)
-	if err := cmdr.Send("sleep-test", Message{Code: Sleep, Until: &until}); err != nil {
+	if err := cmdr.Send("sleep-test", SleepMessage(until)); err != nil {
 		t.Fatalf("Error sending sleep: %v", err)
 	}
 
@@ -190,7 +190,7 @@ func TestSleepRelease(t *testing.T) {
 	until := time.Now().Add(9001 * time.Hour)
 	{
 		// Put to sleep forever
-		if err := cmdr.Send("sleep-test", Message{Code: Sleep, Until: &until}); err != nil {
+		if err := cmdr.Send("sleep-test", SleepMessage(until)); err != nil {
 			t.Fatalf("Error sending sleep: %v", err)
 		}
 
@@ -202,7 +202,7 @@ func TestSleepRelease(t *testing.T) {
 
 	{
 		// Releasing should maintain sleep state but exit
-		if err := cmdr.Send("sleep-test", Message{Code: Release}); err != nil {
+		if err := cmdr.Send("sleep-test", ReleaseMessage()); err != nil {
 			t.Fatalf("Error sending release: %v", err)
 		}
 		newstate := <-ss.Stored
@@ -219,7 +219,7 @@ func TestTerminal(t *testing.T) {
 	ss, cmdr, sm, done := setup(t, "terminal-test")
 
 	// Kill the task
-	if err := cmdr.Send("terminal-test", Message{Code: Kill}); err != nil {
+	if err := cmdr.Send("terminal-test", &Message{Code: Kill}); err != nil {
 		t.Fatalf("Error sending kill command: %v", err)
 	}
 
@@ -254,7 +254,7 @@ func TestPause(t *testing.T) {
 	ss, cmdr, sm, done := setup(t, "test-pause")
 
 	pause := func() {
-		if err := cmdr.Send("test-pause", Message{Code: Pause}); err != nil {
+		if err := cmdr.Send("test-pause", PauseMessage()); err != nil {
 			t.Fatalf("Error sending pause command to test-pause: %v", err)
 		}
 		newstate := <-ss.Stored
@@ -277,7 +277,7 @@ func TestPause(t *testing.T) {
 	pause()
 
 	// Should be able to resume paused work
-	if err := cmdr.Send("test-pause", Message{Code: Run}); err != nil {
+	if err := cmdr.Send("test-pause", RunMessage()); err != nil {
 		t.Fatalf("Error sending run command to test-pause: %v", err)
 	}
 	newstate := <-ss.Stored

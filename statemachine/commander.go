@@ -1,10 +1,10 @@
 package statemachine
 
 type CommandListener interface {
-	Receive() <-chan Message
+	Receive() <-chan *Message
 	Stop()
 }
 
 type Commander interface {
-	Send(taskID string, m Message) error
+	Send(taskID string, m *Message) error
 }
