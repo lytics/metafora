@@ -9,7 +9,7 @@ like to reuse and couldn't with Ordasity as it runs on the JVM.
 
 #### Q. Why not use [donut](https://github.com/dforsyth/donut)?
 
-[We](http://lytics.io) evaluated donut and found it far from production use.
+[We](http://lytics.io) evaluated donut and found it far from production ready.
 While we've been inspired by many of its basic interfaces there really wasn't
 much code we were interested in reusing. At ~600 lines of code in donut,
 starting from scratch didn't seem like it would lose us much.
