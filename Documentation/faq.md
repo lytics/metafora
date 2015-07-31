@@ -28,8 +28,7 @@ There are a lot of projects in the short-lived offline task processing space,
 but few if any handle task state, rebalancing, consistent operation during
 partitions, and other features critical for long running tasks.
 
-#### Q. Why not use a cluster management framework like
-[Mesos](http://mesos.apache.org/) or [Kubernetes](http://kubernetes.io/)?
+#### Q. Why not use a cluster management framework like [Mesos](http://mesos.apache.org/) or [Kubernetes](http://kubernetes.io/)?
 
 You can use a cluster management framework to run Metafora, but you *shouldn't*
 use Metafora as a cluster management framework.
