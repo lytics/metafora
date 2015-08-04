@@ -22,11 +22,12 @@ type stateMachine interface {
 }
 
 type Task struct {
-	ID       string     `json:"id"`
-	Started  time.Time  `json:"started"`
-	Stopped  *time.Time `json:"stopped,omitempty"`
-	State    string     `json:"state,omitempty"`
-	Modified *time.Time `json:"modified,omitempty"`
+	ID       string        `json:"id"`
+	Started  time.Time     `json:"started"`
+	Stopped  *time.Time    `json:"stopped,omitempty"`
+	State    string        `json:"state,omitempty"`
+	Modified *time.Time    `json:"modified,omitempty"`
+	Task     metafora.Task `json:"task"`
 }
 
 // InfoResponse is the JSON response marshalled by the MakeInfoHandler.
@@ -53,6 +54,7 @@ func MakeInfoHandler(c Consumer, started time.Time) http.HandlerFunc {
 			resp.Tasks[i] = Task{
 				ID:      task.Task().ID(),
 				Started: task.Started(),
+				Task:    task.Task(),
 			}
 
 			// Set stopped if it's non-zero
