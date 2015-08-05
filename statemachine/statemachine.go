@@ -42,6 +42,8 @@ func (s StateCode) Terminal() bool {
 	}
 }
 
+func (s StateCode) String() string { return string(s) }
+
 // State represents the current state of a stateful handler. See StateCode for
 // details. Until and Errors are extra state used by the Sleeping and Fault
 // states respectively.
@@ -151,6 +153,8 @@ func (m *Message) String() string {
 
 // MessageCode is the symbolic name of a state transition.
 type MessageCode string
+
+func (m MessageCode) String() string { return string(m) }
 
 const (
 	Run        MessageCode = "run"
