@@ -88,8 +88,8 @@ func (c *cmdrListener) sendErr(err error) {
 }
 
 func (c *cmdrListener) sendMsg(resp *etcd.Response) (index uint64, ok bool) {
-	// Only handle new commands
-	if !newActions[resp.Action] {
+	// Delete/Expire events shouldn't be processed
+	if releaseActions[resp.Action] {
 		return resp.Node.ModifiedIndex + 1, true
 	}
 
@@ -124,9 +124,7 @@ func (c *cmdrListener) watcher() {
 	var index uint64
 	var ok bool
 startWatch:
-	const notrecursive = false
-	const nosort = false
-	resp, err := c.cli.Get(c.path, notrecursive, nosort)
+	resp, err := c.cli.Get(c.path, notrecursive, unsorted)
 	if err != nil {
 		if ee, ok := err.(*etcd.EtcdError); ok && ee.ErrorCode == EcodeKeyNotFound {
 			// No command found; this is normal. Grab index and skip to watching
