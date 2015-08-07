@@ -19,10 +19,10 @@ func TestCommandListener(t *testing.T) {
 	clclient, _ := testutil.NewEtcdClient(t)
 
 	const recursive = true
-	cmdrclient.Delete("testtask", recursive)
+	namespace := "cltest"
+	cmdrclient.Delete("/"+namespace, recursive)
 
 	task := metafora.NewTask("testtask")
-	namespace := "cltest"
 
 	cmdr := m_etcd.NewCommander(namespace, cmdrclient)
 
