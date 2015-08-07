@@ -31,7 +31,6 @@ func (t *exTask) String() string {
 
 func TestAltTask(t *testing.T) {
 	etcdc, hosts := testutil.NewEtcdClient(t)
-	metafora.SetLogLevel(metafora.LogLevelDebug)
 	t.Parallel()
 	const namespace = "alttask-metafora"
 

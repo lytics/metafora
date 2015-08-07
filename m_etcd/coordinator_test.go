@@ -154,12 +154,12 @@ func TestCoordinatorTC3(t *testing.T) {
 
 	//XXX This assumes tasks are sent by watchers in the order they were
 	//    submitted to etcd which, while /possible/ to guarantee, isn't a gurantee
-	//    we're interested in making. Remove this section if it starts causing problems.
+	//    we're interested in making.
 	//    We only want to guarantee that exactly one coordinator can claim a task.
 	c1t := <-c1tasks
 	c2t := <-c2tasks
 	if c1t.ID() != c2t.ID() {
-		t.Fatalf("Watchers didn't receive the same task %s != %s. Might be fine; see code.", c1t, c2t)
+		t.Logf("Watchers didn't receive the same task %s != %s. It's fine; watch order isn't guaranteed", c1t, c2t)
 	}
 
 	// Make sure c1 can claim and c2 cannot
@@ -383,7 +383,9 @@ func TestNodeRefresher(t *testing.T) {
 // TestExpiration ensures that expired claims get reclaimed properly.
 func TestExpiration(t *testing.T) {
 	coord, _ := setupEtcd(t)
+	claims := make(chan int, 10)
 	hf := metafora.HandlerFunc(metafora.SimpleHandler(func(_ metafora.Task, stop <-chan bool) bool {
+		claims <- 1
 		<-stop
 		return true
 	}))
@@ -402,7 +404,12 @@ func TestExpiration(t *testing.T) {
 	go consumer.Run()
 
 	// Wait for claim to expire and coordinator to pick up task
-	time.Sleep(2 * time.Second)
+	select {
+	case <-claims:
+		// Task claimed!
+	case <-time.After(5 * time.Second):
+		t.Fatal("Task not claimed long after it should have been.")
+	}
 
 	tasks := consumer.Tasks()
 	if len(tasks) != 1 {
