@@ -383,7 +383,9 @@ func TestNodeRefresher(t *testing.T) {
 // TestExpiration ensures that expired claims get reclaimed properly.
 func TestExpiration(t *testing.T) {
 	coord, _ := setupEtcd(t)
+	claims := make(chan int, 10)
 	hf := metafora.HandlerFunc(metafora.SimpleHandler(func(_ metafora.Task, stop <-chan bool) bool {
+		claims <- 1
 		<-stop
 		return true
 	}))
@@ -402,7 +404,12 @@ func TestExpiration(t *testing.T) {
 	go consumer.Run()
 
 	// Wait for claim to expire and coordinator to pick up task
-	time.Sleep(2 * time.Second)
+	select {
+	case <-claims:
+		// Task claimed!
+	case <-time.After(5 * time.Second):
+		t.Fatal("Task not claimed long after it should have been.")
+	}
 
 	tasks := consumer.Tasks()
 	if len(tasks) != 1 {
