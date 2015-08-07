@@ -21,7 +21,7 @@ Features
 * **Extensible** - well defined interfaces for implementing balancing and
   coordinating
 * **Exactly-once** - designed to enforce one-and-only-one instance of each
-  submitted task is running
+  submitted task is running<sup>[ref](Documentation/design.md#exactly-once)</sup>
 
 Metafora is a library for building distributed task work systems. You're
 responsible for creating a `main()` entrypoint for your application, writing a
