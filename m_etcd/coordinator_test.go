@@ -154,12 +154,12 @@ func TestCoordinatorTC3(t *testing.T) {
 
 	//XXX This assumes tasks are sent by watchers in the order they were
 	//    submitted to etcd which, while /possible/ to guarantee, isn't a gurantee
-	//    we're interested in making. Remove this section if it starts causing problems.
+	//    we're interested in making.
 	//    We only want to guarantee that exactly one coordinator can claim a task.
 	c1t := <-c1tasks
 	c2t := <-c2tasks
 	if c1t.ID() != c2t.ID() {
-		t.Fatalf("Watchers didn't receive the same task %s != %s. Might be fine; see code.", c1t, c2t)
+		t.Logf("Watchers didn't receive the same task %s != %s. It's fine; watch order isn't guaranteed", c1t, c2t)
 	}
 
 	// Make sure c1 can claim and c2 cannot
