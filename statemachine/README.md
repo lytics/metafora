@@ -54,6 +54,8 @@ Completed | **Terminal** Task returned the `Complete` message because it finishe
 Failed | **Terminal** The error handler executed during the Fault state determined the task has failed permanently.
 Killed | **Terminal** Task received a `Kill` message.
 
+**Terminal** states are final. The task is removed from from the broker and will never be scheduled to run again.
+
 ## Messages
 
 AKA Events or Commands
