@@ -3,6 +3,7 @@ package statemachine
 import (
 	"errors"
 	"fmt"
+	"runtime"
 	"sync"
 	"time"
 
@@ -436,8 +437,11 @@ func (s *stateMachine) exec(state *State) *Message {
 func run(f StatefulHandler, task metafora.Task, cmd <-chan *Message) (m *Message) {
 	defer func() {
 		if r := recover(); r != nil {
-			metafora.Errorf("task=%q Run method panic()d! Applying Error message. Panic: %v", task.ID(), r)
-			m = &Message{Code: Error, Err: fmt.Errorf("panic: %v", r)}
+			stackBuf := make([]byte, 6000)
+			stackBufLen := runtime.Stack(stackBuf, false)
+			stackTraceStr := string(stackBuf[0:stackBufLen])
+			metafora.Errorf("task=%q Run method panic()d! Applying Error message. Panic: %v\nStack: %s", task.ID(), r, stackTraceStr)
+			m = &Message{Code: Error, Err: fmt.Errorf("panic: %v\nstack: %s", r, stackTraceStr)}
 		}
 	}()
 
