@@ -1,6 +1,9 @@
 package m_etcd
 
 const (
+	DefaultClaimTTL uint64 = 120 // seconds
+	DefaultNodeTTL  uint64 = 20  // seconds
+
 	TasksPath    = "tasks"
 	NodesPath    = "nodes"
 	CommandsPath = "commands"

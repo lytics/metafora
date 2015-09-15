@@ -3,7 +3,6 @@ package m_etcd
 import (
 	"encoding/json"
 	"path"
-	"strings"
 
 	"github.com/coreos/go-etcd/etcd"
 	"github.com/lytics/metafora"
@@ -11,15 +10,14 @@ import (
 
 // NewFairBalancer creates a new metafora.DefaultFairBalancer that uses etcd
 // for counting tasks per node.
-func NewFairBalancer(nodeid, namespace string, hosts []string) metafora.Balancer {
-	namespace = "/" + strings.Trim(namespace, "/ ")
-	client, _ := newEtcdClient(hosts)
+func NewFairBalancer(conf *Config) metafora.Balancer {
+	client, _ := newEtcdClient(conf.Hosts)
 	e := etcdClusterState{
 		client:   client,
-		taskPath: path.Join(namespace, "tasks"),
-		nodePath: path.Join(namespace, "nodes"),
+		taskPath: path.Join(conf.Namespace, NodesPath),
+		nodePath: path.Join(conf.Namespace, TasksPath),
 	}
-	return metafora.NewDefaultFairBalancer(nodeid, &e)
+	return metafora.NewDefaultFairBalancer(conf.Name, &e)
 }
 
 // Checks the current state of an Etcd cluster

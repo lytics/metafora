@@ -3,8 +3,6 @@ package m_etcd
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
-	"math/rand"
 	"os"
 	"path"
 	"strings"
@@ -32,9 +30,6 @@ const (
 )
 
 var (
-	ClaimTTL           uint64 = 120 // seconds
-	DefaultNodePathTTL uint64 = 20  // seconds
-
 	// etcd actions signifying a claim key was released
 	releaseActions = map[string]bool{
 		actionExpire: true,
@@ -56,24 +51,16 @@ type ownerValue struct {
 }
 
 type EtcdCoordinator struct {
-	client    *etcd.Client
-	hosts     []string
-	cordCtx   metafora.CoordinatorContext
-	namespace string
-	taskPath  string
-	name      string
+	client  *etcd.Client
+	cordCtx metafora.CoordinatorContext
+	conf    *Config
+	name    string
 
-	ClaimTTL uint64 // seconds
-
-	// NewTask creates a new Task compatible with etcd and metafora's Task
-	// interfaces. It may be replaced with a custom TaskFunc.
-	NewTask TaskFunc
-
-	NodeID      string
-	nodePath    string
-	nodePathTTL uint64
 	commandPath string
+	nodePath    string
+	taskPath    string
 
+	newTask     TaskFunc
 	taskManager *taskManager
 
 	// Close() closes stop channel to signal to watchers to exit
@@ -118,14 +105,17 @@ func New(nodeID, namespace string, hosts []string, h statemachine.StatefulHandle
 		return statemachine.New(task, h, ss, cl, nil)
 	}
 
+	conf := NewConfig(namespace, hosts)
+	conf.Name = nodeID
+
 	// Create an etcd coordinator
-	coord, err := NewEtcdCoordinator(nodeID, namespace, hosts)
+	coord, err := NewEtcdCoordinator(conf)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
 	// Create an etcd backed Fair Balancer (there's no harm in not using it)
-	bal := NewFairBalancer(nodeID, namespace, hosts)
+	bal := NewFairBalancer(conf)
 
 	return coord, hf, bal, nil
 }
@@ -136,56 +126,52 @@ func New(nodeID, namespace string, hosts []string, h statemachine.StatefulHandle
 //
 // Coordinator methods will be called by the core Metafora Consumer. Calling
 // Init, Close, etc. from your own code will lead to undefined behavior.
-func NewEtcdCoordinator(nodeID, namespace string, hosts []string) (*EtcdCoordinator, error) {
-	// Namespace should be an absolute path with no trailing slash
-	namespace = "/" + strings.Trim(namespace, "/ ")
-
-	if nodeID == "" {
-		hn, _ := os.Hostname()
-		nodeID = fmt.Sprintf("%s-%x", hn, rand.New(rand.NewSource(time.Now().UnixNano())).Int63())
-	}
-
-	nodeID = strings.Trim(nodeID, "/ ")
-
-	client, err := newEtcdClient(hosts)
+func NewEtcdCoordinator(conf *Config) (*EtcdCoordinator, error) {
+	client, err := newEtcdClient(conf.Hosts)
 	if err != nil {
 		return nil, err
 	}
-	return &EtcdCoordinator{
-		client:    client,
-		hosts:     hosts,
-		namespace: namespace,
-		name:      "etcd:" + namespace + "/" + nodeID,
 
-		taskPath: path.Join(namespace, TasksPath),
-		ClaimTTL: ClaimTTL, //default to the package constant, but allow it to be overwritten
-		NewTask:  DefaultTaskFunc,
+	ec := &EtcdCoordinator{
+		client: client,
+		name:   conf.String(),
 
-		NodeID:      nodeID,
-		nodePath:    path.Join(namespace, NodesPath, nodeID),
-		nodePathTTL: DefaultNodePathTTL,
-		commandPath: path.Join(namespace, NodesPath, nodeID, CommandsPath),
+		commandPath: path.Join(conf.Namespace, NodesPath, conf.Name, CommandsPath),
+		nodePath:    path.Join(conf.Namespace, NodesPath, conf.Name),
+		taskPath:    path.Join(conf.Namespace, TasksPath),
 
 		stop: make(chan bool),
-	}, nil
+	}
+
+	// Protect callers of task functions from panics.
+	ec.newTask = func(id, value string) metafora.Task {
+		defer func() {
+			if p := recover(); p != nil {
+				metafora.Errorf("%s panic when creating task: %v", ec.name, p)
+			}
+		}()
+		return conf.NewTaskFunc(id, value)
+	}
+
+	return ec, nil
 }
 
 // Init is called once by the consumer to provide a Logger to Coordinator
 // implementations.
 func (ec *EtcdCoordinator) Init(cordCtx metafora.CoordinatorContext) error {
 	metafora.Debugf("Initializing coordinator with namespace: %s and etcd cluster: %s",
-		ec.namespace, strings.Join(ec.client.GetCluster(), ", "))
+		ec.conf.Namespace, strings.Join(ec.client.GetCluster(), ", "))
 
 	ec.cordCtx = cordCtx
 
-	ec.upsertDir(ec.namespace, foreverTTL)
+	ec.upsertDir(ec.conf.Namespace, foreverTTL)
 	ec.upsertDir(ec.taskPath, foreverTTL)
-	if _, err := ec.client.CreateDir(ec.nodePath, ec.nodePathTTL); err != nil {
+	if _, err := ec.client.CreateDir(ec.nodePath, ec.conf.NodeTTL); err != nil {
 		return err
 	}
 
 	// Create etcd client for task manager
-	tmc, err := newEtcdClient(ec.hosts)
+	tmc, err := newEtcdClient(ec.conf.Hosts)
 	if err != nil {
 		return err
 	}
@@ -194,7 +180,7 @@ func (ec *EtcdCoordinator) Init(cordCtx metafora.CoordinatorContext) error {
 	go ec.nodeRefresher()
 	ec.upsertDir(ec.commandPath, foreverTTL)
 
-	ec.taskManager = newManager(cordCtx, tmc, ec.taskPath, ec.NodeID, ec.ClaimTTL)
+	ec.taskManager = newManager(cordCtx, tmc, ec.taskPath, ec.conf.Name, ec.conf.ClaimTTL)
 	return nil
 }
 
@@ -224,7 +210,7 @@ func (ec *EtcdCoordinator) upsertDir(path string, ttl uint64) {
 		}{
 			Host:        host,
 			CreatedTime: time.Now().String(),
-			ownerValue:  ownerValue{Node: ec.NodeID},
+			ownerValue:  ownerValue{Node: ec.conf.Name},
 		}
 		metadataB, _ := json.Marshal(metadata)
 		metadataStr := string(metadataB)
@@ -239,17 +225,18 @@ func (ec *EtcdCoordinator) upsertDir(path string, ttl uint64) {
 // refresh, so it's up to nodeRefresher to cause the coordinator to close if
 // it's unable to communicate with etcd.
 func (ec *EtcdCoordinator) nodeRefresher() {
-	ttl := ec.nodePathTTL >> 1 // have some leeway before ttl expires
+	ttl := ec.conf.NodeTTL >> 1 // have some leeway before ttl expires
 	if ttl < 1 {
+		metafora.Warnf("%s Dangerously low NodeTTL: %d", ec.name, ec.conf.NodeTTL)
 		ttl = 1
 	}
 
 	// Create a local etcd client since it's not threadsafe, but don't bother
 	// checking for errors at this point.
-	client, _ := newEtcdClient(ec.hosts)
+	client, _ := newEtcdClient(ec.conf.Hosts)
 	for {
 		// Deadline for refreshes to finish by or the coordinator closes.
-		deadline := time.Now().Add(time.Duration(ec.nodePathTTL) * time.Second)
+		deadline := time.Now().Add(time.Duration(ec.conf.NodeTTL) * time.Second)
 		select {
 		case <-ec.stop:
 			return
@@ -273,7 +260,7 @@ func (ec *EtcdCoordinator) refreshBy(c *etcd.Client, deadline time.Time) (err er
 		default:
 		}
 
-		_, err = c.UpdateDir(ec.nodePath, ec.nodePathTTL)
+		_, err = c.UpdateDir(ec.nodePath, ec.conf.NodeTTL)
 		if err == nil {
 			// It worked!
 			return nil
@@ -291,7 +278,7 @@ func (ec *EtcdCoordinator) refreshBy(c *etcd.Client, deadline time.Time) (err er
 func (ec *EtcdCoordinator) Watch(out chan<- metafora.Task) error {
 	var index uint64
 
-	client, err := newEtcdClient(ec.hosts)
+	client, err := newEtcdClient(ec.conf.Hosts)
 	if err != nil {
 		return err
 	}
@@ -382,12 +369,12 @@ func (ec *EtcdCoordinator) parseTask(resp *etcd.Response) metafora.Task {
 				break
 			}
 		}
-		return ec.NewTask(parts[2], props)
+		return ec.newTask(parts[2], props)
 	}
 
 	if newActions[resp.Action] && len(parts) == 4 && parts[3] == PropsKey {
 		metafora.Debugf("%s received task with properties: %s", ec.name, parts[2])
-		return ec.NewTask(parts[2], resp.Node.Value)
+		return ec.newTask(parts[2], resp.Node.Value)
 	}
 
 	// If a claim key is removed, try to claim the task
@@ -402,13 +389,13 @@ func (ec *EtcdCoordinator) parseTask(resp *etcd.Response) metafora.Task {
 		if err != nil {
 			if ee, ok := err.(*etcd.EtcdError); ok && ee.ErrorCode == EcodeKeyNotFound {
 				// No props file
-				return ec.NewTask(parts[2], "")
+				return ec.newTask(parts[2], "")
 			}
 
 			metafora.Errorf("%s error getting properties while handling %s", ec.name, parts[2])
 			return nil
 		}
-		return ec.NewTask(parts[2], propsnode.Node.Value)
+		return ec.newTask(parts[2], propsnode.Node.Value)
 	}
 
 	// Ignore any other key events (_metafora keys, task deletion, etc.)
@@ -443,7 +430,7 @@ func (ec *EtcdCoordinator) Command() (metafora.Command, error) {
 		return nil, nil
 	}
 
-	client, err := newEtcdClient(ec.hosts)
+	client, err := newEtcdClient(ec.conf.Hosts)
 	if err != nil {
 		return nil, err
 	}

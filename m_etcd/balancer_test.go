@@ -8,10 +8,13 @@ import (
 )
 
 func TestFairBalancer(t *testing.T) {
-	coord1, hosts := setupEtcd(t)
-	coord2, _ := NewEtcdCoordinator("node2", namespace, hosts)
+	t.Parallel()
+	coord1, conf1 := setupEtcd(t)
+	conf2 := conf1.Copy()
+	conf2.Name = "coord2"
+	coord2, _ := NewEtcdCoordinator(conf2)
 
-	cli := NewClient(namespace, hosts)
+	cli := NewClient(conf1.Namespace, conf1.Hosts)
 
 	h := metafora.SimpleHandler(func(task metafora.Task, stop <-chan bool) bool {
 		metafora.Debugf("Starting %s", task.ID())
@@ -21,13 +24,13 @@ func TestFairBalancer(t *testing.T) {
 	})
 
 	// Create two consumers
-	b1 := NewFairBalancer(nodeID, namespace, hosts)
+	b1 := NewFairBalancer(conf1)
 	con1, err := metafora.NewConsumer(coord1, h, b1)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	b2 := NewFairBalancer("node2", namespace, hosts)
+	b2 := NewFairBalancer(conf2)
 	con2, err := metafora.NewConsumer(coord2, h, b2)
 	if err != nil {
 		t.Fatal(err)
@@ -56,7 +59,7 @@ func TestFairBalancer(t *testing.T) {
 	// Wait for node to startup and register
 	time.Sleep(500 * time.Millisecond)
 
-	cli.SubmitCommand(nodeID, metafora.CommandBalance())
+	cli.SubmitCommand(conf1.Name, metafora.CommandBalance())
 
 	time.Sleep(2 * time.Second)
 
