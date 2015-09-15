@@ -178,8 +178,8 @@ func (ec *EtcdCoordinator) Init(cordCtx metafora.CoordinatorContext) error {
 
 	ec.cordCtx = cordCtx
 
-	ec.upsertDir(ec.namespace, ForeverTTL)
-	ec.upsertDir(ec.taskPath, ForeverTTL)
+	ec.upsertDir(ec.namespace, foreverTTL)
+	ec.upsertDir(ec.taskPath, foreverTTL)
 	if _, err := ec.client.CreateDir(ec.nodePath, ec.nodePathTTL); err != nil {
 		return err
 	}
@@ -192,7 +192,7 @@ func (ec *EtcdCoordinator) Init(cordCtx metafora.CoordinatorContext) error {
 
 	// Start goroutine to heartbeat node key in etcd
 	go ec.nodeRefresher()
-	ec.upsertDir(ec.commandPath, ForeverTTL)
+	ec.upsertDir(ec.commandPath, foreverTTL)
 
 	ec.taskManager = newManager(cordCtx, tmc, ec.taskPath, ec.NodeID, ec.ClaimTTL)
 	return nil

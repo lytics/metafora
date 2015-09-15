@@ -45,7 +45,7 @@ func TestParseTask(t *testing.T) {
 
 	// Unfortunately parseTasks sometimes has to go back out to etcd for
 	// properties. Insert test data.
-	etcdc.Create("/test-parse/tasks/0/props", "{invalid", ForeverTTL)
+	etcdc.Create("/test-parse/tasks/0/props", "{invalid", foreverTTL)
 
 	tests := []taskTest{
 		// bad

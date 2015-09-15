@@ -8,7 +8,7 @@ const (
 	OwnerMarker  = "owner"
 	PropsKey     = "props"
 
-	ForeverTTL = 0 //Ref: https://github.com/coreos/go-etcd/blob/e10c58ee110f54c2f385ac99764e8a7ca4cb13df/etcd/requests.go#L356
+	foreverTTL = 0 //Ref: https://github.com/coreos/go-etcd/blob/e10c58ee110f54c2f385ac99764e8a7ca4cb13df/etcd/requests.go#L356
 
 	//Etcd Error codes are passed directly through go-etcd from the http response,
 	//So to find the error codes use this ref:

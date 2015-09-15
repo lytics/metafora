@@ -64,6 +64,6 @@ func (s *stateStore) Store(task metafora.Task, state *statemachine.State) error 
 		return err
 	}
 
-	_, err = s.c.Set(path.Join(s.path, task.ID()), string(buf), ForeverTTL)
+	_, err = s.c.Set(path.Join(s.path, task.ID()), string(buf), foreverTTL)
 	return err
 }
