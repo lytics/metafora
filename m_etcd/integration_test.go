@@ -274,7 +274,7 @@ func TestAll(t *testing.T) {
 		}
 
 		// Give them time to start
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(time.Second)
 
 		n := len(cons1b.Tasks()) + len(cons2b.Tasks())
 		if n != 3 {
@@ -287,7 +287,7 @@ func TestAll(t *testing.T) {
 			if err := cmdr.Send("error-test", statemachine.RunMessage()); err != nil {
 				t.Fatalf("Unexpected error resuming error-test in B: %v", err)
 			}
-			time.Sleep(200 * time.Millisecond)
+			time.Sleep(500 * time.Millisecond)
 		}
 
 		n = len(cons1b.Tasks()) + len(cons2b.Tasks())
@@ -301,7 +301,7 @@ func TestAll(t *testing.T) {
 		}
 
 		// Give the statemachine a moment to load the initial state and exit
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(time.Second)
 
 		n = len(cons1b.Tasks()) + len(cons2b.Tasks())
 		if n != 2 {
