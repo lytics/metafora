@@ -44,10 +44,9 @@ func TestCommandBlackhole(t *testing.T) {
 	// Ignore the return message, the point is to make sure it doesn't intercept
 	// further commands.
 	run(f, task("test-task"), cmds)
+	<-rdy
 
 	go func() { cmds <- RunMessage() }()
-
-	<-rdy
 
 	select {
 	case <-cmds:
