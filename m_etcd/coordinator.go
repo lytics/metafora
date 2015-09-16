@@ -79,34 +79,31 @@ func (ec *EtcdCoordinator) closed() bool {
 // New creates a Metafora Coordinator, State Machine, State Store, Fair
 // Balancer, and Commander, all backed by etcd.
 //
-// Supply a node ID, namespace, etcd client, and StatefulHandler, and this
-// function creates an etcd Coordinator and HandlerFunc for you to pass to
-// metafora.NewConsumer:
+// Create a Config and implement your task handler as a StatefulHandler. Then
+// New will create all the components needed to call metafora.NewConsumer:
 //
-//	coord, hf, bal, err := m_etcd.New("node1", "work", hosts, customHandler)
+//  conf := m_etcd.NewConfig("work", hosts)
+//	coord, hf, bal, err := m_etcd.New(conf, customHandler)
 //	if err != nil { /* ...exit... */ }
 //	consumer, err := metafora.NewConsumer(coord, hf, bal)
 //
-func New(nodeID, namespace string, hosts []string, h statemachine.StatefulHandler) (
+func New(conf *Config, h statemachine.StatefulHandler) (
 	metafora.Coordinator, metafora.HandlerFunc, metafora.Balancer, error) {
 
 	// Create the state store
-	ssc, err := newEtcdClient(hosts)
+	ssc, err := newEtcdClient(conf.Hosts)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	ss := NewStateStore(namespace, ssc)
+	ss := NewStateStore(conf.Namespace, ssc)
 
 	// Create a HandlerFunc that ties together the command listener, stateful
 	// handler, and statemachine.
 	hf := func(task metafora.Task) metafora.Handler {
-		clc, _ := newEtcdClient(hosts)
-		cl := NewCommandListener(task, namespace, clc)
+		clc, _ := newEtcdClient(conf.Hosts)
+		cl := NewCommandListener(task, conf.Namespace, clc)
 		return statemachine.New(task, h, ss, cl, nil)
 	}
-
-	conf := NewConfig(namespace, hosts)
-	conf.Name = nodeID
 
 	// Create an etcd coordinator
 	coord, err := NewEtcdCoordinator(conf)
@@ -134,6 +131,7 @@ func NewEtcdCoordinator(conf *Config) (*EtcdCoordinator, error) {
 
 	ec := &EtcdCoordinator{
 		client: client,
+		conf:   conf,
 		name:   conf.String(),
 
 		commandPath: path.Join(conf.Namespace, NodesPath, conf.Name, CommandsPath),

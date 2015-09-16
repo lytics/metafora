@@ -42,7 +42,9 @@ func TestSleepTest(t *testing.T) {
 	}
 
 	newC := func(name, ns string) *metafora.Consumer {
-		coord, hf, bal, err := m_etcd.New(name, ns, hosts, h)
+		conf := m_etcd.NewConfig(ns, hosts)
+		conf.Name = name
+		coord, hf, bal, err := m_etcd.New(conf, h)
 		if err != nil {
 			t.Fatalf("Error creating new etcd stack: %v", err)
 		}
@@ -144,7 +146,9 @@ func TestAll(t *testing.T) {
 	}
 
 	newC := func(name, ns string) *metafora.Consumer {
-		coord, hf, bal, err := m_etcd.New(name, ns, hosts, h)
+		conf := m_etcd.NewConfig(ns, hosts)
+		conf.Name = name
+		coord, hf, bal, err := m_etcd.New(conf, h)
 		if err != nil {
 			t.Fatalf("Error creating new etcd stack: %v", err)
 		}
@@ -341,7 +345,8 @@ func TestTaskResurrectionInt(t *testing.T) {
 
 	task := m_etcd.DefaultTaskFunc("xyz", "")
 
-	coord, err := m_etcd.NewEtcdCoordinator("r-node", "test-resurrect", hosts)
+	conf := m_etcd.NewConfig("test-resurrect", hosts)
+	coord, err := m_etcd.NewEtcdCoordinator(conf)
 	if err != nil {
 		t.Fatalf("Error creating coordinator: %v", err)
 	}

@@ -25,13 +25,10 @@ type mapTask map[string]interface{}
 func (m mapTask) ID() string { return m["id"].(string) }
 
 func TestParseTask(t *testing.T) {
-	etcdc, _ := testutil.NewEtcdClient(t)
 	t.Parallel()
+	_, conf := setupEtcd(t)
 
-	etcdc.Delete("test-parse", recursive)
-
-	c := EtcdCoordinator{taskPath: "/test-parse/tasks", cordCtx: &ctx{}, NewTask: DefaultTaskFunc, client: etcdc}
-	c.NewTask = func(id, value string) metafora.Task {
+	conf.NewTaskFunc = func(id, value string) metafora.Task {
 		tsk := mapTask{"id": id}
 		if value == "" {
 			return tsk
@@ -42,9 +39,14 @@ func TestParseTask(t *testing.T) {
 		}
 		return tsk
 	}
+	c, err := NewEtcdCoordinator(conf)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// Unfortunately parseTasks sometimes has to go back out to etcd for
 	// properties. Insert test data.
+	etcdc, _ := testutil.NewEtcdClient(t)
 	etcdc.Create("/test-parse/tasks/0/props", "{invalid", foreverTTL)
 
 	tests := []taskTest{
