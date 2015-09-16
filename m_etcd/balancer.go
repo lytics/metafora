@@ -14,8 +14,8 @@ func NewFairBalancer(conf *Config) metafora.Balancer {
 	client, _ := newEtcdClient(conf.Hosts)
 	e := etcdClusterState{
 		client:   client,
-		taskPath: path.Join(conf.Namespace, NodesPath),
-		nodePath: path.Join(conf.Namespace, TasksPath),
+		taskPath: path.Join(conf.Namespace, TasksPath),
+		nodePath: path.Join(conf.Namespace, NodesPath),
 	}
 	return metafora.NewDefaultFairBalancer(conf.Name, &e)
 }
@@ -28,16 +28,15 @@ type etcdClusterState struct {
 }
 
 func (e *etcdClusterState) NodeTaskCount() (map[string]int, error) {
-	const sort = false
-	const recursive = true
 	state := map[string]int{}
 
 	// First initialize state with nodes as keys
-	resp, err := e.client.Get(e.nodePath, sort, recursive)
+	resp, err := e.client.Get(e.nodePath, unsorted, recursive)
 	if err != nil {
 		return nil, err
 	}
 	if resp == nil || resp.Node == nil {
+		metafora.Warnf("balancer received empty response from GET %s", e.nodePath)
 		return state, nil
 	}
 
@@ -46,7 +45,7 @@ func (e *etcdClusterState) NodeTaskCount() (map[string]int, error) {
 	}
 
 	// Then count how many tasks each node has
-	resp, err = e.client.Get(e.taskPath, sort, recursive)
+	resp, err = e.client.Get(e.taskPath, unsorted, recursive)
 	if err != nil {
 		return nil, err
 	}
@@ -74,6 +73,5 @@ func (e *etcdClusterState) NodeTaskCount() (map[string]int, error) {
 			}
 		}
 	}
-
 	return state, nil
 }

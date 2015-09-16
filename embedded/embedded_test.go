@@ -1,12 +1,18 @@
 package embedded
 
 import (
+	"log"
+	"os"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/lytics/metafora"
 )
+
+func init() {
+	metafora.SetLogger(log.New(os.Stderr, "", log.Lmicroseconds|log.Lshortfile))
+}
 
 func TestEmbedded(t *testing.T) {
 

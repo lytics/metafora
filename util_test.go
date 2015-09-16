@@ -1,6 +1,14 @@
 package metafora
 
-import "errors"
+import (
+	"errors"
+	"log"
+	"os"
+)
+
+func init() {
+	SetLogger(log.New(os.Stderr, "", log.Lmicroseconds|log.Lshortfile))
+}
 
 //TODO Move out into a testutil package for other packages to use. The problem
 //is that existing metafora tests would have to be moved to the metafora_test

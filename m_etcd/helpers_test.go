@@ -2,6 +2,8 @@ package m_etcd
 
 import (
 	"fmt"
+	"log"
+	"os"
 	"sync/atomic"
 	"testing"
 
@@ -9,7 +11,9 @@ import (
 	"github.com/lytics/metafora/m_etcd/testutil"
 )
 
-const namespace = "/metaforatests"
+func init() {
+	metafora.SetLogger(log.New(os.Stderr, "", log.Lmicroseconds|log.Lshortfile))
+}
 
 var testcounter uint64
 
@@ -21,7 +25,7 @@ var testcounter uint64
 func setupEtcd(t *testing.T) (*EtcdCoordinator, *Config) {
 	client, hosts := testutil.NewEtcdClient(t)
 	n := atomic.AddUint64(&testcounter, 1)
-	ns := fmt.Sprintf("%s-%d", namespace, n)
+	ns := fmt.Sprintf("metaforatests-%d", n)
 	client.Delete(ns, recursive)
 	conf := NewConfig(ns, hosts)
 	coord, err := NewEtcdCoordinator(conf)
