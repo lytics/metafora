@@ -27,7 +27,7 @@ func setupEtcd(t *testing.T) (*EtcdCoordinator, *Config) {
 	n := atomic.AddUint64(&testcounter, 1)
 	ns := fmt.Sprintf("metaforatests-%d", n)
 	client.Delete(ns, recursive)
-	conf := NewConfig(ns, hosts)
+	conf := NewConfig("testclient", ns, hosts)
 	coord, err := NewEtcdCoordinator(conf)
 	if err != nil {
 		t.Fatalf("Error creating etcd coordinator: %v", err)

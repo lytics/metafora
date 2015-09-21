@@ -36,7 +36,7 @@ func TestAltTask(t *testing.T) {
 
 	etcdc.Delete(namespace, recursive)
 
-	conf := m_etcd.NewConfig(namespace, hosts)
+	conf := m_etcd.NewConfig("testclient", namespace, hosts)
 
 	// Sample overridden NewTask func
 	conf.NewTaskFunc = func(id, props string) metafora.Task {

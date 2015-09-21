@@ -16,10 +16,11 @@ import (
 
 func main() {
 	mlvl := metafora.LogLevelInfo
+	hostname, _ := os.Hostname()
 
 	peers := flag.String("etcd", "http://127.0.0.1:2379", "comma delimited etcd peer list")
 	namespace := flag.String("namespace", "koalemos", "metafora namespace")
-	name := flag.String("name", "", "node name or empty for automatic")
+	name := flag.String("name", hostname, "node name or empty for automatic")
 	loglvl := flag.String("log", mlvl.String(), "set log level: [debug], info, warn, error")
 	flag.Parse()
 
@@ -40,10 +41,7 @@ func main() {
 	}
 	metafora.SetLogLevel(mlvl)
 
-	conf := m_etcd.NewConfig(*namespace, hosts)
-	if *name != "" {
-		conf.Name = *name
-	}
+	conf := m_etcd.NewConfig(*name, *namespace, hosts)
 
 	// Replace NewTask func with one that returns a *koalemos.Task
 	conf.NewTaskFunc = func(id, value string) metafora.Task {

@@ -2,14 +2,13 @@ package m_etcd
 
 import (
 	"fmt"
-	"math/rand"
-	"os"
 	"strings"
-	"time"
 )
 
 type Config struct {
 	// Namespace is the key prefix to allow for multitenant use of etcd.
+	//
+	// Namespaces must start with a / (added by NewConfig if needed).
 	Namespace string
 
 	// Name of this Metafora consumer. Only one instance of a Name is allowed to
@@ -47,18 +46,12 @@ type Config struct {
 // the others.
 //
 // Panics on empty values.
-func NewConfig(namespace string, hosts []string) *Config {
-	if len(hosts) == 0 || namespace == "" {
+func NewConfig(name, namespace string, hosts []string) *Config {
+	if len(hosts) == 0 || namespace == "" || name == "" {
 		panic("invalid etcd config")
 	}
 
 	namespace = "/" + strings.Trim(namespace, "/ ")
-
-	hn, err := os.Hostname()
-	if err != nil {
-		panic("error getting hostname: " + err.Error())
-	}
-	name := fmt.Sprintf("%s-%x", hn, rand.New(rand.NewSource(time.Now().UnixNano())).Int63())
 
 	return &Config{
 		Name:        name,
