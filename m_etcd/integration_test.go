@@ -42,7 +42,8 @@ func TestSleepTest(t *testing.T) {
 	}
 
 	newC := func(name, ns string) *metafora.Consumer {
-		coord, hf, bal, err := m_etcd.New(name, ns, hosts, h)
+		conf := m_etcd.NewConfig(name, ns, hosts)
+		coord, hf, bal, err := m_etcd.New(conf, h)
 		if err != nil {
 			t.Fatalf("Error creating new etcd stack: %v", err)
 		}
@@ -144,7 +145,9 @@ func TestAll(t *testing.T) {
 	}
 
 	newC := func(name, ns string) *metafora.Consumer {
-		coord, hf, bal, err := m_etcd.New(name, ns, hosts, h)
+		conf := m_etcd.NewConfig(name, ns, hosts)
+		conf.Name = name
+		coord, hf, bal, err := m_etcd.New(conf, h)
 		if err != nil {
 			t.Fatalf("Error creating new etcd stack: %v", err)
 		}
@@ -270,7 +273,7 @@ func TestAll(t *testing.T) {
 		}
 
 		// Give them time to start
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(time.Second)
 
 		n := len(cons1b.Tasks()) + len(cons2b.Tasks())
 		if n != 3 {
@@ -283,7 +286,7 @@ func TestAll(t *testing.T) {
 			if err := cmdr.Send("error-test", statemachine.RunMessage()); err != nil {
 				t.Fatalf("Unexpected error resuming error-test in B: %v", err)
 			}
-			time.Sleep(200 * time.Millisecond)
+			time.Sleep(500 * time.Millisecond)
 		}
 
 		n = len(cons1b.Tasks()) + len(cons2b.Tasks())
@@ -297,7 +300,7 @@ func TestAll(t *testing.T) {
 		}
 
 		// Give the statemachine a moment to load the initial state and exit
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(time.Second)
 
 		n = len(cons1b.Tasks()) + len(cons2b.Tasks())
 		if n != 2 {
@@ -341,7 +344,8 @@ func TestTaskResurrectionInt(t *testing.T) {
 
 	task := m_etcd.DefaultTaskFunc("xyz", "")
 
-	coord, err := m_etcd.NewEtcdCoordinator("r-node", "test-resurrect", hosts)
+	conf := m_etcd.NewConfig("testclient", "test-resurrect", hosts)
+	coord, err := m_etcd.NewEtcdCoordinator(conf)
 	if err != nil {
 		t.Fatalf("Error creating coordinator: %v", err)
 	}

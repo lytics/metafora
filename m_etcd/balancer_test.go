@@ -8,10 +8,13 @@ import (
 )
 
 func TestFairBalancer(t *testing.T) {
-	coord1, hosts := setupEtcd(t)
-	coord2, _ := NewEtcdCoordinator("node2", namespace, hosts)
+	t.Parallel()
+	coord1, conf1 := setupEtcd(t)
+	conf2 := conf1.Copy()
+	conf2.Name = "coord2"
+	coord2, _ := NewEtcdCoordinator(conf2)
 
-	cli := NewClient(namespace, hosts)
+	cli := NewClient(conf1.Namespace, conf1.Hosts)
 
 	h := metafora.SimpleHandler(func(task metafora.Task, stop <-chan bool) bool {
 		metafora.Debugf("Starting %s", task.ID())
@@ -21,13 +24,13 @@ func TestFairBalancer(t *testing.T) {
 	})
 
 	// Create two consumers
-	b1 := NewFairBalancer(nodeID, namespace, hosts)
+	b1 := NewFairBalancer(conf1)
 	con1, err := metafora.NewConsumer(coord1, h, b1)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	b2 := NewFairBalancer("node2", namespace, hosts)
+	b2 := NewFairBalancer(conf2)
 	con2, err := metafora.NewConsumer(coord2, h, b2)
 	if err != nil {
 		t.Fatal(err)
@@ -43,7 +46,7 @@ func TestFairBalancer(t *testing.T) {
 	cli.SubmitTask(DefaultTaskFunc("t5", ""))
 	cli.SubmitTask(DefaultTaskFunc("t6", ""))
 
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(1 * time.Second)
 
 	if len(con1.Tasks()) != 6 {
 		t.Fatalf("con1 should have claimed 6 tasks: %d", len(con1.Tasks()))
@@ -54,9 +57,9 @@ func TestFairBalancer(t *testing.T) {
 	defer con2.Shutdown()
 
 	// Wait for node to startup and register
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(1 * time.Second)
 
-	cli.SubmitCommand(nodeID, metafora.CommandBalance())
+	cli.SubmitCommand(conf1.Name, metafora.CommandBalance())
 
 	time.Sleep(2 * time.Second)
 
@@ -91,10 +94,12 @@ func TestFairBalancer(t *testing.T) {
 // Fair balancer shouldn't consider a shutting-down node
 // See https://github.com/lytics/metafora/issues/92
 func TestFairBalancerShutdown(t *testing.T) {
-	coord1, etcdc := setupEtcd(t)
-	coord2, _ := NewEtcdCoordinator("node2", namespace, etcdc)
+	coord1, conf1 := setupEtcd(t)
+	conf2 := conf1.Copy()
+	conf2.Name = "node2"
+	coord2, _ := NewEtcdCoordinator(conf2)
 
-	cli := NewClient(namespace, etcdc)
+	cli := NewClient(conf1.Namespace, conf1.Hosts)
 
 	// This handler always returns immediately
 	h1 := metafora.SimpleHandler(func(task metafora.Task, stop <-chan bool) bool {
@@ -120,13 +125,13 @@ func TestFairBalancerShutdown(t *testing.T) {
 	})
 
 	// Create two consumers
-	b1 := NewFairBalancer(nodeID, namespace, etcdc)
+	b1 := NewFairBalancer(conf1)
 	con1, err := metafora.NewConsumer(coord1, h1, b1)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	b2 := NewFairBalancer("node2", namespace, etcdc)
+	b2 := NewFairBalancer(conf2)
 	con2, err := metafora.NewConsumer(coord2, h2, b2)
 	if err != nil {
 		t.Fatal(err)
@@ -156,7 +161,7 @@ func TestFairBalancerShutdown(t *testing.T) {
 	// Wait for node to startup and register
 	time.Sleep(500 * time.Millisecond)
 
-	cli.SubmitCommand(nodeID, metafora.CommandBalance())
+	cli.SubmitCommand(conf1.Name, metafora.CommandBalance())
 
 	time.Sleep(2 * time.Second)
 
@@ -198,7 +203,7 @@ func TestFairBalancerShutdown(t *testing.T) {
 
 	time.Sleep(500 * time.Millisecond)
 
-	cli.SubmitCommand(nodeID, metafora.CommandBalance())
+	cli.SubmitCommand(conf1.Name, metafora.CommandBalance())
 
 	time.Sleep(2 * time.Second)
 
@@ -215,7 +220,7 @@ func TestFairBalancerShutdown(t *testing.T) {
 	// Consumer 2 should stop now
 	<-c2stop
 
-	cli.SubmitCommand(nodeID, metafora.CommandBalance())
+	cli.SubmitCommand(conf1.Name, metafora.CommandBalance())
 
 	time.Sleep(2 * time.Second)
 

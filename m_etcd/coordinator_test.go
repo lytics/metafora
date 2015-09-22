@@ -3,7 +3,6 @@ package m_etcd
 import (
 	"path"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -19,18 +18,18 @@ ETCDTESTS=1 go test -v ./...
 */
 
 func TestCoordinatorFirstNodeJoiner(t *testing.T) {
-	coordinator1, _ := setupEtcd(t)
+	t.Parallel()
+	coordinator1, conf := setupEtcd(t)
 	defer coordinator1.Close()
 	if err := coordinator1.Init(newCtx(t, "coordinator1")); err != nil {
 		t.Fatalf("Unexpected error initialzing coordinator: %v", err)
 	}
 	client, _ := testutil.NewEtcdClient(t)
 
-	const sorted = false
-	const recursive = false
-	_, err := client.Get(namespace+"/tasks", sorted, recursive)
+	tpath := path.Join(conf.Namespace, TasksPath)
+	_, err := client.Get(tpath, unsorted, notrecursive)
 	if err != nil && strings.Contains(err.Error(), "Key not found") {
-		t.Fatalf("The tasks path wasn't created when the first node joined: path[%s]", namespace+"/tasks")
+		t.Fatalf("The tasks path wasn't created when the first node joined: %s", tpath)
 	} else if err != nil {
 		t.Fatalf("Unknown error trying to test: err: %s", err.Error())
 	}
@@ -40,7 +39,8 @@ func TestCoordinatorFirstNodeJoiner(t *testing.T) {
 
 // Ensure that Watch() picks up new tasks and returns them.
 func TestCoordinatorTC1(t *testing.T) {
-	coordinator1, _ := setupEtcd(t)
+	t.Parallel()
+	coordinator1, conf := setupEtcd(t)
 	if err := coordinator1.Init(newCtx(t, "coordinator1")); err != nil {
 		t.Fatalf("Unexpected error initialzing coordinator: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestCoordinatorTC1(t *testing.T) {
 
 	tasks := make(chan metafora.Task)
 	task001 := &task{id: "test-task"}
-	taskPath := path.Join(namespace, TasksPath, task001.ID())
+	taskPath := path.Join(conf.Namespace, TasksPath, task001.ID())
 	errc := make(chan error)
 
 	go func() {
@@ -77,7 +77,8 @@ func TestCoordinatorTC1(t *testing.T) {
 
 // Submit a task while a coordinator is actively watching for tasks.
 func TestCoordinatorTC2(t *testing.T) {
-	coordinator1, client := setupEtcd(t)
+	t.Parallel()
+	coordinator1, conf := setupEtcd(t)
 	if err := coordinator1.Init(newCtx(t, "coordinator1")); err != nil {
 		t.Fatalf("Unexpected error initialzing coordinator: %v", err)
 	}
@@ -85,7 +86,7 @@ func TestCoordinatorTC2(t *testing.T) {
 
 	testTasks := []string{"test1", "test2", "test3"}
 
-	mclient := NewClient(namespace, client)
+	mclient := NewClient(conf.Namespace, conf.Hosts)
 
 	tasks := make(chan metafora.Task)
 	errc := make(chan error)
@@ -118,12 +119,15 @@ func TestCoordinatorTC2(t *testing.T) {
 // Start two coordinators to ensure that fighting over claims results in only
 // one coordinator winning (and the other not crashing).
 func TestCoordinatorTC3(t *testing.T) {
-	coordinator1, hosts := setupEtcd(t)
+	t.Parallel()
+	coordinator1, conf1 := setupEtcd(t)
 	if err := coordinator1.Init(newCtx(t, "coordinator1")); err != nil {
 		t.Fatalf("Unexpected error initialzing coordinator: %v", err)
 	}
 	defer coordinator1.Close()
-	coordinator2, _ := NewEtcdCoordinator("node2", namespace, hosts)
+	conf2 := conf1.Copy()
+	conf2.Name = "node2"
+	coordinator2, _ := NewEtcdCoordinator(conf2)
 	if err := coordinator2.Init(newCtx(t, "coordinator2")); err != nil {
 		t.Fatalf("Unexpected error initialzing coordinator: %v", err)
 	}
@@ -131,7 +135,7 @@ func TestCoordinatorTC3(t *testing.T) {
 
 	testTasks := []string{"test-claiming-task0001", "test-claiming-task0002", "test-claiming-task0003"}
 
-	mclient := NewClient(namespace, hosts)
+	mclient := NewClient(conf1.Namespace, conf1.Hosts)
 
 	// Start the watchers
 	errc := make(chan error, 2)
@@ -187,11 +191,12 @@ func TestCoordinatorTC3(t *testing.T) {
 // Then call coordinator.Release() on the task to make sure a coordinator picks it
 // up again.
 func TestCoordinatorTC4(t *testing.T) {
-	coordinator1, hosts := setupEtcd(t)
+	t.Parallel()
+	coordinator1, conf1 := setupEtcd(t)
 
 	task := "testtask4"
 
-	mclient := NewClient(namespace, hosts)
+	mclient := NewClient(conf1.Namespace, conf1.Hosts)
 
 	err := mclient.SubmitTask(DefaultTaskFunc(task, ""))
 	if err != nil {
@@ -217,7 +222,9 @@ func TestCoordinatorTC4(t *testing.T) {
 	}
 
 	// Startup a second
-	coordinator2, _ := NewEtcdCoordinator("node2", namespace, hosts)
+	conf2 := conf1.Copy()
+	conf2.Name = "node2"
+	coordinator2, _ := NewEtcdCoordinator(conf2)
 	if err := coordinator2.Init(newCtx(t, "coordinator2")); err != nil {
 		t.Fatalf("Unexpected error initialzing coordinator: %v", err)
 	}
@@ -254,11 +261,14 @@ func TestCoordinatorTC4(t *testing.T) {
 // TestNodeCleanup ensures the coordinator properly cleans up its node entry
 // upon exit.
 func TestNodeCleanup(t *testing.T) {
-	c1, hosts := setupEtcd(t)
+	t.Parallel()
+	c1, conf1 := setupEtcd(t)
 	if err := c1.Init(newCtx(t, "coordinator1")); err != nil {
 		t.Fatalf("Unexpected error initialzing coordinator: %v", err)
 	}
-	c2, _ := NewEtcdCoordinator("node2", namespace, hosts)
+	conf2 := conf1.Copy()
+	conf2.Name = "node2"
+	c2, _ := NewEtcdCoordinator(conf2)
 	if err := c2.Init(newCtx(t, "coordinator2")); err != nil {
 		t.Fatalf("Unexpected error initialzing coordinator: %v", err)
 	}
@@ -267,7 +277,8 @@ func TestNodeCleanup(t *testing.T) {
 
 	// Make sure node directories were created
 	client, _ := testutil.NewEtcdClient(t)
-	resp, err := client.Get(namespace+"/nodes/"+nodeID, false, false)
+	c1nodep := path.Join(conf1.Namespace, NodesPath, conf1.Name)
+	resp, err := client.Get(c1nodep, false, false)
 	if err != nil {
 		t.Fatalf("Error retrieving node key from etcd: %v", err)
 	}
@@ -275,7 +286,8 @@ func TestNodeCleanup(t *testing.T) {
 		t.Error(resp.Node.Key + " isn't a directory!")
 	}
 
-	resp, err = client.Get(namespace+"/nodes/node2", false, false)
+	c2nodep := path.Join(conf2.Namespace, NodesPath, conf2.Name)
+	resp, err = client.Get(c2nodep, false, false)
 	if err != nil {
 		t.Fatalf("Error retrieving node key from etcd: %v", err)
 	}
@@ -286,7 +298,7 @@ func TestNodeCleanup(t *testing.T) {
 	// Shutdown one and make sure its node directory is gone
 	c1.Close()
 
-	resp, err = client.Get(namespace+"/nodes/"+nodeID, false, false)
+	resp, err = client.Get(c1nodep, false, false)
 	if err != nil {
 		if eerr, ok := err.(*etcd.EtcdError); !ok {
 			t.Errorf("Unexpected error %T retrieving node key from etcd: %v", err, err)
@@ -301,7 +313,7 @@ func TestNodeCleanup(t *testing.T) {
 	}
 
 	// Make sure c2 is untouched
-	resp, err = client.Get(namespace+"/nodes/node2", false, false)
+	resp, err = client.Get(c2nodep, false, false)
 	if err != nil {
 		t.Fatalf("Error retrieving node key from etcd: %v", err)
 	}
@@ -313,12 +325,16 @@ func TestNodeCleanup(t *testing.T) {
 // TestNodeRefresher ensures the node refresher properly updates the TTL on the
 // node directory in etcd and shuts down the entire consumer on error.
 func TestNodeRefresher(t *testing.T) {
-	// make -race happy by using atomic to fiddle with ttl
-	orig := atomic.LoadUint64(&DefaultNodePathTTL)
-	atomic.StoreUint64(&DefaultNodePathTTL, 3)
-	defer atomic.StoreUint64(&DefaultNodePathTTL, orig)
+	t.Parallel()
+	_, conf := setupEtcd(t)
 
-	coord, _ := setupEtcd(t)
+	// Use a custom node path ttl
+	conf.NodeTTL = 3
+	coord, err := NewEtcdCoordinator(conf)
+	if err != nil {
+		t.Fatalf("Error creating coordinator: %v", err)
+	}
+
 	hf := metafora.HandlerFunc(nil) // we won't be handling any tasks
 	consumer, err := metafora.NewConsumer(coord, hf, metafora.DumbBalancer)
 	if err != nil {
@@ -333,7 +349,7 @@ func TestNodeRefresher(t *testing.T) {
 		close(runDone)
 	}()
 
-	nodePath := path.Join(namespace, "nodes", coord.NodeID)
+	nodePath := path.Join(conf.Namespace, NodesPath, conf.Name)
 	ttl := int64(-1)
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
@@ -382,7 +398,8 @@ func TestNodeRefresher(t *testing.T) {
 
 // TestExpiration ensures that expired claims get reclaimed properly.
 func TestExpiration(t *testing.T) {
-	coord, _ := setupEtcd(t)
+	t.Parallel()
+	coord, conf := setupEtcd(t)
 	claims := make(chan int, 10)
 	hf := metafora.HandlerFunc(metafora.SimpleHandler(func(_ metafora.Task, stop <-chan bool) bool {
 		claims <- 1
@@ -395,7 +412,7 @@ func TestExpiration(t *testing.T) {
 	}
 	client, _ := testutil.NewEtcdClient(t)
 
-	_, err = client.Create(path.Join(namespace, TasksPath, "abc", OwnerMarker), `{"node":"--"}`, 1)
+	_, err = client.Create(path.Join(conf.Namespace, TasksPath, "abc", OwnerMarker), `{"node":"--"}`, 1)
 	if err != nil {
 		t.Fatalf("Error creating fake claim: %v", err)
 	}

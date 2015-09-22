@@ -36,6 +36,17 @@ func TestAltTask(t *testing.T) {
 
 	etcdc.Delete(namespace, recursive)
 
+	conf := m_etcd.NewConfig("testclient", namespace, hosts)
+
+	// Sample overridden NewTask func
+	conf.NewTaskFunc = func(id, props string) metafora.Task {
+		task := exTask{id: id}
+		if err := json.Unmarshal([]byte(props), &task); err != nil {
+			metafora.Warnf("%s properties could not be unmarshalled: %v", id, err)
+		}
+		return &task
+	}
+
 	// Create a handler that returns results through a chan for synchronization
 	results := make(chan string, 1)
 
@@ -53,18 +64,9 @@ func TestAltTask(t *testing.T) {
 		return statemachine.PauseMessage()
 	}
 
-	coord, hf, bal, err := m_etcd.New("node1", namespace, hosts, h)
+	coord, hf, bal, err := m_etcd.New(conf, h)
 	if err != nil {
 		t.Fatal(err)
-	}
-
-	// Sample overridden NewTask func
-	coord.(*m_etcd.EtcdCoordinator).NewTask = func(id, props string) metafora.Task {
-		task := exTask{id: id}
-		if err := json.Unmarshal([]byte(props), &task); err != nil {
-			metafora.Warnf("%s properties could not be unmarshalled: %v", id, err)
-		}
-		return &task
 	}
 
 	consumer, err := metafora.NewConsumer(coord, hf, bal)

@@ -16,10 +16,11 @@ import (
 
 func main() {
 	mlvl := metafora.LogLevelInfo
+	hostname, _ := os.Hostname()
 
 	peers := flag.String("etcd", "http://127.0.0.1:2379", "comma delimited etcd peer list")
 	namespace := flag.String("namespace", "koalemos", "metafora namespace")
-	name := flag.String("name", "", "node name or empty for automatic")
+	name := flag.String("name", hostname, "node name or empty for automatic")
 	loglvl := flag.String("log", mlvl.String(), "set log level: [debug], info, warn, error")
 	flag.Parse()
 
@@ -40,14 +41,10 @@ func main() {
 	}
 	metafora.SetLogLevel(mlvl)
 
-	hfunc := makeHandlerFunc(etcdc)
-	ec, err := m_etcd.NewEtcdCoordinator(*name, *namespace, hosts)
-	if err != nil {
-		metafora.Errorf("Error creating etcd coordinator: %v", err)
-	}
+	conf := m_etcd.NewConfig(*name, *namespace, hosts)
 
 	// Replace NewTask func with one that returns a *koalemos.Task
-	ec.NewTask = func(id, value string) metafora.Task {
+	conf.NewTaskFunc = func(id, value string) metafora.Task {
 		t := koalemos.NewTask(id)
 		if value == "" {
 			return t
@@ -59,7 +56,13 @@ func main() {
 		return t
 	}
 
-	bal := m_etcd.NewFairBalancer(*name, *namespace, hosts)
+	hfunc := makeHandlerFunc(etcdc)
+	ec, err := m_etcd.NewEtcdCoordinator(conf)
+	if err != nil {
+		metafora.Errorf("Error creating etcd coordinator: %v", err)
+	}
+
+	bal := m_etcd.NewFairBalancer(conf)
 	c, err := metafora.NewConsumer(ec, hfunc, bal)
 	if err != nil {
 		metafora.Errorf("Error creating consumer: %v", err)
@@ -67,7 +70,7 @@ func main() {
 	}
 	metafora.Infof(
 		"Starting koalsmosd with etcd=%s; namespace=%s; name=%s; loglvl=%s",
-		*peers, *namespace, ec.NodeID, mlvl)
+		*peers, conf.Namespace, conf.Name, mlvl)
 	consumerRunning := make(chan struct{})
 	go func() {
 		defer close(consumerRunning)

@@ -46,7 +46,7 @@ func (mc *mclient) SubmitTask(task metafora.Task) error {
 	if err != nil {
 		return err
 	}
-	if _, err := mc.etcd.Create(fullpath, string(buf), ForeverTTL); err != nil {
+	if _, err := mc.etcd.Create(fullpath, string(buf), foreverTTL); err != nil {
 		return err
 	}
 	metafora.Debugf("task %s submitted: %s", task.ID(), fullpath)
@@ -72,7 +72,7 @@ func (mc *mclient) SubmitCommand(node string, command metafora.Command) error {
 		// command incorrectly.
 		return err
 	}
-	if _, err := mc.etcd.AddChild(cmdPath, string(body), ForeverTTL); err != nil {
+	if _, err := mc.etcd.AddChild(cmdPath, string(body), foreverTTL); err != nil {
 		metafora.Errorf("Error submitting command: %s to node: %s", command, node)
 		return err
 	}

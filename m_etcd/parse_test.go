@@ -2,6 +2,7 @@ package m_etcd
 
 import (
 	"encoding/json"
+	"path"
 	"testing"
 
 	"github.com/coreos/go-etcd/etcd"
@@ -25,13 +26,10 @@ type mapTask map[string]interface{}
 func (m mapTask) ID() string { return m["id"].(string) }
 
 func TestParseTask(t *testing.T) {
-	etcdc, _ := testutil.NewEtcdClient(t)
 	t.Parallel()
+	_, conf := setupEtcd(t)
 
-	etcdc.Delete("test-parse", recursive)
-
-	c := EtcdCoordinator{taskPath: "/test-parse/tasks", cordCtx: &ctx{}, NewTask: DefaultTaskFunc, client: etcdc}
-	c.NewTask = func(id, value string) metafora.Task {
+	conf.NewTaskFunc = func(id, value string) metafora.Task {
 		tsk := mapTask{"id": id}
 		if value == "" {
 			return tsk
@@ -42,51 +40,58 @@ func TestParseTask(t *testing.T) {
 		}
 		return tsk
 	}
+	c, err := NewEtcdCoordinator(conf)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	taskp := func(rest string) string { return path.Join(conf.Namespace, TasksPath, rest) }
 
 	// Unfortunately parseTasks sometimes has to go back out to etcd for
 	// properties. Insert test data.
-	etcdc.Create("/test-parse/tasks/0/props", "{invalid", ForeverTTL)
+	etcdc, _ := testutil.NewEtcdClient(t)
+	etcdc.Create(taskp("/0/props"), "{invalid", foreverTTL)
 
 	tests := []taskTest{
 		// bad
-		{Resp: &etcd.Response{Action: actionCAD, Node: &etcd.Node{Key: "/test-parse/tasks/0/owner", Dir: false}}},
-		{Resp: &etcd.Response{Action: actionCAD, Node: &etcd.Node{Key: "/test-parse/oops/1", Dir: true}}},
-		{Resp: &etcd.Response{Action: actionCAD, Node: &etcd.Node{Key: "/test-parse/tasks/1", Dir: true}}},
-		{Resp: &etcd.Response{Action: actionCreated, Node: &etcd.Node{Key: "/test-parse/tasks/1/a", Dir: true}}},
-		{Resp: &etcd.Response{Action: actionCAD, Node: &etcd.Node{Key: "/test-parse/tasks/1", Dir: false}}},
+		{Resp: &etcd.Response{Action: actionCAD, Node: &etcd.Node{Key: taskp("/0/owner"), Dir: false}}},
+		{Resp: &etcd.Response{Action: actionCAD, Node: &etcd.Node{Key: conf.Namespace + "/oops/1", Dir: true}}},
+		{Resp: &etcd.Response{Action: actionCAD, Node: &etcd.Node{Key: taskp("/1"), Dir: true}}},
+		{Resp: &etcd.Response{Action: actionCreated, Node: &etcd.Node{Key: taskp("/1/a"), Dir: true}}},
+		{Resp: &etcd.Response{Action: actionCAD, Node: &etcd.Node{Key: taskp("/1"), Dir: false}}},
 
 		// good
 		{
-			Resp: &etcd.Response{Action: actionCreated, Node: &etcd.Node{Key: "/test-parse/tasks/1", Dir: true}},
+			Resp: &etcd.Response{Action: actionCreated, Node: &etcd.Node{Key: taskp("/1"), Dir: true}},
 			Task: mapTask{"id": "1"},
 			Ok:   true,
 		},
 		{
-			Resp: &etcd.Response{Action: actionSet, Node: &etcd.Node{Key: "/test-parse/tasks/2", Dir: true}},
+			Resp: &etcd.Response{Action: actionSet, Node: &etcd.Node{Key: taskp("/2"), Dir: true}},
 			Task: mapTask{"id": "2"},
 			Ok:   true,
 		},
 		{
-			Resp: &etcd.Response{Action: actionCAD, Node: &etcd.Node{Key: "/test-parse/tasks/3/owner"}},
+			Resp: &etcd.Response{Action: actionCAD, Node: &etcd.Node{Key: taskp("/3/owner")}},
 			Task: mapTask{"id": "3"},
 			Ok:   true,
 		},
 		{
-			Resp: &etcd.Response{Action: actionDelete, Node: &etcd.Node{Key: "/test-parse/tasks/4/owner"}},
+			Resp: &etcd.Response{Action: actionDelete, Node: &etcd.Node{Key: taskp("/4/owner")}},
 			Task: mapTask{"id": "4"},
 			Ok:   true,
 		},
 		{
 			Resp: &etcd.Response{Action: actionCreated, Node: &etcd.Node{
-				Key:   "/test-parse/tasks/5",
-				Nodes: []*etcd.Node{{Key: "/test-parse/tasks/5/props", Value: `{"test": "ok"}`}},
+				Key:   taskp("/5"),
+				Nodes: []*etcd.Node{{Key: taskp("/5/props"), Value: `{"test": "ok"}`}},
 				Dir:   true,
 			}},
 			Task: mapTask{"id": "5", "test": "ok"},
 			Ok:   true,
 		},
 		{
-			Resp: &etcd.Response{Action: actionSet, Node: &etcd.Node{Key: "/test-parse/tasks/6/props", Value: `{"test":"ok"}`}},
+			Resp: &etcd.Response{Action: actionSet, Node: &etcd.Node{Key: taskp("/6/props"), Value: `{"test":"ok"}`}},
 			Task: mapTask{"id": "6", "test": "ok"},
 			Ok:   true,
 		},
