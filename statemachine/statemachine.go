@@ -194,6 +194,7 @@ var (
 		{Event: Kill, From: Runnable, To: Killed},
 		{Event: Error, From: Runnable, To: Fault},
 		{Event: Pause, From: Runnable, To: Paused},
+		{Event: Run, From: Runnable, To: Runnable},
 
 		// Sleeping can return to Runnable or be Killed/Paused
 		{Event: Checkpoint, From: Sleeping, To: Sleeping},
