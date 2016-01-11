@@ -122,6 +122,7 @@ func PauseMessage() *Message      { return &Message{Code: Pause} }
 func KillMessage() *Message       { return &Message{Code: Kill} }
 func CheckpointMessage() *Message { return &Message{Code: Checkpoint} }
 func ReleaseMessage() *Message    { return &Message{Code: Release} }
+func CompleteMessage() *Message   { return &Message{Code: Complete} }
 
 // Valid returns true if the Message is valid. Invalid messages sent as
 // commands are discarded by the state machine.
