@@ -3,6 +3,9 @@ package m_etcd
 import (
 	"fmt"
 	"strings"
+	"time"
+
+	"github.com/coreos/etcd/client"
 )
 
 type Config struct {
@@ -16,9 +19,6 @@ type Config struct {
 	// effectively limit Metafora to one process per server.
 	Name string
 
-	// Hosts are the URLs to create etcd clients with.
-	Hosts []string
-
 	// ClaimTTL is the timeout on task claim markers in seconds.
 	//
 	// Since every task must update its claim before the TTL expires, setting
@@ -28,22 +28,25 @@ type Config struct {
 	// partition).
 	//
 	// If 0 it is set to DefaultClaimTTL
-	ClaimTTL uint64
+	ClaimTTL time.Duration
 
 	// NodeTTL is the timeout on the node's name entry in seconds.
 	//
 	// If 0 it is set to DefaultNodeTTL
-	NodeTTL uint64
+	NodeTTL time.Duration
 
 	// NewTaskFunc is the function called to unmarshal tasks from etcd into a
 	// custom struct. The struct must implement the metafora.Task interface.
 	//
 	// If nil it is set to DefaultTaskFunc
 	NewTaskFunc TaskFunc
+
+	// EtcdConfig will be used to configure the etcd client.
+	EtcdConfig client.Config
 }
 
 // NewConfig creates a Config with the required fields and uses defaults for
-// the others.
+// the others. hosts should be specified as fully qualified URLs.
 //
 // Panics on empty values.
 func NewConfig(name, namespace string, hosts []string) *Config {
@@ -56,10 +59,13 @@ func NewConfig(name, namespace string, hosts []string) *Config {
 	return &Config{
 		Name:        name,
 		Namespace:   namespace,
-		Hosts:       hosts,
 		ClaimTTL:    DefaultClaimTTL,
 		NodeTTL:     DefaultNodeTTL,
 		NewTaskFunc: DefaultTaskFunc,
+		EtcdConfig: client.Config{
+			Endpoints:               hosts,
+			HeaderTimeoutPerRequest: 5 * time.Second,
+		},
 	}
 }
 
@@ -68,10 +74,10 @@ func (c *Config) Copy() *Config {
 	return &Config{
 		Name:        c.Name,
 		Namespace:   c.Namespace,
-		Hosts:       c.Hosts,
 		ClaimTTL:    c.ClaimTTL,
 		NodeTTL:     c.NodeTTL,
 		NewTaskFunc: c.NewTaskFunc,
+		EtcdConfig:  c.EtcdConfig,
 	}
 }
 

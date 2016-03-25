@@ -11,15 +11,6 @@ import (
 	"github.com/lytics/metafora"
 )
 
-// Don't depend directly on etcd.Client to make testing easier.
-type client interface {
-	Create(key, value string, ttl uint64) (*etcd.Response, error)
-	Get(key string, sort, recursive bool) (*etcd.Response, error)
-	Delete(key string, recursive bool) (*etcd.Response, error)
-	CompareAndDelete(key, prevValue string, index uint64) (*etcd.Response, error)
-	CompareAndSwap(key, value string, ttl uint64, prevValue string, index uint64) (*etcd.Response, error)
-}
-
 // taskStates hold channels to communicate task state transitions.
 type taskStates struct {
 	done     chan struct{} // tell taskmgr to mark the task as done
