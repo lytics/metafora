@@ -1,7 +1,7 @@
 # etcd integration
 
-Requires etcd v2 (etcd 0.4.6 works but is unsupported because it's abandoned
-upstream).
+Requires etcd v2. See [travis.yml](../.travis.yml) to see what version of etcd
+automated tests are run against.
 
 Metafora contains an [etcd](https://github.com/coreos/etcd) implementation of
 the core
