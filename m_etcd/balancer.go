@@ -4,16 +4,17 @@ import (
 	"encoding/json"
 	"path"
 
-	"github.com/coreos/go-etcd/etcd"
+	"golang.org/x/net/context"
+
+	"github.com/coreos/etcd/client"
 	"github.com/lytics/metafora"
 )
 
 // NewFairBalancer creates a new metafora.DefaultFairBalancer that uses etcd
 // for counting tasks per node.
-func NewFairBalancer(conf *Config) metafora.Balancer {
-	client, _ := newEtcdClient(conf.Hosts)
+func NewFairBalancer(conf *Config, c client.KeysAPI) metafora.Balancer {
 	e := etcdClusterState{
-		client:   client,
+		client:   c,
 		taskPath: path.Join(conf.Namespace, TasksPath),
 		nodePath: path.Join(conf.Namespace, NodesPath),
 	}
@@ -22,7 +23,7 @@ func NewFairBalancer(conf *Config) metafora.Balancer {
 
 // Checks the current state of an Etcd cluster
 type etcdClusterState struct {
-	client   *etcd.Client
+	client   client.KeysAPI
 	taskPath string
 	nodePath string
 }
@@ -31,7 +32,7 @@ func (e *etcdClusterState) NodeTaskCount() (map[string]int, error) {
 	state := map[string]int{}
 
 	// First initialize state with nodes as keys
-	resp, err := e.client.Get(e.nodePath, unsorted, recursive)
+	resp, err := e.client.Get(context.TODO(), e.nodePath, getNoSortRecur)
 	if err != nil {
 		return nil, err
 	}
@@ -45,7 +46,7 @@ func (e *etcdClusterState) NodeTaskCount() (map[string]int, error) {
 	}
 
 	// Then count how many tasks each node has
-	resp, err = e.client.Get(e.taskPath, unsorted, recursive)
+	resp, err = e.client.Get(context.TODO(), e.taskPath, getNoSortRecur)
 	if err != nil {
 		return nil, err
 	}

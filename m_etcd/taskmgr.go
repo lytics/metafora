@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/coreos/etcd/client"
 	"github.com/coreos/go-etcd/etcd"
 	"github.com/lytics/metafora"
 )
@@ -22,7 +23,7 @@ type taskStates struct {
 // release.
 type taskManager struct {
 	ctx    metafora.CoordinatorContext
-	client client
+	client client.KeysAPI
 	tasks  map[string]taskStates // map of task ID to state chans
 	taskL  sync.Mutex            // protect tasks from concurrent access
 	path   string                // etcd path to tasks
@@ -32,14 +33,14 @@ type taskManager struct {
 	interval time.Duration
 }
 
-func newManager(ctx metafora.CoordinatorContext, client client, path, nodeID string, ttl uint64) *taskManager {
+func newManager(ctx metafora.CoordinatorContext, client client.KeysAPI, path, nodeID string, ttl time.Duration) *taskManager {
 	if ttl == 0 {
 		panic("refresher: TTL must be > 0")
 	}
 
 	// refresh more often than strictly necessary to be safe
-	interval := time.Duration((ttl>>1)+(ttl>>2)) * time.Second
-	if ttl == 1 {
+	interval := ((ttl >> 1) + (ttl >> 2)) * time.Second
+	if ttl == 1*time.Second {
 		interval = 750 * time.Millisecond
 		metafora.Warnf("Dangerously low TTL: %d; consider raising.", ttl)
 	}

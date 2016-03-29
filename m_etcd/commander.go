@@ -5,6 +5,9 @@ import (
 	"path"
 	"sync"
 
+	"golang.org/x/net/context"
+
+	"github.com/coreos/etcd/client"
 	"github.com/coreos/go-etcd/etcd"
 	"github.com/lytics/metafora"
 	"github.com/lytics/metafora/statemachine"
@@ -42,7 +45,7 @@ func (c *cmdr) Send(taskID string, m *statemachine.Message) error {
 }
 
 type cmdrListener struct {
-	cli  *etcd.Client
+	cli  client.KeysAPI
 	path string
 
 	commands chan *statemachine.Message
@@ -54,13 +57,13 @@ type cmdrListener struct {
 // NewCommandListener makes a statemachine.CommandListener implementation
 // backed by etcd. The namespace should be the same as the coordinator as
 // commands use a separate path within a namespace than tasks or nodes.
-func NewCommandListener(task metafora.Task, namespace string, c *etcd.Client) statemachine.CommandListener {
+func NewCommandListener(task metafora.Task, namespace string, kc client.KeysAPI) statemachine.CommandListener {
 	if namespace[0] != '/' {
 		namespace = "/" + namespace
 	}
 	cl := &cmdrListener{
 		path:     path.Join(namespace, commandPath, task.ID()),
-		cli:      c,
+		cli:      kc,
 		commands: make(chan *statemachine.Message),
 		mu:       &sync.Mutex{},
 		stop:     make(chan bool),
@@ -87,16 +90,17 @@ func (c *cmdrListener) sendErr(err error) {
 	}
 }
 
-func (c *cmdrListener) sendMsg(resp *etcd.Response) (index uint64, ok bool) {
+func (c *cmdrListener) sendMsg(resp *client.Response) (index uint64, ok bool) {
 	// Delete/Expire events shouldn't be processed
 	if releaseActions[resp.Action] {
 		return resp.Node.ModifiedIndex + 1, true
 	}
 
 	// Remove command so it's not processed twice
-	cadresp, err := c.cli.CompareAndDelete(resp.Node.Key, resp.Node.Value, 0)
+	opts := &client.DeleteOptions{PrevValue: resp.Node.Value}
+	cadresp, err := c.cli.Delete(context.TODO(), resp.Node.Key, opts)
 	if err != nil {
-		if ee, ok := err.(*etcd.EtcdError); ok && ee.ErrorCode == EcodeCompareFailed {
+		if ee, ok := err.(*client.Error); ok && ee.Code == client.ErrorCodeTestFailed {
 			metafora.Infof("Received successive commands; attempting to retrieve the latest: %v", err)
 			return resp.Node.ModifiedIndex + 1, true
 		}
@@ -124,9 +128,9 @@ func (c *cmdrListener) watcher() {
 	var index uint64
 	var ok bool
 startWatch:
-	resp, err := c.cli.Get(c.path, notrecursive, unsorted)
+	resp, err := c.cli.Get(context.TODO(), c.path, getNoSortNoRecur)
 	if err != nil {
-		if ee, ok := err.(*etcd.EtcdError); ok && ee.ErrorCode == EcodeKeyNotFound {
+		if ee, ok := err.(client.Error); ok && ee.Code == client.ErrorCodeKeyNotFound {
 			// No command found; this is normal. Grab index and skip to watching
 			index = ee.Index
 			goto watchLoop

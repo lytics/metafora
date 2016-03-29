@@ -19,13 +19,11 @@ type stateStore struct {
 
 // NewStateStore returns a StateStore implementation that persists task states
 // in etcd.
-func NewStateStore(namespace string, etcdc *etcd.Client) statemachine.StateStore {
-	if namespace[0] != '/' {
-		namespace = "/" + namespace
-	}
+func NewStateStore(conf *Config) statemachine.StateStore {
+	c, _ := newEtcdClient(conf.EtcdConfig)
 	return &stateStore{
-		c:    etcdc,
-		path: path.Join(namespace, statePath),
+		c:    c,
+		path: path.Join(conf.Namespace, statePath),
 	}
 }
 
