@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"path"
 
-	"github.com/coreos/go-etcd/etcd"
+	"golang.org/x/net/context"
+
+	"github.com/coreos/etcd/client"
 	"github.com/lytics/metafora"
 	"github.com/lytics/metafora/statemachine"
 )
@@ -13,7 +15,7 @@ const statePath = "state"
 
 // stateStore is an etcd implementation of statemachine.StateStore.
 type stateStore struct {
-	c    *etcd.Client
+	c    client.KeysAPI
 	path string
 }
 
@@ -32,9 +34,9 @@ func NewStateStore(conf *Config) statemachine.StateStore {
 func (s *stateStore) Load(task metafora.Task) (*statemachine.State, error) {
 	const notrecursive = false
 	const nosort = false
-	resp, err := s.c.Get(path.Join(s.path, task.ID()), notrecursive, nosort)
+	resp, err := s.c.Get(context.TODO(), path.Join(s.path, task.ID()), getNoSortNoRecur)
 	if err != nil {
-		if ee, ok := err.(*etcd.EtcdError); ok && ee.ErrorCode == EcodeKeyNotFound {
+		if client.IsKeyNotFound(err) {
 			metafora.Infof("task=%q has no existing state, default to Runnable", task.ID())
 			state := &statemachine.State{Code: statemachine.Runnable}
 			if err := s.Store(task, state); err != nil {
@@ -62,6 +64,6 @@ func (s *stateStore) Store(task metafora.Task, state *statemachine.State) error 
 		return err
 	}
 
-	_, err = s.c.Set(path.Join(s.path, task.ID()), string(buf), foreverTTL)
+	_, err = s.c.Set(context.TODO(), path.Join(s.path, task.ID()), string(buf), setDefault)
 	return err
 }

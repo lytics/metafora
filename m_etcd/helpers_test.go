@@ -3,36 +3,64 @@ package m_etcd
 import (
 	"fmt"
 	"log"
+	"math/rand"
 	"os"
-	"sync/atomic"
+	"strconv"
 	"testing"
+	"time"
 
+	"golang.org/x/net/context"
+
+	"github.com/coreos/etcd/client"
 	"github.com/lytics/metafora"
 	"github.com/lytics/metafora/m_etcd/testutil"
 )
 
 func init() {
+	rand.Seed(time.Now().UnixNano())
 	metafora.SetLogger(log.New(os.Stderr, "", log.Lmicroseconds|log.Lshortfile))
 }
 
-var testcounter uint64
+type testctx struct {
+	Coord      *EtcdCoordinator
+	Conf       *Config
+	EtcdClient client.KeysAPI
+	MClient    metafora.Client
+	Cleanup    func()
+}
 
 // setupEtcd should be used for all etcd integration tests. It handles the following tasks:
 //  * Skip tests if ETCDTESTS is unset
 //  * Create and return an etcd client
 //  * Create and return an initial etcd coordinator
 //  * Clearing the test namespace in etcd
-func setupEtcd(t *testing.T) (*EtcdCoordinator, *Config) {
-	client, hosts := testutil.NewEtcdClient(t)
-	n := atomic.AddUint64(&testcounter, 1)
-	ns := fmt.Sprintf("metaforatests-%d", n)
-	client.Delete(ns, recursive)
-	conf := NewConfig("testclient", ns, hosts)
-	coord, err := NewEtcdCoordinator(conf)
+//
+// Callers should call Cleanup() in a defer statement to avoid filling etcd
+// with test namespaces.
+func setupEtcd(t *testing.T) *testctx {
+	ctx := &testctx{}
+	c, etcdconf := testutil.NewEtcdClient(t)
+	ctx.EtcdClient = c
+
+	// Create a unique namespace
+	testid := strconv.FormatInt(rand.Int63(), 36)
+	ns := "metafora-test-ns-" + testid
+
+	// Cleanup before and after tests
+	ctx.Cleanup = func() { c.Delete(context.TODO(), ns, &client.DeleteOptions{Recursive: true, Dir: true}) }
+	ctx.Cleanup()
+
+	// Create a coordinator config
+	ctx.Conf = NewConfig("metafora-test-node-"+testid, ns, etcdconf.Endpoints)
+	ctx.Conf.EtcdConfig = etcdconf
+
+	coord, err := NewEtcdCoordinator(ctx.Conf)
 	if err != nil {
 		t.Fatalf("Error creating etcd coordinator: %v", err)
 	}
-	return coord, conf
+	ctx.Coord = coord
+	ctx.MClient = NewClientFromConfig(ctx.Conf)
+	return ctx
 }
 
 type testLogger struct {

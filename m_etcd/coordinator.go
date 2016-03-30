@@ -1,7 +1,6 @@
 package m_etcd
 
 import (
-	"errors"
 	"path"
 	"strings"
 	"time"
@@ -24,7 +23,7 @@ const (
 )
 
 var (
-	createOrdered    = &client.CreateInOrderOptions{TTL: 0}
+	createOrdered    = &client.CreateInOrderOptions{}
 	delRecur         = &client.DeleteOptions{Dir: false, Recursive: true}
 	delRecurDir      = &client.DeleteOptions{Dir: true, Recursive: true}
 	delOne           = &client.DeleteOptions{Dir: false, Recursive: false}
@@ -32,6 +31,7 @@ var (
 	getNoSortRecur   = &client.GetOptions{Recursive: true, Sort: false, Quorum: true}
 	getSortRecur     = &client.GetOptions{Recursive: true, Sort: true, Quorum: true}
 	setCreateDir     = &client.SetOptions{Dir: true}
+	setDefault       = &client.SetOptions{}
 )
 
 var (
@@ -47,8 +47,6 @@ var (
 		actionCreated: true,
 		actionSet:     true,
 	}
-
-	restartWatchError = errors.New("index too old, need to restart watch")
 )
 
 type ownerValue struct {
@@ -273,9 +271,16 @@ startWatch:
 		}
 
 		// Start blocking watch
-		//TODO use ec.stop in context
 		watcher := ec.client.Watcher(ec.taskPath, opts)
 		for {
+			//TODO remove once Watcher's context checks ec.stop
+			select {
+			case <-ec.stop:
+				return nil
+			default:
+			}
+
+			//TODO use ec.stop in context
 			resp, err := watcher.Next(context.TODO())
 			if err != nil {
 				if ee, ok := err.(*client.Error); ok && ee.Code == client.ErrorCodeEventIndexCleared {
@@ -390,6 +395,8 @@ func (ec *EtcdCoordinator) Command() (metafora.Command, error) {
 		return nil, nil
 	}
 
+	opts := &client.WatcherOptions{Recursive: true}
+
 startWatch:
 	for {
 		// Get existing commands
@@ -401,7 +408,7 @@ startWatch:
 
 		// Start watching at the index the Get retrieved since we've retrieved all
 		// tasks up to that point.
-		index := resp.Index
+		opts.AfterIndex = resp.Index
 
 		// Act like existing keys are newly created
 		for _, node := range resp.Node.Nodes {
@@ -410,22 +417,33 @@ startWatch:
 			}
 		}
 
+		//TODO use ec.stop in context
+		watcher := ec.client.Watcher(ec.taskPath, opts)
 		for {
-			resp, err := ec.watch(client, ec.commandPath, index, ec.stop)
+			//TODO remove once Watcher's context checks ec.stop
+			select {
+			case <-ec.stop:
+				return nil, nil
+			default:
+			}
+
+			resp, err := watcher.Next(context.TODO())
 			if err != nil {
-				if err == restartWatchError {
+				if ee, ok := err.(*client.Error); ok && ee.Code == client.ErrorCodeEventIndexCleared {
+					// Need to restart watch with a new Get
 					continue startWatch
 				}
+
+				//FIXME what to replace this with?!
 				if err == etcd.ErrWatchStoppedByUser {
 					return nil, nil
 				}
+				return nil, err
 			}
 
 			if cmd := ec.parseCommand(resp); cmd != nil {
 				return cmd, nil
 			}
-
-			index = resp.Node.ModifiedIndex
 		}
 	}
 }
@@ -464,7 +482,7 @@ func (ec *EtcdCoordinator) Close() {
 	// Finally remove the node entry
 	_, err := ec.client.Delete(context.TODO(), ec.nodePath, delRecur)
 	if err != nil {
-		if client.IsKeyNotfound(err) {
+		if client.IsKeyNotFound(err) {
 			// The node's TTL was up before we were able to delete it or there was
 			// another problem that's already being handled.  The first is unlikely,
 			// the latter is already being handled, so there's nothing to do here.
@@ -475,78 +493,17 @@ func (ec *EtcdCoordinator) Close() {
 	}
 }
 
-// watch will return either an etcd Response or an error. Two errors returned
-// by this method should be treated specially:
-//
-//   1. etcd.ErrWatchStoppedByUser - the coordinator has closed, exit
-//                                   accordingly
-//
-//   2. restartWatchError - the specified index is too old, try again with a
-//                          newer index
-func (ec *EtcdCoordinator) watch(c *etcd.Client, path string, index uint64, stop chan bool) (*etcd.Response, error) {
-	const recursive = true
-	for {
-		// Start the blocking watch after the last response's index.
-		rawResp, err := protectedRawWatch(c, path, index+1, recursive, nil, stop)
-		if err != nil {
-			if err == etcd.ErrWatchStoppedByUser {
-				// This isn't actually an error, the stop chan was closed. Time to stop!
-				return nil, err
-			}
-
-			// This is probably a canceled request panic
-			// Wait a little bit, then continue as normal
-			// Can be removed after Go 1.5 is released
-			if ispanic(err) {
-				time.Sleep(250 * time.Millisecond)
-				continue
-			}
-
-			// Other RawWatch errors should be retried forever. If the node refresher
-			// also fails to communicate with etcd it will close the coordinator,
-			// closing ec.stop in the process which will cause this function to with
-			// ErrWatchStoppedByUser.
-			metafora.Errorf("%s Retrying after unexpected watch error: %v", path, err)
-			transport.CloseIdleConnections() // paranoia; let's get fresh connections on errors.
-			continue
-		}
-
-		if len(rawResp.Body) == 0 {
-			// This is a bug in Go's HTTP + go-etcd + etcd which causes the
-			// connection to timeout perdiocally and need to be restarted *after*
-			// closing idle connections.
-			transport.CloseIdleConnections()
-			continue
-		}
-
-		resp, err := rawResp.Unmarshal()
-		if err != nil {
-			if ee, ok := err.(*etcd.EtcdError); ok {
-				if ee.ErrorCode == EcodeExpiredIndex {
-					metafora.Debugf("%s Too many events have happened since index was updated. Restarting watch.", ec.taskPath)
-					// We need to retrieve all existing tasks to update our index
-					// without potentially missing some events.
-					return nil, restartWatchError
-				}
-			}
-			metafora.Errorf("%s Unexpected error unmarshalling etcd response: %+v", ec.taskPath, err)
-			return nil, err
-		}
-		return resp, nil
-	}
-}
-
 func (ec *EtcdCoordinator) Name() string {
 	return ec.name
 }
 
 func newEtcdClient(conf client.Config) (client.KeysAPI, error) {
-	c, err := client.New(conf.EtcdConfig)
+	c, err := client.New(conf)
 	if err != nil {
 		metafora.Errorf("Error creating etcd client: %v", err)
 		return nil, err
 	}
-	if err := c.Sync(context.TODO); err != nil {
+	if err := c.Sync(context.TODO()); err != nil {
 		metafora.Errorf("Error syncing with etcd cluster: %v", err)
 		return nil, err
 	}

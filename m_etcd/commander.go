@@ -90,49 +90,48 @@ func (c *cmdrListener) sendErr(err error) {
 	}
 }
 
-func (c *cmdrListener) sendMsg(resp *client.Response) (index uint64, ok bool) {
+func (c *cmdrListener) sendMsg(resp *client.Response) (ok bool) {
 	// Delete/Expire events shouldn't be processed
 	if releaseActions[resp.Action] {
-		return resp.Node.ModifiedIndex + 1, true
+		return true
 	}
 
 	// Remove command so it's not processed twice
 	opts := &client.DeleteOptions{PrevValue: resp.Node.Value}
-	cadresp, err := c.cli.Delete(context.TODO(), resp.Node.Key, opts)
-	if err != nil {
+	if _, err := c.cli.Delete(context.TODO(), resp.Node.Key, opts); err != nil {
 		if ee, ok := err.(*client.Error); ok && ee.Code == client.ErrorCodeTestFailed {
 			metafora.Infof("Received successive commands; attempting to retrieve the latest: %v", err)
-			return resp.Node.ModifiedIndex + 1, true
+			return true
 		}
 		metafora.Errorf("Error deleting command %s: %s - sending error to stateful handler: %v", c.path, resp.Node.Value, err)
 		c.sendErr(err)
-		return 0, false
+		return false
 	}
 
 	msg := &statemachine.Message{}
 	if err := json.Unmarshal([]byte(resp.Node.Value), msg); err != nil {
 		metafora.Errorf("Error unmarshalling command from %s - sending error to stateful handler: %v", c.path, err)
 		c.sendErr(err)
-		return 0, false
+		return false
 	}
 
 	select {
 	case c.commands <- msg:
-		return cadresp.Node.ModifiedIndex + 1, true
+		return true
 	case <-c.stop:
-		return 0, false
+		return false
 	}
 }
 
 func (c *cmdrListener) watcher() {
-	var index uint64
-	var ok bool
+	opts := &client.WatcherOptions{Recursive: true}
+
 startWatch:
 	resp, err := c.cli.Get(context.TODO(), c.path, getNoSortNoRecur)
 	if err != nil {
 		if ee, ok := err.(client.Error); ok && ee.Code == client.ErrorCodeKeyNotFound {
 			// No command found; this is normal. Grab index and skip to watching
-			index = ee.Index
+			opts.AfterIndex = ee.Index
 			goto watchLoop
 		}
 		metafora.Errorf("Error GETting %s - sending error to stateful handler: %v", c.path, err)
@@ -140,42 +139,33 @@ startWatch:
 		return
 	}
 
-	if index, ok = c.sendMsg(resp); !ok {
+	// Existing command found, send it and start watching after it
+	if !c.sendMsg(resp) {
 		return
 	}
+	opts.AfterIndex = resp.Index
 
 watchLoop:
+	watcher := c.cli.Watcher(c.path, opts)
 	for {
-		rr, err := protectedRawWatch(c.cli, c.path, index, notrecursive, nil, c.stop)
+		//TODO remove once Watcher's context checks ec.stop
+		select {
+		case <-c.stop:
+			return
+		default:
+		}
+
+		//TODO use ec.stop in context
+		resp, err := watcher.Next(context.TODO())
 		if err != nil {
+			if ee, ok := err.(*client.Error); ok && ee.Code == client.ErrorCodeEventIndexCleared {
+				// Need to restart watch with a new Get
+				goto startWatch
+			}
+
+			//FIXME what error is this replaced by?!
 			if err == etcd.ErrWatchStoppedByUser {
 				return
-			}
-			// This is probably a canceled request panic
-			// Wait a little bit, then continue as normal
-			// Can be removed after Go 1.5 is released
-			if ispanic(err) {
-				continue
-			}
-			metafora.Errorf("Error watching %s - sending error to stateful handler: %v", c.path, err)
-			c.sendErr(err)
-			return
-		}
-
-		if len(rr.Body) == 0 {
-			// This is a bug in Go's HTTP + go-etcd + etcd which causes the
-			// connection to timeout perdiocally and need to be restarted *after*
-			// closing idle connections.
-			transport.CloseIdleConnections()
-			continue watchLoop
-		}
-
-		resp, err := rr.Unmarshal()
-		if err != nil {
-			if ee, ok := err.(*etcd.EtcdError); ok {
-				if ee.ErrorCode == EcodeExpiredIndex {
-					goto startWatch
-				}
 			}
 			metafora.Errorf("Error watching %s - sending error to stateful handler: %v", c.path, err)
 			c.sendErr(err)
@@ -183,7 +173,7 @@ watchLoop:
 		}
 
 		metafora.Debugf("Received command via %s -- sending to statemachine", c.path)
-		if index, ok = c.sendMsg(resp); !ok {
+		if !c.sendMsg(resp) {
 			return
 		}
 	}

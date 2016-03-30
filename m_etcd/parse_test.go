@@ -5,9 +5,10 @@ import (
 	"path"
 	"testing"
 
-	"github.com/coreos/go-etcd/etcd"
+	"golang.org/x/net/context"
+
+	"github.com/coreos/etcd/client"
 	"github.com/lytics/metafora"
-	"github.com/lytics/metafora/m_etcd/testutil"
 )
 
 type ctx struct{}
@@ -16,7 +17,7 @@ func (ctx) Lost(metafora.Task)                            {}
 func (ctx) Log(metafora.LogLevel, string, ...interface{}) {}
 
 type taskTest struct {
-	Resp *etcd.Response
+	Resp *client.Response
 	Task mapTask
 	Ok   bool
 }
@@ -27,9 +28,10 @@ func (m mapTask) ID() string { return m["id"].(string) }
 
 func TestParseTask(t *testing.T) {
 	t.Parallel()
-	_, conf := setupEtcd(t)
+	ctx := setupEtcd(t)
+	defer ctx.Cleanup()
 
-	conf.NewTaskFunc = func(id, value string) metafora.Task {
+	ctx.Conf.NewTaskFunc = func(id, value string) metafora.Task {
 		tsk := mapTask{"id": id}
 		if value == "" {
 			return tsk
@@ -40,65 +42,60 @@ func TestParseTask(t *testing.T) {
 		}
 		return tsk
 	}
-	c, err := NewEtcdCoordinator(conf)
-	if err != nil {
-		t.Fatal(err)
-	}
 
-	taskp := func(rest string) string { return path.Join(conf.Namespace, TasksPath, rest) }
+	taskp := func(rest string) string { return path.Join(ctx.Conf.Namespace, TasksPath, rest) }
 
 	// Unfortunately parseTasks sometimes has to go back out to etcd for
 	// properties. Insert test data.
-	etcdc, _ := testutil.NewEtcdClient(t)
-	etcdc.Create(taskp("/0/props"), "{invalid", foreverTTL)
+	ctx.EtcdClient.Create(context.TODO(), taskp("/0/props"), "{invalid")
 
 	tests := []taskTest{
 		// bad
-		{Resp: &etcd.Response{Action: actionCAD, Node: &etcd.Node{Key: taskp("/0/owner"), Dir: false}}},
-		{Resp: &etcd.Response{Action: actionCAD, Node: &etcd.Node{Key: conf.Namespace + "/oops/1", Dir: true}}},
-		{Resp: &etcd.Response{Action: actionCAD, Node: &etcd.Node{Key: taskp("/1"), Dir: true}}},
-		{Resp: &etcd.Response{Action: actionCreated, Node: &etcd.Node{Key: taskp("/1/a"), Dir: true}}},
-		{Resp: &etcd.Response{Action: actionCAD, Node: &etcd.Node{Key: taskp("/1"), Dir: false}}},
+		{Resp: &client.Response{Action: actionCAD, Node: &client.Node{Key: taskp("/0/owner"), Dir: false}}},
+		{Resp: &client.Response{Action: actionCAD, Node: &client.Node{Key: ctx.Conf.Namespace + "/oops/1", Dir: true}}},
+		{Resp: &client.Response{Action: actionCAD, Node: &client.Node{Key: taskp("/1"), Dir: true}}},
+		{Resp: &client.Response{Action: actionCreated, Node: &client.Node{Key: taskp("/1/a"), Dir: true}}},
+		{Resp: &client.Response{Action: actionCAD, Node: &client.Node{Key: taskp("/1"), Dir: false}}},
 
 		// good
 		{
-			Resp: &etcd.Response{Action: actionCreated, Node: &etcd.Node{Key: taskp("/1"), Dir: true}},
+			Resp: &client.Response{Action: actionCreated, Node: &client.Node{Key: taskp("/1"), Dir: true}},
 			Task: mapTask{"id": "1"},
 			Ok:   true,
 		},
 		{
-			Resp: &etcd.Response{Action: actionSet, Node: &etcd.Node{Key: taskp("/2"), Dir: true}},
+			Resp: &client.Response{Action: actionSet, Node: &client.Node{Key: taskp("/2"), Dir: true}},
 			Task: mapTask{"id": "2"},
 			Ok:   true,
 		},
 		{
-			Resp: &etcd.Response{Action: actionCAD, Node: &etcd.Node{Key: taskp("/3/owner")}},
+			Resp: &client.Response{Action: actionCAD, Node: &client.Node{Key: taskp("/3/owner")}},
 			Task: mapTask{"id": "3"},
 			Ok:   true,
 		},
 		{
-			Resp: &etcd.Response{Action: actionDelete, Node: &etcd.Node{Key: taskp("/4/owner")}},
+			Resp: &client.Response{Action: actionDelete, Node: &client.Node{Key: taskp("/4/owner")}},
 			Task: mapTask{"id": "4"},
 			Ok:   true,
 		},
 		{
-			Resp: &etcd.Response{Action: actionCreated, Node: &etcd.Node{
+			Resp: &client.Response{Action: actionCreated, Node: &client.Node{
 				Key:   taskp("/5"),
-				Nodes: []*etcd.Node{{Key: taskp("/5/props"), Value: `{"test": "ok"}`}},
+				Nodes: []*client.Node{{Key: taskp("/5/props"), Value: `{"test": "ok"}`}},
 				Dir:   true,
 			}},
 			Task: mapTask{"id": "5", "test": "ok"},
 			Ok:   true,
 		},
 		{
-			Resp: &etcd.Response{Action: actionSet, Node: &etcd.Node{Key: taskp("/6/props"), Value: `{"test":"ok"}`}},
+			Resp: &client.Response{Action: actionSet, Node: &client.Node{Key: taskp("/6/props"), Value: `{"test":"ok"}`}},
 			Task: mapTask{"id": "6", "test": "ok"},
 			Ok:   true,
 		},
 	}
 
 	for _, test := range tests {
-		parsed := c.parseTask(test.Resp)
+		parsed := ctx.Coord.parseTask(test.Resp)
 		if parsed == nil {
 			if test.Ok {
 				t.Errorf("Test %s:%v failed: expected task: %s", test.Resp.Action, *test.Resp.Node, test.Task)

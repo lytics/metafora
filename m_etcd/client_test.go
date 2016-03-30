@@ -12,37 +12,37 @@ package m_etcd
 // See: https://github.com/lytics/metafora/issues/31
 
 import (
+	"path"
 	"testing"
 
+	"github.com/coreos/etcd/client"
 	"github.com/lytics/metafora"
-	"github.com/lytics/metafora/m_etcd/testutil"
-)
-
-const (
-	Namespace = `test`
-	NodesDir  = `/test/nodes`
-	Node1     = `node1`
-	Node1Path = NodesDir + `/` + Node1
+	"golang.org/x/net/context"
 )
 
 // TestNodes tests that client.Nodes() returns the metafora nodes
 // registered in etcd.
 func TestNodes(t *testing.T) {
-	eclient, hosts := testutil.NewEtcdClient(t)
-	const recursive = true
-	eclient.Delete(Node1Path, recursive)
+	ctx := setupEtcd(t)
+	defer ctx.Cleanup()
 
-	mclient := NewClient(Namespace, hosts)
-
-	if _, err := eclient.CreateDir(Node1Path, 0); err != nil {
-		t.Fatalf("AddChild %v returned error: %v", NodesDir, err)
+	key := path.Join(ctx.Conf.Namespace, "nodes", ctx.Conf.Name)
+	opts := &client.SetOptions{PrevExist: client.PrevNoExist, Dir: true}
+	if _, err := ctx.EtcdClient.Set(context.TODO(), key, "", opts); err != nil {
+		t.Fatalf("Error creating node key %q: %v", key, err)
 	}
 
-	if nodes, err := mclient.Nodes(); err != nil {
+	if nodes, err := ctx.MClient.Nodes(); err != nil {
 		t.Fatalf("Nodes returned error: %v", err)
 	} else {
 		for i, n := range nodes {
 			t.Logf("%v -> %v", i, n)
+		}
+		if len(nodes) != 1 {
+			t.Fatalf("Expected 1 node but found %d", len(nodes))
+		}
+		if nodes[0] != ctx.Conf.Name {
+			t.Fatalf("Expected node %q but found %q", ctx.Conf.Name, nodes[0])
 		}
 	}
 }
@@ -51,21 +51,16 @@ func TestNodes(t *testing.T) {
 // the proper path in etcd, and that the same task id cannot be
 // submitted more than once.
 func TestSubmitTask(t *testing.T) {
-	_, hosts := testutil.NewEtcdClient(t)
-
-	mclient := NewClient(Namespace, hosts)
+	ctx := setupEtcd(t)
+	defer ctx.Cleanup()
 
 	task := DefaultTaskFunc("testid1", "")
 
-	if err := mclient.DeleteTask(task.ID()); err != nil {
-		t.Logf("DeleteTask returned an error, which maybe ok.  Error:%v", err)
-	}
-
-	if err := mclient.SubmitTask(task); err != nil {
+	if err := ctx.MClient.SubmitTask(task); err != nil {
 		t.Fatalf("Submit task failed on initial submission, error: %v", err)
 	}
 
-	if err := mclient.SubmitTask(task); err == nil {
+	if err := ctx.MClient.SubmitTask(task); err == nil {
 		t.Fatalf("Submit task did not fail, but should of, when using existing tast id")
 	}
 }
@@ -73,17 +68,17 @@ func TestSubmitTask(t *testing.T) {
 // TestSubmitCommand tests that client.SubmitCommand(...) adds a command
 // to the proper node path in etcd, and that it can be read back.
 func TestSubmitCommand(t *testing.T) {
-	eclient, hosts := testutil.NewEtcdClient(t)
+	ctx := setupEtcd(t)
+	defer ctx.Cleanup()
 
-	mclient := NewClient(Namespace, hosts)
-
-	if err := mclient.SubmitCommand(Node1, metafora.CommandFreeze()); err != nil {
+	if err := ctx.MClient.SubmitCommand(ctx.Conf.Name, metafora.CommandFreeze()); err != nil {
 		t.Fatalf("Unable to submit command.   error:%v", err)
 	}
 
-	if res, err := eclient.Get(NodesDir, false, false); err != nil {
-		t.Fatalf("Get on path %v returned error: %v", NodesDir, err)
-	} else if res.Node == nil || res.Node.Nodes == nil {
-		t.Fatalf("Get on path %v returned nil for child nodes", NodesDir)
+	nodepath := path.Join(ctx.Conf.Namespace, NodesPath)
+	if res, err := ctx.EtcdClient.Get(context.TODO(), nodepath, &client.GetOptions{Recursive: true}); err != nil {
+		t.Fatalf("Get on path %v returned error: %v", nodepath, err)
+	} else if res.Node == nil || len(res.Node.Nodes) == 0 {
+		t.Fatalf("Get on path %v returned nil for child nodes", nodepath)
 	}
 }

@@ -7,8 +7,9 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/net/context"
+
 	"github.com/coreos/etcd/client"
-	"github.com/coreos/go-etcd/etcd"
 	"github.com/lytics/metafora"
 )
 
@@ -29,7 +30,7 @@ type taskManager struct {
 	path   string                // etcd path to tasks
 	node   string                // node ID
 
-	ttl      uint64 // seconds
+	ttl      time.Duration
 	interval time.Duration
 }
 
@@ -76,10 +77,11 @@ func (m *taskManager) add(task metafora.Task) bool {
 	tid := task.ID()
 	// Attempt to claim the node
 	key, value := m.ownerNode(tid)
-	resp, err := m.client.Create(key, value, m.ttl)
+	opts := &client.SetOptions{PrevExist: client.PrevNoExist, TTL: m.ttl}
+	resp, err := m.client.Set(context.TODO(), key, value, opts)
 	if err != nil {
-		etcdErr, ok := err.(*etcd.EtcdError)
-		if !ok || etcdErr.ErrorCode != EcodeNodeExist {
+		ee, ok := err.(*client.Error)
+		if !ok || ee.Code != client.ErrorCodeNodeExist {
 			metafora.Errorf("Claim of %s failed with an unexpected error: %v", key, err)
 		} else {
 			metafora.Debugf("Claim of %s failed, already claimed", key)
@@ -93,7 +95,7 @@ func (m *taskManager) add(task metafora.Task) bool {
 	// deleted (done) task. Compare the CreatedIndex of the directory with the
 	// CreatedIndex of the claim key, if they're equal this claim ressurected a
 	// done task and should cleanup.
-	resp, err = m.client.Get(m.taskPath(tid), unsorted, notrecursive)
+	resp, err = m.client.Get(context.TODO(), m.taskPath(tid), getNoSortNoRecur)
 	if err != nil {
 		// Erroring here is BAD as we may have resurrected a done task, and because
 		// of this failure there's no way to tell. The claim will eventually
@@ -104,7 +106,7 @@ func (m *taskManager) add(task metafora.Task) bool {
 
 	if resp.Node.CreatedIndex == index {
 		metafora.Debugf("Task %s resurrected due to claim/done race. Re-deleting.", tid)
-		if _, err = m.client.Delete(m.taskPath(tid), recursive); err != nil {
+		if _, err = m.client.Delete(context.TODO(), m.taskPath(tid), delRecurDir); err != nil {
 			// This is as bad as it gets. We *know* we resurrected a task, but we
 			// failed to re-delete it.
 			metafora.Errorf("Task %s was resurrected and could not be removed! %s should be manually removed. Error: %v",
@@ -134,11 +136,12 @@ func (m *taskManager) add(task metafora.Task) bool {
 			close(finished)
 		}()
 
+		refreshopts := &client.SetOptions{PrevValue: value, PrevExist: client.PrevExist, Refresh: true}
 		for {
 			select {
 			case <-time.After(m.interval):
 				// Try to refresh the claim node (0 index means compare by value)
-				if _, err := m.client.CompareAndSwap(key, value, m.ttl, value, 0); err != nil {
+				if _, err := m.client.Set(context.TODO(), key, value, refreshopts); err != nil {
 					metafora.Errorf("Error trying to update task %s ttl: %v", tid, err)
 					m.ctx.Lost(task)
 					// On errors, don't even try to Delete as we're in a bad state
@@ -147,14 +150,15 @@ func (m *taskManager) add(task metafora.Task) bool {
 			case <-done:
 				metafora.Debugf("Deleting directory for task %s as it's done.", tid)
 				const recursive = true
-				if _, err := m.client.Delete(m.taskPath(tid), recursive); err != nil {
-					metafora.Errorf("Error deleting task %s while stopping: %v", tid, err)
+				if _, err := m.client.Delete(context.TODO(), m.taskPath(tid), delRecurDir); err != nil {
+					metafora.Errorf("Error deleting done task %s: %v", tid, err)
 				}
 				return
 			case <-release:
 				metafora.Debugf("Deleting claim for task %s as it's released.", tid)
 				// Not done, releasing; just delete the claim node
-				if _, err := m.client.CompareAndDelete(key, value, 0); err != nil {
+				opts := &client.DeleteOptions{PrevValue: value}
+				if _, err := m.client.Delete(context.TODO(), key, opts); err != nil {
 					metafora.Warnf("Error releasing task %s while stopping: %v", tid, err)
 				}
 				return

@@ -9,8 +9,10 @@ package testutil
 import (
 	"os"
 	"strings"
+	"time"
 
-	"github.com/coreos/go-etcd/etcd"
+	"github.com/coreos/etcd/client"
+	"golang.org/x/net/context"
 )
 
 // TestCase just defines the subset of *testing.T methods needed to avoid
@@ -21,7 +23,7 @@ type TestCase interface {
 }
 
 // NewEtcdClient creates a new etcd client for use by the metafora client during testing.
-func NewEtcdClient(t TestCase) (*etcd.Client, []string) {
+func NewEtcdClient(t TestCase) (client.KeysAPI, client.Config) {
 	if os.Getenv("ETCDTESTS") == "" {
 		t.Skip("ETCDTESTS unset. Skipping etcd tests.")
 	}
@@ -30,18 +32,23 @@ func NewEtcdClient(t TestCase) (*etcd.Client, []string) {
 	peerAddrs := os.Getenv("ETCD_PEERS")
 
 	if peerAddrs == "" {
-		peerAddrs = "127.0.0.1:4001"
+		peerAddrs = "http://127.0.0.1:2379"
 	}
 
 	peers := strings.Split(peerAddrs, ",")
 
-	eclient := etcd.NewClient(peers)
-
-	if ok := eclient.SyncCluster(); !ok {
-		t.Fatalf("Cannot sync etcd cluster using peers: %v", strings.Join(peers, ", "))
+	conf := client.Config{
+		Endpoints:               peers,
+		HeaderTimeoutPerRequest: 2 * time.Second,
+	}
+	c, err := client.New(conf)
+	if err != nil {
+		t.Fatalf("Error creating etcd client: %v", err)
 	}
 
-	eclient.SetConsistency(etcd.STRONG_CONSISTENCY)
+	if err := c.Sync(context.TODO()); err != nil {
+		t.Fatalf("Cannot sync etcd cluster using peers: %v: %v", strings.Join(peers, ", "), err)
+	}
 
-	return eclient, peers
+	return client.NewKeysAPI(c), conf
 }
