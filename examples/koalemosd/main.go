@@ -8,7 +8,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/coreos/go-etcd/etcd"
+	"github.com/coreos/etcd/client"
 	"github.com/lytics/metafora"
 	"github.com/lytics/metafora/examples/koalemos"
 	"github.com/lytics/metafora/m_etcd"
@@ -24,9 +24,6 @@ func main() {
 	loglvl := flag.String("log", mlvl.String(), "set log level: [debug], info, warn, error")
 	flag.Parse()
 
-	hosts := strings.Split(*peers, ",")
-	etcdc := etcd.NewClient(hosts)
-
 	switch strings.ToLower(*loglvl) {
 	case "debug":
 		mlvl = metafora.LogLevelDebug
@@ -41,10 +38,17 @@ func main() {
 	}
 	metafora.SetLogLevel(mlvl)
 
-	conf := m_etcd.NewConfig(*name, *namespace, hosts)
+	etcdconf := client.Config{Endpoints: strings.Split(*peers, ",")}
+	etcdclient, err := client.New(etcdconf)
+	if err != nil {
+		metafora.Errorf("Error creating etcd client: %v", err)
+		os.Exit(2)
+	}
+
+	mconf := m_etcd.NewConfig(*name, *namespace, etcdconf.Endpoints)
 
 	// Replace NewTask func with one that returns a *koalemos.Task
-	conf.NewTaskFunc = func(id, value string) metafora.Task {
+	mconf.NewTaskFunc = func(id, value string) metafora.Task {
 		t := koalemos.NewTask(id)
 		if value == "" {
 			return t
@@ -56,13 +60,15 @@ func main() {
 		return t
 	}
 
-	hfunc := makeHandlerFunc(etcdc)
-	ec, err := m_etcd.NewEtcdCoordinator(conf)
+	hfunc := func(task metafora.Task) metafora.Handler {
+		return &shellHandler{task: task.(*koalemos.Task)}
+	}
+	ec, err := m_etcd.NewEtcdCoordinator(mconf)
 	if err != nil {
 		metafora.Errorf("Error creating etcd coordinator: %v", err)
 	}
 
-	bal := m_etcd.NewFairBalancer(conf)
+	bal := m_etcd.NewFairBalancer(mconf, client.NewKeysAPI(etcdclient))
 	c, err := metafora.NewConsumer(ec, hfunc, bal)
 	if err != nil {
 		metafora.Errorf("Error creating consumer: %v", err)
@@ -70,7 +76,7 @@ func main() {
 	}
 	metafora.Infof(
 		"Starting koalsmosd with etcd=%s; namespace=%s; name=%s; loglvl=%s",
-		*peers, conf.Namespace, conf.Name, mlvl)
+		*peers, mconf.Namespace, mconf.Name, mlvl)
 	consumerRunning := make(chan struct{})
 	go func() {
 		defer close(consumerRunning)
