@@ -1,0 +1,37 @@
+{
+	"comment": "",
+	"ignore": "test",
+	"package": [
+		{
+			"checksumSHA1": "MDQSOY0JcH+myvNzwNcMlIxycME=",
+			"path": "github.com/coreos/etcd/client",
+			"revision": "a5172974daf14250e4b613d8747acc86fd2ecdb4",
+			"revisionTime": "2016-03-30T17:08:05Z"
+		},
+		{
+			"checksumSHA1": "mKIXx1kDwmVmdIpZ3pJtRBuUKso=",
+			"path": "github.com/coreos/etcd/pkg/pathutil",
+			"revision": "a5172974daf14250e4b613d8747acc86fd2ecdb4",
+			"revisionTime": "2016-03-30T17:08:05Z"
+		},
+		{
+			"checksumSHA1": "sWFTfWCr1bOglNmNA7WxlEgXKv0=",
+			"path": "github.com/coreos/etcd/pkg/types",
+			"revision": "a5172974daf14250e4b613d8747acc86fd2ecdb4",
+			"revisionTime": "2016-03-30T17:08:05Z"
+		},
+		{
+			"checksumSHA1": "0bs9QxbsLB3lMUU7vOo3gurUzEo=",
+			"path": "github.com/ugorji/go/codec",
+			"revision": "f1f1a805ed361a0e078bb537e4ea78cd37dcf065",
+			"revisionTime": "2015-10-28T02:20:00Z"
+		},
+		{
+			"checksumSHA1": "5ARrN3Zq+E9zazFb/N+b08Serys=",
+			"path": "golang.org/x/net/context",
+			"revision": "5627bad10b821d907ac4dc81fb3535ec7dd81c2b",
+			"revisionTime": "2015-11-20T00:45:14Z"
+		}
+	],
+	"rootPath": "github.com/lytics/metafora"
+}

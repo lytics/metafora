@@ -32,9 +32,12 @@ func (t *exTask) String() string {
 func TestAltTask(t *testing.T) {
 	etcdc, hosts := testutil.NewEtcdClient(t)
 	t.Parallel()
-	const namespace = "alttask-metafora"
+	const namespace = "metafora-alttask"
 
-	etcdc.Delete(namespace, recursive)
+	cleanup := func() {
+	}
+	cleanup()
+	defer cleanup()
 
 	conf := m_etcd.NewConfig("testclient", namespace, hosts)
 

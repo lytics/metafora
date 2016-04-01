@@ -4,6 +4,9 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/net/context"
+
+	"github.com/coreos/etcd/client"
 	"github.com/lytics/metafora"
 	"github.com/lytics/metafora/m_etcd"
 	"github.com/lytics/metafora/m_etcd/testutil"
@@ -13,24 +16,27 @@ import (
 func TestCommandListener(t *testing.T) {
 	t.Parallel()
 
-	// etcd clients are not safe for concurrent use, so create one for each
-	// component
-	cmdrclient, _ := testutil.NewEtcdClient(t)
-	clclient, _ := testutil.NewEtcdClient(t)
+	etcdclient, _ := testutil.NewEtcdClient(t)
 
-	const recursive = true
-	namespace := "cltest"
-	cmdrclient.Delete("/"+namespace, recursive)
+	const namespace = "metafora-cltest"
+	cleanup := func() {
+		opts := &client.DeleteOptions{Recursive: true, Dir: true}
+		if _, err := etcdclient.Delete(context.TODO(), "/"+namespace, opts); err != nil {
+			t.Logf("Error deleting namespace %q - %v", namespace, err)
+		}
+	}
+	cleanup()
+	defer cleanup()
 
 	task := metafora.NewTask("testtask")
 
-	cmdr := m_etcd.NewCommander(namespace, cmdrclient)
+	cmdr := m_etcd.NewCommander(namespace, etcdclient)
 
 	// Only the last command should be received once the listener is started
 	cmdr.Send(task.ID(), statemachine.PauseMessage())
 	cmdr.Send(task.ID(), statemachine.KillMessage())
 
-	cl := m_etcd.NewCommandListener(task, namespace, clclient)
+	cl := m_etcd.NewCommandListener(task, namespace, etcdclient)
 	defer cl.Stop()
 
 	// Ensure last command was received

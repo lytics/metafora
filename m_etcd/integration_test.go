@@ -2,8 +2,11 @@ package m_etcd_test
 
 import (
 	"errors"
+	"path"
 	"testing"
 	"time"
+
+	"golang.org/x/net/context"
 
 	"github.com/coreos/etcd/client"
 	"github.com/lytics/metafora"
@@ -12,17 +15,21 @@ import (
 	"github.com/lytics/metafora/statemachine"
 )
 
-const recursive = true
-
 // TestSleepTest is an integration test for all of m_etcd's components.
 //
 func TestSleepTest(t *testing.T) {
-	etcdc, hosts := testutil.NewEtcdClient(t)
 	t.Parallel()
+	etcdclient, etcdconf := testutil.NewEtcdClient(t)
 	const namespace = "sleeptest-metafora"
 	const sleepingtasks = "sleeping-task1"
-
-	etcdc.Delete(namespace, recursive)
+	cleanup := func() {
+		opts := &client.DeleteOptions{Recursive: true, Dir: true}
+		if _, err := etcdclient.Delete(context.TODO(), "/"+namespace, opts); err != nil {
+			t.Logf("Error deleting namespace %q - %v", namespace, err)
+		}
+	}
+	cleanup()
+	defer cleanup()
 
 	holdtask := make(chan bool)
 	h := func(task metafora.Task, cmds <-chan *statemachine.Message) *statemachine.Message {
@@ -42,7 +49,7 @@ func TestSleepTest(t *testing.T) {
 	}
 
 	newC := func(name, ns string) *metafora.Consumer {
-		conf := m_etcd.NewConfig(name, ns, hosts)
+		conf := m_etcd.NewConfig(name, ns, etcdconf.Endpoints)
 		coord, hf, bal, err := m_etcd.New(conf, h)
 		if err != nil {
 			t.Fatalf("Error creating new etcd stack: %v", err)
@@ -82,7 +89,7 @@ func TestSleepTest(t *testing.T) {
 	cons2 := newC("node2", namespace)
 
 	// Create clients and start some tests
-	cliA := m_etcd.NewClient(namespace, hosts)
+	cliA := m_etcd.NewClient(namespace, etcdconf.Endpoints)
 
 	if err := cliA.SubmitTask(m_etcd.DefaultTaskFunc(sleepingtasks, "")); err != nil {
 		t.Fatalf("Error submitting task1 to a: %v", err)
@@ -130,11 +137,23 @@ func TestSleepTest(t *testing.T) {
 // automated here over and over. This is far more reliable than expecting
 // developers to do adhoc testing of all of the m_etcd package's features.
 func TestAll(t *testing.T) {
-	etcdc, hosts := testutil.NewEtcdClient(t)
 	t.Parallel()
+	etcdclient, etcdconf := testutil.NewEtcdClient(t)
 
-	etcdc.Delete("test-a", recursive)
-	etcdc.Delete("test-b", recursive)
+	const nsa = "metafora-test-a"
+	const nsb = "metafora-test-b"
+
+	cleanup := func() {
+		opts := &client.DeleteOptions{Recursive: true, Dir: true}
+		if _, err := etcdclient.Delete(context.TODO(), "/"+nsa, opts); err != nil {
+			t.Logf("Error deleting namespace %q - %v", nsa, err)
+		}
+		if _, err := etcdclient.Delete(context.TODO(), "/"+nsb, opts); err != nil {
+			t.Logf("Error deleting namespace %q - %v", nsb, err)
+		}
+	}
+	cleanup()
+	defer cleanup()
 
 	h := func(task metafora.Task, cmds <-chan *statemachine.Message) *statemachine.Message {
 		cmd := <-cmds
@@ -145,7 +164,7 @@ func TestAll(t *testing.T) {
 	}
 
 	newC := func(name, ns string) *metafora.Consumer {
-		conf := m_etcd.NewConfig(name, ns, hosts)
+		conf := m_etcd.NewConfig(name, ns, etcdconf.Endpoints)
 		conf.Name = name
 		coord, hf, bal, err := m_etcd.New(conf, h)
 		if err != nil {
@@ -159,14 +178,14 @@ func TestAll(t *testing.T) {
 		return cons
 	}
 	// Start 4 consumers, 2 per namespace
-	cons1a := newC("node1", "test-a")
-	cons2a := newC("node2", "test-a")
-	cons1b := newC("node1", "test-b")
-	cons2b := newC("node2", "test-b")
+	cons1a := newC("node1", nsa)
+	cons2a := newC("node2", nsa)
+	cons1b := newC("node1", nsb)
+	cons2b := newC("node2", nsb)
 
 	// Create clients and start some tests
-	cliA := m_etcd.NewClient("test-a", hosts)
-	cliB := m_etcd.NewClient("test-b", hosts)
+	cliA := m_etcd.NewClient(nsa, etcdconf.Endpoints)
+	cliB := m_etcd.NewClient(nsb, etcdconf.Endpoints)
 
 	if err := cliA.SubmitTask(m_etcd.DefaultTaskFunc("task1", "")); err != nil {
 		t.Fatalf("Error submitting task1 to a: %v", err)
@@ -176,7 +195,7 @@ func TestAll(t *testing.T) {
 	}
 
 	// Give consumers a bit to pick up tasks
-	time.Sleep(250 * time.Millisecond)
+	time.Sleep(500 * time.Millisecond)
 
 	assertRunning := func(tid string, cons ...*metafora.Consumer) {
 		found := false
@@ -202,7 +221,7 @@ func TestAll(t *testing.T) {
 
 	// Kill task1 in A
 	{
-		cmdr := m_etcd.NewCommander("test-a", etcdc)
+		cmdr := m_etcd.NewCommander(nsa, etcdclient)
 		if err := cmdr.Send("task1", statemachine.KillMessage()); err != nil {
 			t.Fatalf("Error sending kill to task1: %v", err)
 		}
@@ -281,7 +300,7 @@ func TestAll(t *testing.T) {
 		}
 
 		// Resuming error-test 8*2 times should cause it to be failed
-		cmdr := m_etcd.NewCommander("test-b", etcdc)
+		cmdr := m_etcd.NewCommander(nsb, etcdclient)
 		for i := 0; i < statemachine.DefaultErrMax*2; i++ {
 			if err := cmdr.Send("error-test", statemachine.RunMessage()); err != nil {
 				t.Fatalf("Unexpected error resuming error-test in B: %v", err)
@@ -314,11 +333,12 @@ func TestAll(t *testing.T) {
 	cons2b.Shutdown()
 
 	// Make sure everything is cleaned up
-	respA, err := etcdc.Get("/test-a/tasks", true, true)
+	opts := &client.GetOptions{Recursive: true}
+	respA, err := etcdclient.Get(context.TODO(), path.Join("/", nsa, "tasks"), opts)
 	if err != nil {
 		t.Fatalf("Error getting tasks from etcd: %v", err)
 	}
-	respB, err := etcdc.Get("/test-b/tasks", true, true)
+	respB, err := etcdclient.Get(context.TODO(), path.Join("/", nsb, "tasks"), opts)
 	if err != nil {
 		t.Fatalf("Error getting tasks from etcd: %v", err)
 	}
@@ -337,14 +357,22 @@ func TestAll(t *testing.T) {
 // been deleted (marked as done). taskmgr has a non-integration version of this
 // test.
 func TestTaskResurrectionInt(t *testing.T) {
-	etcdc, hosts := testutil.NewEtcdClient(t)
 	t.Parallel()
+	etcdclient, etcdconf := testutil.NewEtcdClient(t)
 
-	etcdc.Delete("test-resurrect", recursive)
+	const namespace = "test-resurrect"
+	cleanup := func() {
+		opts := &client.DeleteOptions{Recursive: true, Dir: true}
+		if _, err := etcdclient.Delete(context.TODO(), "/"+namespace, opts); err != nil {
+			t.Logf("Error deleting namespace %q - %v", namespace, err)
+		}
+	}
+	cleanup()
+	defer cleanup()
 
 	task := m_etcd.DefaultTaskFunc("xyz", "")
 
-	conf := m_etcd.NewConfig("testclient", "test-resurrect", hosts)
+	conf := m_etcd.NewConfig("testnode", namespace, etcdconf.Endpoints)
 	coord, err := m_etcd.NewEtcdCoordinator(conf)
 	if err != nil {
 		t.Fatalf("Error creating coordinator: %v", err)
@@ -359,7 +387,7 @@ func TestTaskResurrectionInt(t *testing.T) {
 	}
 
 	// Create a task, mark it as done, and try to claim it again
-	client := m_etcd.NewClient("test-resurrect", hosts)
+	client := m_etcd.NewClient("test-resurrect", etcdconf.Endpoints)
 	if err := client.SubmitTask(m_etcd.DefaultTaskFunc("xyz", "")); err != nil {
 		t.Fatalf("Error submitting task xyz: %v", err)
 	}

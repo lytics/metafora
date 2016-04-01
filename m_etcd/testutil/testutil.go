@@ -20,6 +20,7 @@ import (
 type TestCase interface {
 	Skip(args ...interface{})
 	Fatalf(format string, args ...interface{})
+	Logf(string, ...interface{})
 }
 
 // NewEtcdClient creates a new etcd client for use by the metafora client during testing.
@@ -46,9 +47,23 @@ func NewEtcdClient(t TestCase) (client.KeysAPI, client.Config) {
 		t.Fatalf("Error creating etcd client: %v", err)
 	}
 
-	if err := c.Sync(context.TODO()); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := c.Sync(ctx); err != nil {
 		t.Fatalf("Cannot sync etcd cluster using peers: %v: %v", strings.Join(peers, ", "), err)
 	}
 
 	return client.NewKeysAPI(c), conf
+}
+
+var cleanupopts = &client.DeleteOptions{Recursive: true, Dir: true}
+
+func Cleanup(t TestCase, c client.KeysAPI, namespace string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if _, err := c.Delete(ctx, "/"+namespace, cleanupopts); err != nil {
+		t.Logf("Error deleting namespace %q - %v", namespace, err)
+		return err
+	}
+	return nil
 }
