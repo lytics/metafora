@@ -4,13 +4,12 @@ import (
 	"encoding/json"
 	"path"
 	"sync"
-
-	"golang.org/x/net/context"
+	"time"
 
 	"github.com/coreos/etcd/client"
-	"github.com/coreos/go-etcd/etcd"
 	"github.com/lytics/metafora"
 	"github.com/lytics/metafora/statemachine"
+	"golang.org/x/net/context"
 )
 
 const (
@@ -18,19 +17,19 @@ const (
 
 	// cmdTTL is the TTL in seconds set on commands so that commands sent to
 	// terminating work aren't orphaned in etcd forever.
-	cmdTTL = 7 * 24 * 60 * 60 // 1 week in seconds
+	cmdTTL = 7 * 24 * time.Hour
 )
 
 type cmdr struct {
-	cli  *etcd.Client
+	cli  client.KeysAPI
 	path string
 }
 
-func NewCommander(namespace string, c *etcd.Client) statemachine.Commander {
+func NewCommander(namespace string, etcdclient client.KeysAPI) statemachine.Commander {
 	if namespace[0] != '/' {
 		namespace = "/" + namespace
 	}
-	return &cmdr{path: path.Join(namespace, commandPath), cli: c}
+	return &cmdr{path: path.Join(namespace, commandPath), cli: etcdclient}
 }
 
 // Send command to a task. Overwrites existing commands.
@@ -40,7 +39,8 @@ func (c *cmdr) Send(taskID string, m *statemachine.Message) error {
 		return err
 	}
 
-	_, err = c.cli.Set(path.Join(c.path, taskID), string(buf), cmdTTL)
+	opts := &client.SetOptions{TTL: cmdTTL}
+	_, err = c.cli.Set(context.TODO(), path.Join(c.path, taskID), string(buf), opts)
 	return err
 }
 
@@ -164,7 +164,7 @@ watchLoop:
 			}
 
 			//FIXME what error is this replaced by?!
-			if err == etcd.ErrWatchStoppedByUser {
+			if err.Error() == "ErrWatchStoppedByUser" {
 				return
 			}
 			metafora.Errorf("Error watching %s - sending error to stateful handler: %v", c.path, err)

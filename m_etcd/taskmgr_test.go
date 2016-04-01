@@ -6,7 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coreos/go-etcd/etcd"
+	"golang.org/x/net/context"
+
+	"github.com/coreos/etcd/client"
 )
 
 type fakeEtcd struct {
@@ -16,7 +18,36 @@ type fakeEtcd struct {
 	cad chan string
 }
 
-func (f *fakeEtcd) Create(key, value string, ttl uint64) (*etcd.Response, error) {
+func (f *fakeEtcd) Get(ctx context.Context, key string, opts *client.GetOptions) (*client.Response, error) {
+	var index uint64 = 1
+	if strings.HasSuffix(key, "/zombie") {
+		// Testing resurrection, see comment in Create above
+		index = 666
+	}
+	return &client.Response{Node: &client.Node{CreatedIndex: index}}, nil
+}
+
+func (f *fakeEtcd) Set(ctx context.Context, key, value string, opts *client.SetOptions) (*client.Response, error) {
+	if opts.PrevValue != "" {
+		if key == "testns/testlost/owner" {
+			return nil, fmt.Errorf("test error")
+		}
+		f.cas <- key
+		return nil, nil
+	}
+	panic("not implemented")
+}
+
+func (f *fakeEtcd) Delete(ctx context.Context, key string, opts *client.DeleteOptions) (*client.Response, error) {
+	if opts.PrevValue != "" {
+		f.cad <- key
+		return nil, nil
+	}
+	f.del <- key
+	return nil, nil
+}
+
+func (f *fakeEtcd) Create(ctx context.Context, key, value string) (*client.Response, error) {
 	f.add <- key
 
 	// Due to lytics/metafora#124 claims will do a get after a create to make
@@ -27,36 +58,22 @@ func (f *fakeEtcd) Create(key, value string, ttl uint64) (*etcd.Response, error)
 	if strings.HasSuffix(key, "/zombie/owner") {
 		index = 666
 	}
-	resp := &etcd.Response{Node: &etcd.Node{CreatedIndex: index}}
+	resp := &client.Response{Node: &client.Node{CreatedIndex: index}}
 	return resp, nil
 }
 
-func (f *fakeEtcd) Get(key string, sorted, recursive bool) (*etcd.Response, error) {
-	var index uint64 = 1
-	if strings.HasSuffix(key, "/zombie") {
-		// Testing resurrection, see comment in Create above
-		index = 666
-	}
-	return &etcd.Response{Node: &etcd.Node{CreatedIndex: index}}, nil
+func (f *fakeEtcd) CreateInOrder(ctx context.Context, dir, value string, opts *client.CreateInOrderOptions) (*client.Response, error) {
+	panic("not implemented")
 }
 
-func (f *fakeEtcd) Delete(key string, recursive bool) (*etcd.Response, error) {
-	f.del <- key
-	return nil, nil
+func (f *fakeEtcd) Update(ctx context.Context, key, value string) (*client.Response, error) {
+	panic("not implemented")
 }
 
-func (f *fakeEtcd) CompareAndDelete(k, pv string, _ uint64) (*etcd.Response, error) {
-	f.cad <- k
-	return nil, nil
+func (f *fakeEtcd) Watcher(key string, opts *client.WatcherOptions) client.Watcher {
+	panic("not implemented")
 }
 
-func (f *fakeEtcd) CompareAndSwap(k, v string, ttl uint64, pv string, _ uint64) (*etcd.Response, error) {
-	if k == "testns/testlost/owner" {
-		return nil, fmt.Errorf("test error")
-	}
-	f.cas <- k
-	return nil, nil
-}
 func newFakeEtcd() *fakeEtcd {
 	return &fakeEtcd{
 		add: make(chan string, 10),

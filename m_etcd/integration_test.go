@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coreos/go-etcd/etcd"
+	"github.com/coreos/etcd/client"
 	"github.com/lytics/metafora"
 	"github.com/lytics/metafora/m_etcd"
 	"github.com/lytics/metafora/m_etcd/testutil"
@@ -323,7 +323,7 @@ func TestAll(t *testing.T) {
 		t.Fatalf("Error getting tasks from etcd: %v", err)
 	}
 
-	nodes := []*etcd.Node{}
+	nodes := []*client.Node{}
 	nodes = append(nodes, respA.Node.Nodes...)
 	nodes = append(nodes, respB.Node.Nodes...)
 	for _, node := range nodes {

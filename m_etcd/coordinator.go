@@ -5,12 +5,10 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/net/context"
-
 	"github.com/coreos/etcd/client"
-	"github.com/coreos/go-etcd/etcd"
 	"github.com/lytics/metafora"
 	"github.com/lytics/metafora/statemachine"
+	"golang.org/x/net/context"
 )
 
 const (
@@ -289,7 +287,7 @@ startWatch:
 				}
 
 				//FIXME what error is this replaced by?!
-				if err == etcd.ErrWatchStoppedByUser {
+				if err.Error() == "ErrWatchStoppedByUser" {
 					return nil
 				}
 				return err
@@ -435,7 +433,7 @@ startWatch:
 				}
 
 				//FIXME what to replace this with?!
-				if err == etcd.ErrWatchStoppedByUser {
+				if err.Error() == "ErrWatchStoppedByUser" {
 					return nil, nil
 				}
 				return nil, err
