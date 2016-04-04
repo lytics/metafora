@@ -35,16 +35,12 @@ type taskManager struct {
 }
 
 func newManager(ctx metafora.CoordinatorContext, client client.KeysAPI, path, nodeID string, ttl time.Duration) *taskManager {
-	if ttl == 0 {
-		panic("refresher: TTL must be > 0")
+	if ttl <= time.Second {
+		panic("refresher: TTL must be > 1s")
 	}
 
 	// refresh more often than strictly necessary to be safe
-	interval := ((ttl >> 1) + (ttl >> 2)) * time.Second
-	if ttl == 1*time.Second {
-		interval = 750 * time.Millisecond
-		metafora.Warnf("Dangerously low TTL: %d; consider raising.", ttl)
-	}
+	interval := ((ttl >> 1) + (ttl >> 2))
 	return &taskManager{
 		ctx:      ctx,
 		client:   client,

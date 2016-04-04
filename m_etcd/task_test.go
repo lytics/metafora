@@ -30,8 +30,8 @@ func (t *exTask) String() string {
 }
 
 func TestAltTask(t *testing.T) {
-	etcdc, hosts := testutil.NewEtcdClient(t)
 	t.Parallel()
+	_, etcdconf := testutil.NewEtcdClient(t)
 	const namespace = "metafora-alttask"
 
 	cleanup := func() {
@@ -39,7 +39,7 @@ func TestAltTask(t *testing.T) {
 	cleanup()
 	defer cleanup()
 
-	conf := m_etcd.NewConfig("testclient", namespace, hosts)
+	conf := m_etcd.NewConfig("testclient", namespace, etcdconf.Endpoints)
 
 	// Sample overridden NewTask func
 	conf.NewTaskFunc = func(id, props string) metafora.Task {
@@ -79,7 +79,7 @@ func TestAltTask(t *testing.T) {
 	go consumer.Run()
 	defer consumer.Shutdown()
 
-	cli := m_etcd.NewClient(namespace, hosts)
+	cli := m_etcd.NewClient(namespace, etcdconf.Endpoints)
 	if err := cli.SubmitTask(&exTask{id: "test1", UserID: "test2"}); err != nil {
 		t.Fatal(err)
 	}

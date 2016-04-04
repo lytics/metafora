@@ -12,6 +12,7 @@ import (
 )
 
 type fakeEtcd struct {
+	t   *testing.T
 	add chan string
 	del chan string
 	cas chan string
@@ -19,6 +20,7 @@ type fakeEtcd struct {
 }
 
 func (f *fakeEtcd) Get(ctx context.Context, key string, opts *client.GetOptions) (*client.Response, error) {
+	f.t.Logf("Get(%v, %v, %#v)", ctx, key, opts)
 	var index uint64 = 1
 	if strings.HasSuffix(key, "/zombie") {
 		// Testing resurrection, see comment in Create above
@@ -28,6 +30,7 @@ func (f *fakeEtcd) Get(ctx context.Context, key string, opts *client.GetOptions)
 }
 
 func (f *fakeEtcd) Set(ctx context.Context, key, value string, opts *client.SetOptions) (*client.Response, error) {
+	f.t.Logf("Set(%v, %v, %v, %#v)", ctx, key, value, opts)
 	if opts.PrevValue != "" {
 		if key == "testns/testlost/owner" {
 			return nil, fmt.Errorf("test error")
@@ -35,19 +38,6 @@ func (f *fakeEtcd) Set(ctx context.Context, key, value string, opts *client.SetO
 		f.cas <- key
 		return nil, nil
 	}
-	panic("not implemented")
-}
-
-func (f *fakeEtcd) Delete(ctx context.Context, key string, opts *client.DeleteOptions) (*client.Response, error) {
-	if opts.PrevValue != "" {
-		f.cad <- key
-		return nil, nil
-	}
-	f.del <- key
-	return nil, nil
-}
-
-func (f *fakeEtcd) Create(ctx context.Context, key, value string) (*client.Response, error) {
 	f.add <- key
 
 	// Due to lytics/metafora#124 claims will do a get after a create to make
@@ -58,8 +48,21 @@ func (f *fakeEtcd) Create(ctx context.Context, key, value string) (*client.Respo
 	if strings.HasSuffix(key, "/zombie/owner") {
 		index = 666
 	}
-	resp := &client.Response{Node: &client.Node{CreatedIndex: index}}
-	return resp, nil
+	return &client.Response{Node: &client.Node{CreatedIndex: index}}, nil
+}
+
+func (f *fakeEtcd) Delete(ctx context.Context, key string, opts *client.DeleteOptions) (*client.Response, error) {
+	f.t.Logf("Delete(%v, %v, %#v))", ctx, key, opts)
+	if opts.PrevValue != "" {
+		f.cad <- key
+		return nil, nil
+	}
+	f.del <- key
+	return nil, nil
+}
+
+func (f *fakeEtcd) Create(ctx context.Context, key, value string) (*client.Response, error) {
+	panic("not implemented")
 }
 
 func (f *fakeEtcd) CreateInOrder(ctx context.Context, dir, value string, opts *client.CreateInOrderOptions) (*client.Response, error) {
@@ -74,12 +77,13 @@ func (f *fakeEtcd) Watcher(key string, opts *client.WatcherOptions) client.Watch
 	panic("not implemented")
 }
 
-func newFakeEtcd() *fakeEtcd {
+func newFakeEtcd(t *testing.T) *fakeEtcd {
 	return &fakeEtcd{
-		add: make(chan string, 10),
-		del: make(chan string, 10),
-		cas: make(chan string, 10),
-		cad: make(chan string, 10),
+		t:   t,
+		add: make(chan string, 100),
+		del: make(chan string, 100),
+		cas: make(chan string, 100),
+		cad: make(chan string, 100),
 	}
 }
 
@@ -88,8 +92,8 @@ func newFakeEtcd() *fakeEtcd {
 func TestTaskResurrection(t *testing.T) {
 	t.Parallel()
 
-	client := newFakeEtcd()
-	const ttl = 2
+	client := newFakeEtcd(t)
+	const ttl = 2 * time.Second
 	mgr := newManager(newCtx(t, "mgr"), client, "testns", "testnode", ttl)
 	if added := mgr.add(&task{id: "zombie"}); added {
 		t.Fatal("Added zombie task when it should have been deleted.")
@@ -103,8 +107,8 @@ func TestTaskRefreshing(t *testing.T) {
 	}
 	t.Parallel()
 
-	client := newFakeEtcd()
-	const ttl = 2
+	client := newFakeEtcd(t)
+	const ttl = 2 * time.Second
 	mgr := newManager(newCtx(t, "mgr"), client, "testns", "testnode", ttl)
 	if added := mgr.add(&task{id: "tid"}); !added {
 		t.Fatal("Failed to add task!")
@@ -128,8 +132,8 @@ func TestTaskRemoval(t *testing.T) {
 	}
 	t.Parallel()
 
-	client := newFakeEtcd()
-	const ttl = 2
+	client := newFakeEtcd(t)
+	const ttl = 2 * time.Second
 	mgr := newManager(newCtx(t, "mgr"), client, "testns", "testnode", ttl)
 	mgr.add(&task{id: "tid"})
 	mgr.remove("tid", false)
@@ -158,9 +162,10 @@ func TestFullTaskMgr(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping due to -short")
 	}
+	t.Parallel()
 
-	client := newFakeEtcd()
-	const ttl = 2
+	client := newFakeEtcd(t)
+	const ttl = 3 * time.Second
 	mgr := newManager(newCtx(t, "mgr"), client, "testns", "testnode", ttl)
 
 	// Add a few tasks and remove one
@@ -188,7 +193,7 @@ func TestFullTaskMgr(t *testing.T) {
 				t.Errorf("Deleted tid2 twice!")
 			}
 			delDone = true
-		case <-time.After(1500 * time.Millisecond):
+		case <-time.After(2750 * time.Millisecond):
 			t.Fatalf("Took too long for refreshes to happen")
 		}
 	}
@@ -219,16 +224,17 @@ func TestTaskLost(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping due to -short")
 	}
+	t.Parallel()
 
 	ctx := newCtx(t, "mgr")
-	client := newFakeEtcd()
-	const ttl = 2
+	client := newFakeEtcd(t)
+	const ttl = 2 * time.Second
 	mgr := newManager(ctx, client, "testns", "testnode", ttl)
 
 	mgr.add(&task{id: "testlost"})
 
 	// Wait for the CAS to fail
-	time.Sleep(ttl * time.Second)
+	time.Sleep(ttl)
 
 	if len(client.cas) > 0 {
 		t.Error("Unexpected CAS. Should have failed.")
@@ -256,8 +262,8 @@ func TestTaskDone(t *testing.T) {
 	}
 
 	ctx := newCtx(t, "mgr")
-	client := newFakeEtcd()
-	const ttl = 2
+	client := newFakeEtcd(t)
+	const ttl = 2 * time.Second
 	mgr := newManager(ctx, client, "testns", "testnode", ttl)
 
 	mgr.add(&task{id: "t1"})
