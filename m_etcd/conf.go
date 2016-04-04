@@ -84,3 +84,21 @@ func (c *Config) Copy() *Config {
 func (c *Config) String() string {
 	return fmt.Sprintf("etcd:%s/%s", c.Namespace, c.Name)
 }
+
+// Validate this configuration. Returns an error if the congiuration is
+// invalid.
+func (c *Config) Validate() error {
+	if c.ClaimTTL <= time.Second {
+		return fmt.Errorf("ClaimTTL must be > 1s")
+	}
+	if c.NodeTTL <= time.Second {
+		return fmt.Errorf("NodeTTL must be > 1s")
+	}
+	if len(c.EtcdConfig.Endpoints) == 0 {
+		return fmt.Errorf("EtcdConfig.Endpoints missing.")
+	}
+	if c.Name == "" {
+		return fmt.Errorf("Name cannot be empty")
+	}
+	return nil
+}

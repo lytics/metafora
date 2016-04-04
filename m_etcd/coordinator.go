@@ -125,6 +125,9 @@ func New(conf *Config, h statemachine.StatefulHandler) (
 // Coordinator methods will be called by the core Metafora Consumer. Calling
 // Init, Close, etc. from your own code will lead to undefined behavior.
 func NewEtcdCoordinator(conf *Config) (*EtcdCoordinator, error) {
+	if err := conf.Validate(); err != nil {
+		return nil, err
+	}
 	kc, err := newEtcdClient(conf.EtcdConfig)
 	if err != nil {
 		return nil, err
