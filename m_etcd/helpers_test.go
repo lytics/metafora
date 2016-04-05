@@ -5,7 +5,8 @@ import (
 	"log"
 	"math/rand"
 	"os"
-	"strconv"
+	"path"
+	"runtime"
 	"testing"
 	"time"
 
@@ -35,23 +36,26 @@ type testctx struct {
 //  * Create and return an initial etcd coordinator
 //  * Clearing the test namespace in etcd
 //
-// Callers should call Cleanup() in a defer statement to avoid filling etcd
-// with test namespaces.
+// Namespaces are named after the caller, so helper functions shouldn't wrap this.
 func setupEtcd(t *testing.T) *testctx {
 	ctx := &testctx{}
 	c, etcdconf := testutil.NewEtcdClient(t)
 	ctx.EtcdClient = c
 
-	// Create a unique namespace
-	testid := strconv.FormatInt(rand.Int63(), 36)
-	ns := "metafora-test-ns-" + testid
+	// Create a unique namespace per test
+	pc, _, _, ok := runtime.Caller(1)
+	if !ok {
+		panic("unable to get caller")
+	}
+	_, testid := path.Split(runtime.FuncForPC(pc).Name())
+	ns := "test-ns-" + testid
 
 	// Cleanup before and after tests
 	ctx.Cleanup = func() { c.Delete(context.TODO(), ns, &client.DeleteOptions{Recursive: true, Dir: true}) }
 	ctx.Cleanup()
 
 	// Create a coordinator config
-	ctx.Conf = NewConfig("metafora-test-node-"+testid, ns, etcdconf.Endpoints)
+	ctx.Conf = NewConfig("test-node-"+testid, ns, etcdconf.Endpoints)
 	ctx.Conf.EtcdConfig = etcdconf
 
 	coord, err := NewEtcdCoordinator(ctx.Conf)

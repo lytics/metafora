@@ -1,6 +1,7 @@
 package m_etcd
 
 import (
+	"fmt"
 	"path"
 	"strings"
 	"time"
@@ -168,13 +169,14 @@ func (ec *EtcdCoordinator) Init(cordCtx metafora.CoordinatorContext) error {
 	ec.client.Set(context.TODO(), ec.conf.Namespace, "", setCreateDir)
 	ec.client.Set(context.TODO(), ec.taskPath, "", setCreateDir)
 
-	nodePathOpts := &client.SetOptions{TTL: ec.conf.NodeTTL, Dir: true}
-	if _, err := ec.client.Set(context.TODO(), ec.nodePath, "", nodePathOpts); err != nil {
+	nodePathOpts := &client.SetOptions{TTL: ec.conf.NodeTTL, Dir: true, PrevExist: client.PrevNoExist}
+	noderesp, err := ec.client.Set(context.TODO(), ec.nodePath, "", nodePathOpts)
+	if err != nil {
 		return err
 	}
 
 	// Start goroutine to heartbeat node key in etcd
-	go ec.nodeRefresher()
+	go ec.nodeRefresher(*noderesp.Node.Expiration)
 	ec.client.Set(context.TODO(), ec.commandPath, "", setCreateDir)
 
 	ec.taskManager = newManager(cordCtx, ec.client, ec.taskPath, ec.conf.Name, ec.conf.ClaimTTL)
@@ -187,58 +189,78 @@ func (ec *EtcdCoordinator) Init(cordCtx metafora.CoordinatorContext) error {
 // watch retries on errors and taskmgr calls Lost(task) on tasks it can't
 // refresh, so it's up to nodeRefresher to cause the coordinator to close if
 // it's unable to communicate with etcd.
-func (ec *EtcdCoordinator) nodeRefresher() {
-	ttl := ec.conf.NodeTTL >> 1 // have some leeway before ttl expires
-	if ttl < 1 {
+func (ec *EtcdCoordinator) nodeRefresher(deadline time.Time) {
+	heartbeat := ec.conf.NodeTTL >> 1 // have some leeway before ttl expires
+	if heartbeat < time.Second {
 		metafora.Warnf("%s Dangerously low NodeTTL: %d", ec.name, ec.conf.NodeTTL)
-		ttl = 1
+		heartbeat = time.Second
 	}
 
+	var err error
 	for {
-		// Deadline for refreshes to finish by or the coordinator closes.
-		deadline := time.Now().Add(time.Duration(ec.conf.NodeTTL) * time.Second)
+		ctx, cancel := context.WithDeadline(context.TODO(), deadline)
 		select {
 		case <-ec.stop:
 			return
-		case <-time.After(time.Duration(ttl) * time.Second):
-			if err := ec.refreshBy(deadline); err != nil {
+		case <-time.After(heartbeat):
+			if deadline, err = ec.refreshBy(ctx); err != nil {
 				// We're in a bad state; shut everything down
-				metafora.Errorf("Unable to refresh node key before deadline %s. Last error: %v", deadline, err)
+				metafora.Errorf("Shutting down because unable to refresh node key before deadline %s. Last error: %v", deadline, err)
 				ec.Close()
+				return
 			}
 		}
+		cancel()
 	}
 }
 
 // refreshBy retries refreshing the node key until the deadline is reached.
-func (ec *EtcdCoordinator) refreshBy(deadline time.Time) (err error) {
+func (ec *EtcdCoordinator) refreshBy(ctx context.Context) (time.Time, error) {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		panic("bug: no deadline for refreshBy context")
+	}
+
+	var err error
+	var resp *client.Response
 	for time.Now().Before(deadline) {
 		// Make sure we shouldn't exit
 		select {
 		case <-ec.stop:
-			return err
+			return time.Time{}, err
 		default:
 		}
 
-		ops := &client.SetOptions{Dir: true, Refresh: true, TTL: ec.conf.NodeTTL}
-		ctx, cancel := context.WithDeadline(context.TODO(), deadline)
-		_, err = ec.client.Set(ctx, ec.nodePath, "", ops)
-		cancel()
+		opts := &client.SetOptions{Dir: true, Refresh: true, PrevExist: client.PrevExist, TTL: ec.conf.NodeTTL}
+		resp, err = ec.client.Set(ctx, ec.nodePath, "", opts)
 		if err == nil {
 			// It worked, stop retrying
-			return nil
+			return *resp.Node.Expiration, nil
 		}
 		metafora.Warnf("Unexpected error updating node key, retrying until %s: %v", deadline, err)
 		time.Sleep(500 * time.Millisecond) // rate limit retries a bit
 	}
 	// Didn't get a successful response before deadline, exit with error
-	return err
+	return time.Time{}, err
 }
 
 // Watch streams tasks from etcd watches or GETs until Close is called or etcd
 // is unreachable (in which case an error is returned).
 func (ec *EtcdCoordinator) Watch(out chan<- metafora.Task) error {
 	opts := &client.WatcherOptions{Recursive: true}
+
+	//FIXME Create a cancellable context to pipe <-ec.stop closes to etcd's client
+	ctx, cancel := context.WithCancel(context.TODO())
+	defer cancel()
+	go func() {
+		select {
+		case <-ec.stop:
+			// Told to stop, cancel the context
+			cancel()
+		case <-ctx.Done():
+			// Something else stopped the context, exit
+		}
+	}()
 
 startWatch:
 	for {
@@ -250,8 +272,11 @@ startWatch:
 		}
 
 		// Get existing tasks
-		resp, err := ec.client.Get(context.TODO(), ec.taskPath, getNoSortRecur)
+		resp, err := ec.client.Get(ctx, ec.taskPath, getNoSortRecur)
 		if err != nil {
+			if err == context.Canceled {
+				return nil
+			}
 			metafora.Errorf("%s Error getting the existing tasks: %v", ec.taskPath, err)
 			return err
 		}
@@ -260,12 +285,20 @@ startWatch:
 		// tasks up to that point.
 		opts.AfterIndex = resp.Index
 
+		fmt.Println(resp)
+		fmt.Println(resp.Node)
+		fmt.Println(len(resp.Node.Nodes))
+		for i := range resp.Node.Nodes {
+			fmt.Println(i, resp.Node.Nodes[i])
+		}
+		fmt.Println
+
 		// Act like existing keys are newly created
 		for _, node := range resp.Node.Nodes {
 			if task := ec.parseTask(&client.Response{Action: "create", Node: node}); task != nil {
 				select {
 				case out <- task:
-				case <-ec.stop:
+				case <-ctx.Done():
 					return nil
 				}
 			}
@@ -273,34 +306,27 @@ startWatch:
 
 		// Start blocking watch
 		watcher := ec.client.Watcher(ec.taskPath, opts)
-		for {
-			//TODO remove once Watcher's context checks ec.stop
-			select {
-			case <-ec.stop:
-				return nil
-			default:
-			}
+		for ctxdone(ctx) {
 
 			//TODO use ec.stop in context
-			resp, err := watcher.Next(context.TODO())
+			resp, err := watcher.Next(ctx)
 			if err != nil {
-				if ee, ok := err.(*client.Error); ok && ee.Code == client.ErrorCodeEventIndexCleared {
+				if err == context.Canceled {
+					return nil
+				}
+				if ee, ok := err.(client.Error); ok && ee.Code == client.ErrorCodeEventIndexCleared {
 					// Need to restart watch with a new Get
 					continue startWatch
 				}
-
-				//FIXME what error is this replaced by?!
-				if err.Error() == "ErrWatchStoppedByUser" {
-					return nil
-				}
 				return err
 			}
+			fmt.Println(resp.Node.Key)
 
 			// Found a claimable task!
 			if task := ec.parseTask(resp); task != nil {
 				select {
 				case out <- task:
-				case <-ec.stop:
+				case <-ctx.Done():
 					return nil
 				}
 			}
@@ -311,7 +337,11 @@ startWatch:
 func (ec *EtcdCoordinator) parseTask(resp *client.Response) metafora.Task {
 	// Sanity check / test path invariant
 	if !strings.HasPrefix(resp.Node.Key, ec.taskPath) {
-		metafora.Errorf("%s received task from outside task path: %s", ec.name, resp.Node.Key)
+		// Only log a warning if it's not a delete actions as a delete could just
+		// indicate this coordinator is shutting down.
+		if resp.Action != actionDelete {
+			metafora.Errorf("%s received task from outside task path: %s", ec.name, resp.Node.Key)
+		}
 		return nil
 	}
 
@@ -353,7 +383,7 @@ func (ec *EtcdCoordinator) parseTask(resp *client.Response) metafora.Task {
 		parts[3] = PropsKey
 		propsnode, err := ec.client.Get(context.TODO(), path.Join(parts...), getNoSortNoRecur)
 		if err != nil {
-			if ee, ok := err.(*client.Error); ok && ee.Code == client.ErrorCodeKeyNotFound {
+			if client.IsKeyNotFound(err) {
 				// No props file
 				return ec.newTask(parts[2], "")
 			}
@@ -398,11 +428,27 @@ func (ec *EtcdCoordinator) Command() (metafora.Command, error) {
 
 	opts := &client.WatcherOptions{Recursive: true}
 
+	//FIXME Create a cancellable context to pipe <-ec.stop closes to etcd's client
+	ctx, cancel := context.WithCancel(context.TODO())
+	defer cancel()
+	go func() {
+		select {
+		case <-ec.stop:
+			// Told to stop, cancel the context
+			cancel()
+		case <-ctx.Done():
+			// Something else stopped the context, exit
+		}
+	}()
+
 startWatch:
 	for {
 		// Get existing commands
-		resp, err := ec.client.Get(context.TODO(), ec.commandPath, getSortRecur)
+		resp, err := ec.client.Get(ctx, ec.commandPath, getSortRecur)
 		if err != nil {
+			if err == context.Canceled {
+				return nil, nil
+			}
 			metafora.Errorf("%s Error getting the existing commands: %v", ec.commandPath, err)
 			return nil, err
 		}
@@ -418,26 +464,16 @@ startWatch:
 			}
 		}
 
-		//TODO use ec.stop in context
-		watcher := ec.client.Watcher(ec.taskPath, opts)
-		for {
-			//TODO remove once Watcher's context checks ec.stop
-			select {
-			case <-ec.stop:
-				return nil, nil
-			default:
-			}
-
-			resp, err := watcher.Next(context.TODO())
+		watcher := ec.client.Watcher(ec.commandPath, opts)
+		for ctxdone(ctx) {
+			resp, err := watcher.Next(ctx)
 			if err != nil {
-				if ee, ok := err.(*client.Error); ok && ee.Code == client.ErrorCodeEventIndexCleared {
+				if err == context.Canceled {
+					return nil, nil
+				}
+				if ee, ok := err.(client.Error); ok && ee.Code == client.ErrorCodeEventIndexCleared {
 					// Need to restart watch with a new Get
 					continue startWatch
-				}
-
-				//FIXME what to replace this with?!
-				if err.Error() == "ErrWatchStoppedByUser" {
-					return nil, nil
 				}
 				return nil, err
 			}
@@ -450,6 +486,11 @@ startWatch:
 }
 
 func (ec *EtcdCoordinator) parseCommand(resp *client.Response) metafora.Command {
+	if resp.Node.Dir {
+		// commands are never directories, but if the node directory expires the
+		// command watcher may receive that event before exiting.
+		return nil
+	}
 	if strings.HasSuffix(resp.Node.Key, MetadataKey) {
 		// Skip metadata marker
 		return nil
@@ -457,6 +498,7 @@ func (ec *EtcdCoordinator) parseCommand(resp *client.Response) metafora.Command 
 
 	if _, err := ec.client.Delete(context.TODO(), resp.Node.Key, delOne); err != nil {
 		metafora.Errorf("Error deleting handled command %s: %v", resp.Node.Key, err)
+		return nil
 	}
 
 	cmd, err := metafora.UnmarshalCommand([]byte(resp.Node.Value))
@@ -470,6 +512,7 @@ func (ec *EtcdCoordinator) parseCommand(resp *client.Response) metafora.Command 
 // Close stops the coordinator and causes blocking Watch and Command methods to
 // return zero values. It does not release tasks.
 func (ec *EtcdCoordinator) Close() {
+	metafora.Info("Coordinator instructed to close.")
 	// Gracefully handle multiple close calls mostly to ease testing. This block
 	// isn't threadsafe, so you shouldn't try to call Close() concurrently.
 	select {
@@ -509,4 +552,13 @@ func newEtcdClient(conf client.Config) (client.KeysAPI, error) {
 		return nil, err
 	}
 	return client.NewKeysAPI(c), nil
+}
+
+func ctxdone(ctx context.Context) bool {
+	select {
+	case <-ctx.Done():
+		return true
+	default:
+		return false
+	}
 }

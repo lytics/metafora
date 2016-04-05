@@ -99,13 +99,13 @@ func (mc *mclient) SubmitCommand(node string, command metafora.Command) error {
 // error occured trying to get the node list. The node list may be nil if no
 // nodes are registered.
 func (mc *mclient) Nodes() ([]string, error) {
-	if res, err := mc.etcd.Get(context.TODO(), mc.ndsPath(), getNoSortNoRecur); err != nil && res.Node != nil && res.Node.Nodes != nil {
-		nodes := make([]string, len(res.Node.Nodes))
-		for i, n := range res.Node.Nodes {
-			nodes[i] = n.Value
-		}
-		return nodes, nil
+	res, err := mc.etcd.Get(context.TODO(), mc.ndsPath(), getSortRecur)
+	if err != nil {
+		return nil, err
 	}
-
-	return nil, nil
+	nodes := make([]string, len(res.Node.Nodes))
+	for i, n := range res.Node.Nodes {
+		_, nodes[i] = path.Split(n.Key)
+	}
+	return nodes, nil
 }

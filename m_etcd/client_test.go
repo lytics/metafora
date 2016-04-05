@@ -24,9 +24,9 @@ import (
 // registered in etcd.
 func TestNodes(t *testing.T) {
 	ctx := setupEtcd(t)
-	defer ctx.Cleanup()
+	//defer ctx.Cleanup()
 
-	key := path.Join(ctx.Conf.Namespace, "nodes", ctx.Conf.Name)
+	key := path.Join(ctx.Conf.Namespace, NodesPath, ctx.Conf.Name)
 	opts := &client.SetOptions{PrevExist: client.PrevNoExist, Dir: true}
 	if _, err := ctx.EtcdClient.Set(context.TODO(), key, "", opts); err != nil {
 		t.Fatalf("Error creating node key %q: %v", key, err)

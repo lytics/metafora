@@ -1,6 +1,7 @@
 package m_etcd
 
 import (
+	"fmt"
 	"path"
 	"testing"
 	"time"
@@ -108,6 +109,7 @@ func TestCoordinatorWatchClaim(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Error submitting a task to metafora via the client: %v", err)
 		}
+		t.Logf("submitted %s", taskid)
 		recvd := <-tasks
 		if recvd.ID() != taskid {
 			t.Fatalf("%s != %s - received an unexpected task", recvd.ID(), taskid)
@@ -381,16 +383,25 @@ func TestNodeRefresher(t *testing.T) {
 		t.Fatalf("Node path %s not found.", nodePath)
 	}
 
+	// Make sure the coordinator is still running fine
+	select {
+	case <-runDone:
+		t.Fatalf("Coordinator unexpectedly exited!")
+	default:
+	}
+
 	// Now remove the node out from underneath the refresher to cause it to fail
-	if _, err := ctx.EtcdClient.Delete(context.TODO(), nodePath, nil); err != nil {
+	if _, err := ctx.EtcdClient.Delete(context.TODO(), nodePath, &client.DeleteOptions{Dir: true, Recursive: true}); err != nil {
 		t.Fatalf("Unexpected error deleting %s: %v", nodePath, err)
 	}
 
 	select {
 	case <-runDone:
 		// success! run exited
-	case <-time.After(5 * time.Second):
-		t.Fatal("Consumer didn't exit even though node directory disappeared!")
+	case <-time.After(10 * time.Second):
+		fmt.Println("poof")
+		t.Error("Consumer didn't exit even though node directory disappeared!")
+		<-chan (int)(nil)
 	}
 }
 

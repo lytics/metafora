@@ -99,7 +99,7 @@ func (c *cmdrListener) sendMsg(resp *client.Response) (ok bool) {
 	// Remove command so it's not processed twice
 	opts := &client.DeleteOptions{PrevValue: resp.Node.Value}
 	if _, err := c.cli.Delete(context.TODO(), resp.Node.Key, opts); err != nil {
-		if ee, ok := err.(*client.Error); ok && ee.Code == client.ErrorCodeTestFailed {
+		if ee, ok := err.(client.Error); ok && ee.Code == client.ErrorCodeTestFailed {
 			metafora.Infof("Received successive commands; attempting to retrieve the latest: %v", err)
 			return true
 		}
@@ -158,7 +158,7 @@ watchLoop:
 		//TODO use ec.stop in context
 		resp, err := watcher.Next(context.TODO())
 		if err != nil {
-			if ee, ok := err.(*client.Error); ok && ee.Code == client.ErrorCodeEventIndexCleared {
+			if ee, ok := err.(client.Error); ok && ee.Code == client.ErrorCodeEventIndexCleared {
 				// Need to restart watch with a new Get
 				goto startWatch
 			}

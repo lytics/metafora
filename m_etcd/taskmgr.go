@@ -76,8 +76,7 @@ func (m *taskManager) add(task metafora.Task) bool {
 	opts := &client.SetOptions{PrevExist: client.PrevNoExist, TTL: m.ttl}
 	resp, err := m.client.Set(context.TODO(), key, value, opts)
 	if err != nil {
-		ee, ok := err.(*client.Error)
-		if !ok || ee.Code != client.ErrorCodeNodeExist {
+		if ee, ok := err.(client.Error); !ok || ee.Code != client.ErrorCodeNodeExist {
 			metafora.Errorf("Claim of %s failed with an unexpected error: %v", key, err)
 		} else {
 			metafora.Debugf("Claim of %s failed, already claimed", key)

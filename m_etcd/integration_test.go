@@ -146,10 +146,14 @@ func TestAll(t *testing.T) {
 	cleanup := func() {
 		opts := &client.DeleteOptions{Recursive: true, Dir: true}
 		if _, err := etcdclient.Delete(context.TODO(), "/"+nsa, opts); err != nil {
-			t.Logf("Error deleting namespace %q - %v", nsa, err)
+			if !client.IsKeyNotFound(err) {
+				t.Logf("Error deleting namespace %q - %v", nsa, err)
+			}
 		}
 		if _, err := etcdclient.Delete(context.TODO(), "/"+nsb, opts); err != nil {
-			t.Logf("Error deleting namespace %q - %v", nsb, err)
+			if !client.IsKeyNotFound(err) {
+				t.Logf("Error deleting namespace %q - %v", nsb, err)
+			}
 		}
 	}
 	cleanup()
