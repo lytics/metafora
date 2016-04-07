@@ -19,7 +19,12 @@ import (
 
 func init() {
 	rand.Seed(time.Now().UnixNano())
-	metafora.SetLogger(log.New(os.Stderr, "", log.Lmicroseconds|log.Lshortfile))
+	metafora.SetLogger(log.New(os.Stdout, "", log.Lmicroseconds|log.Lshortfile))
+	if os.Getenv("debug") == "" {
+		metafora.SetLogLevel(metafora.LogLevelWarn)
+	} else {
+		metafora.SetLogLevel(metafora.LogLevelDebug)
+	}
 }
 
 type testctx struct {
@@ -38,9 +43,11 @@ type testctx struct {
 //
 // Namespaces are named after the caller, so helper functions shouldn't wrap this.
 func setupEtcd(t *testing.T) *testctx {
-	ctx := &testctx{}
 	c, etcdconf := testutil.NewEtcdClient(t)
-	ctx.EtcdClient = c
+
+	ctx := &testctx{
+		EtcdClient: c,
+	}
 
 	// Create a unique namespace per test
 	pc, _, _, ok := runtime.Caller(1)

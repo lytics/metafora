@@ -1,7 +1,6 @@
 package m_etcd
 
 import (
-	"fmt"
 	"path"
 	"strings"
 	"time"
@@ -162,7 +161,7 @@ func NewEtcdCoordinator(conf *Config) (*EtcdCoordinator, error) {
 // Init is called once by the consumer to provide a Logger to Coordinator
 // implementations.
 func (ec *EtcdCoordinator) Init(cordCtx metafora.CoordinatorContext) error {
-	metafora.Debugf("Initializing coordinator with namespace: %s", ec.conf.Namespace)
+	metafora.Debugf("Initializing coordinator %q with namespace %q", ec.conf.Name, ec.conf.Namespace)
 
 	ec.cordCtx = cordCtx
 
@@ -263,13 +262,7 @@ func (ec *EtcdCoordinator) Watch(out chan<- metafora.Task) error {
 	}()
 
 startWatch:
-	for {
-		// Make sure we haven't been told to exit
-		select {
-		case <-ec.stop:
-			return nil
-		default:
-		}
+	for !ctxdone(ctx) {
 
 		// Get existing tasks
 		resp, err := ec.client.Get(ctx, ec.taskPath, getNoSortRecur)
@@ -284,14 +277,7 @@ startWatch:
 		// Start watching at the index the Get retrieved since we've retrieved all
 		// tasks up to that point.
 		opts.AfterIndex = resp.Index
-
-		fmt.Println(resp)
-		fmt.Println(resp.Node)
-		fmt.Println(len(resp.Node.Nodes))
-		for i := range resp.Node.Nodes {
-			fmt.Println(i, resp.Node.Nodes[i])
-		}
-		fmt.Println
+		metafora.Debugf("%s Starting watch at index %d", ec.name, resp.Index)
 
 		// Act like existing keys are newly created
 		for _, node := range resp.Node.Nodes {
@@ -306,7 +292,7 @@ startWatch:
 
 		// Start blocking watch
 		watcher := ec.client.Watcher(ec.taskPath, opts)
-		for ctxdone(ctx) {
+		for !ctxdone(ctx) {
 
 			//TODO use ec.stop in context
 			resp, err := watcher.Next(ctx)
@@ -316,14 +302,15 @@ startWatch:
 				}
 				if ee, ok := err.(client.Error); ok && ee.Code == client.ErrorCodeEventIndexCleared {
 					// Need to restart watch with a new Get
+					metafora.Debugf("Event index cleared: %v", ee)
 					continue startWatch
 				}
 				return err
 			}
-			fmt.Println(resp.Node.Key)
 
 			// Found a claimable task!
 			if task := ec.parseTask(resp); task != nil {
+				metafora.Debugf("%s --SENDING--> action:%s, index:%d node:%#v", ec.name, resp.Action, resp.Index, resp.Node)
 				select {
 				case out <- task:
 				case <-ctx.Done():
@@ -332,6 +319,7 @@ startWatch:
 			}
 		}
 	}
+	return nil
 }
 
 func (ec *EtcdCoordinator) parseTask(resp *client.Response) metafora.Task {
@@ -465,7 +453,7 @@ startWatch:
 		}
 
 		watcher := ec.client.Watcher(ec.commandPath, opts)
-		for ctxdone(ctx) {
+		for !ctxdone(ctx) {
 			resp, err := watcher.Next(ctx)
 			if err != nil {
 				if err == context.Canceled {
@@ -512,7 +500,7 @@ func (ec *EtcdCoordinator) parseCommand(resp *client.Response) metafora.Command 
 // Close stops the coordinator and causes blocking Watch and Command methods to
 // return zero values. It does not release tasks.
 func (ec *EtcdCoordinator) Close() {
-	metafora.Info("Coordinator instructed to close.")
+	metafora.Infof("%s Coordinator instructed to close.", ec.name)
 	// Gracefully handle multiple close calls mostly to ease testing. This block
 	// isn't threadsafe, so you shouldn't try to call Close() concurrently.
 	select {

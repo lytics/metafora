@@ -21,9 +21,7 @@ func TestCommandListener(t *testing.T) {
 	const namespace = "metafora-cltest"
 	cleanup := func() {
 		opts := &client.DeleteOptions{Recursive: true, Dir: true}
-		if _, err := etcdclient.Delete(context.TODO(), "/"+namespace, opts); err != nil {
-			t.Logf("Error deleting namespace %q - %v", namespace, err)
-		}
+		etcdclient.Delete(context.TODO(), "/"+namespace, opts)
 	}
 	cleanup()
 	defer cleanup()

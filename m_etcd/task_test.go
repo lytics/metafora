@@ -6,6 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/net/context"
+
+	"github.com/coreos/etcd/client"
 	"github.com/lytics/metafora"
 	"github.com/lytics/metafora/m_etcd"
 	"github.com/lytics/metafora/m_etcd/testutil"
@@ -29,17 +32,20 @@ func (t *exTask) String() string {
 	return fmt.Sprintf("%s submitted %s", t.id, t.SubmittedT)
 }
 
+// TestAltTask ensures scheduling and claiming alternate task implementations
+// works.
 func TestAltTask(t *testing.T) {
 	t.Parallel()
-	_, etcdconf := testutil.NewEtcdClient(t)
+	etcdclient, etcdconf := testutil.NewEtcdClient(t)
 	const namespace = "metafora-alttask"
 
+	conf := m_etcd.NewConfig("testclient", namespace, etcdconf.Endpoints)
+
 	cleanup := func() {
+		etcdclient.Delete(context.TODO(), conf.Namespace, &client.DeleteOptions{Recursive: true})
 	}
 	cleanup()
 	defer cleanup()
-
-	conf := m_etcd.NewConfig("testclient", namespace, etcdconf.Endpoints)
 
 	// Sample overridden NewTask func
 	conf.NewTaskFunc = func(id, props string) metafora.Task {

@@ -40,7 +40,7 @@ func NewEtcdClient(t TestCase) (client.KeysAPI, client.Config) {
 
 	conf := client.Config{
 		Endpoints:               peers,
-		HeaderTimeoutPerRequest: 2 * time.Second,
+		HeaderTimeoutPerRequest: 10 * time.Second,
 	}
 	c, err := client.New(conf)
 	if err != nil {

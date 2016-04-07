@@ -86,6 +86,8 @@ func TestCoordinatorWatch(t *testing.T) {
 }
 
 // TestCoordinatorWatchClaim tests watching and claiming multiple tasks.
+//
+// Each task should be received from Watch at least once.
 func TestCoordinatorWatchClaim(t *testing.T) {
 	t.Parallel()
 	ctx := setupEtcd(t)
@@ -104,18 +106,28 @@ func TestCoordinatorWatchClaim(t *testing.T) {
 		errc <- ctx.Coord.Watch(tasks)
 	}()
 
+	submitted := map[string]bool{}
+	claimed := map[string]bool{}
 	for _, taskid := range testTasks {
 		err := ctx.MClient.SubmitTask(DefaultTaskFunc(taskid, ""))
 		if err != nil {
 			t.Fatalf("Error submitting a task to metafora via the client: %v", err)
 		}
+		submitted[taskid] = true
 		t.Logf("submitted %s", taskid)
-		recvd := <-tasks
-		if recvd.ID() != taskid {
-			t.Fatalf("%s != %s - received an unexpected task", recvd.ID(), taskid)
-		}
-		if ok := ctx.Coord.Claim(recvd); !ok {
-			t.Fatalf("Claim() unable to claim the task: %q", taskid)
+
+		select {
+		case recvd := <-tasks:
+			recvdid := recvd.ID()
+			if !submitted[recvdid] {
+				t.Fatalf("Received task %q when it hadn't been submitted yet!", recvdid)
+			}
+			if newlyclaimed := ctx.Coord.Claim(recvd); newlyclaimed == claimed[recvdid] {
+				t.Fatalf("Claim() -> %t but already claimed=%t", newlyclaimed, claimed[recvdid])
+			}
+			claimed[recvdid] = true
+		case err := <-errc:
+			t.Fatalf("Watch returned an error instead of a task: %v", err)
 		}
 	}
 
@@ -194,11 +206,10 @@ func TestCoordinatorMulti(t *testing.T) {
 	}
 }
 
-// Submit a task before any coordinators are active.  Then start a coordinator to
-// ensure the tasks are picked up by the new coordinator
-//
-// Then call coordinator.Release() on the task to make sure a coordinator picks it
-// up again.
+// TestCoordinatorRelease ensures the following behavior:
+//  1. Tasks submitted before coordinators are running get received once a
+//     coordinator is started.
+//  2. Released tasks are picked up by a coordinator.
 func TestCoordinatorRelease(t *testing.T) {
 	t.Parallel()
 	ctx := setupEtcd(t)
@@ -243,18 +254,23 @@ func TestCoordinatorRelease(t *testing.T) {
 		errc <- coordinator2.Watch(c2tasks)
 	}()
 
-	// coordinator 2 shouldn't see anything yet
-	select {
-	case <-c2tasks:
-		t.Fatal("coordinator2.Watch() returned a task when there are none to claim!")
-	case <-time.After(100 * time.Millisecond):
+	// coordinator 2 shouldn't be able to claim anything yet
+	deadline := time.Now().Add(200 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		select {
+		case recvd := <-c2tasks:
+			if coordinator2.Claim(recvd) {
+				t.Fatalf("coordinator2.Claim(%s) succeeded when task should have already been claimed", recvd.ID())
+			}
+		case <-time.After(deadline.Sub(time.Now())):
+		}
 	}
 
 	// Now release the task from coordinator1 and claim it with coordinator2
 	ctx.Coord.Release(tid)
 	tid = <-c2tasks
 	if ok := coordinator2.Claim(tid); !ok {
-		t.Fatalf("coordinator2.Claim() should have succeded on released task=%q", tid)
+		t.Fatalf("coordinator2.Claim(tid) should have succeded on released task", tid)
 	}
 
 	ctx.Coord.Close()

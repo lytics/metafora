@@ -47,26 +47,36 @@ func TestFairBalancer(t *testing.T) {
 	ctx.MClient.SubmitTask(DefaultTaskFunc("t5", ""))
 	ctx.MClient.SubmitTask(DefaultTaskFunc("t6", ""))
 
-	time.Sleep(1 * time.Second)
-
-	if len(con1.Tasks()) != 6 {
-		t.Fatalf("con1 should have claimed 6 tasks: %d", len(con1.Tasks()))
-	}
+	waitForTasks(t, con1, 6)
 
 	// Start the second consumer and force the 1st to rebalance
 	go con2.Run()
 	defer con2.Shutdown()
 
 	// Wait for node to startup and register
-	time.Sleep(1 * time.Second)
+	waitForNodes(ctx.MClient, 2)
 
-	ctx.MClient.SubmitCommand(conf1.Name, metafora.CommandBalance())
+	if err := ctx.MClient.SubmitCommand(conf1.Name, metafora.CommandBalance()); err != nil {
+		t.Fatalf("error sending balance command: %v", err)
+	}
 
-	time.Sleep(2 * time.Second)
+	// Wait for balance to finish
+	assertBalanced := func() bool {
+		c1Tasks := con1.Tasks()
+		c2Tasks := con2.Tasks()
+		return len(c1Tasks) == 4 && len(c2Tasks) == 2
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if assertBalanced() {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 
 	c1Tasks := con1.Tasks()
 	c2Tasks := con2.Tasks()
-	if len(c1Tasks) != 4 || len(c2Tasks) != 2 {
+	if !assertBalanced() {
 		t.Fatalf("expected consumers to have 4|2 tasks: %d|%d", len(c1Tasks), len(c2Tasks))
 	}
 
@@ -149,50 +159,27 @@ func TestFairBalancerShutdown(t *testing.T) {
 	ctx.MClient.SubmitTask(DefaultTaskFunc("t5", ""))
 	ctx.MClient.SubmitTask(DefaultTaskFunc("t6", ""))
 
-	time.Sleep(500 * time.Millisecond)
-
-	if len(con1.Tasks()) != 6 {
-		t.Fatalf("con1 should have claimed 6 tasks: %d", len(con1.Tasks()))
-	}
+	waitForTasks(t, con1, 6)
 
 	// Start the second consumer and force the 1st to rebalance
 	go con2.Run()
 
 	close(stopr)
 
-	// Wait for node to startup and register
-	time.Sleep(500 * time.Millisecond)
-
-	ctx.MClient.SubmitCommand(conf1.Name, metafora.CommandBalance())
-
-	time.Sleep(2 * time.Second)
-
-	c1Tasks := con1.Tasks()
-	c2Tasks := con2.Tasks()
-	if len(c1Tasks) != 4 || len(c2Tasks) != 2 {
-		t.Fatalf("expected consumers to have 4|2 tasks: %d|%d", len(c1Tasks), len(c2Tasks))
+	if err := ctx.MClient.SubmitCommand(conf1.Name, metafora.CommandBalance()); err != nil {
+		t.Fatalf("Error submitting balance command to %q", conf1.Name)
 	}
+
+	waitForTasks(t, con1, 4)
+	waitForTasks(t, con2, 2)
 
 	// Make sure that balancing the other node does nothing
 	ctx.MClient.SubmitCommand("node2", metafora.CommandBalance())
 
 	time.Sleep(2 * time.Second)
 
-	c1Tasks2 := con1.Tasks()
-	c2Tasks2 := con2.Tasks()
-	if len(c1Tasks2) != 4 || len(c2Tasks2) != 2 {
-		t.Fatalf("expected consumers to have 4|2 tasks: %d|%d", len(c1Tasks2), len(c2Tasks2))
-	}
-	for i := 0; i < 4; i++ {
-		if c1Tasks[i] != c1Tasks2[i] {
-			t.Errorf("task mismatch: %s != %s", c1Tasks[i], c1Tasks2[i])
-		}
-	}
-	for i := 0; i < 2; i++ {
-		if c2Tasks[i] != c2Tasks2[i] {
-			t.Errorf("task mismatch: %s != %s", c2Tasks[i], c2Tasks2[i])
-		}
-	}
+	waitForTasks(t, con1, 4)
+	waitForTasks(t, con2, 2)
 
 	// Second consumer should block on a single task forever
 	// Rebalancing the first node should then cause it to pickup all but
@@ -203,33 +190,53 @@ func TestFairBalancerShutdown(t *testing.T) {
 		close(c2stop)
 	}()
 
-	time.Sleep(500 * time.Millisecond)
+	if !waitForNodes(ctx.MClient, 1) {
+		t.Fatalf("second consumer didn't shutdown")
+	}
 
 	ctx.MClient.SubmitCommand(conf1.Name, metafora.CommandBalance())
 
-	time.Sleep(2 * time.Second)
-
-	c1Tasks3 := con1.Tasks()
-	c2Tasks3 := con2.Tasks()
-	if len(c1Tasks3) != 5 || len(c2Tasks3) != 1 {
-		t.Fatalf("Expected consumers to have 5|1 tasks: %d|%d", len(c1Tasks3), len(c2Tasks3))
-	}
+	waitForTasks(t, con1, 5)
+	waitForTasks(t, con2, 1)
 
 	// Now stop blocking task, rebalance and make sure the first node picked up the remaining
 	close(stop2)
 
 	time.Sleep(500 * time.Millisecond)
+
 	// Consumer 2 should stop now
 	<-c2stop
 
 	ctx.MClient.SubmitCommand(conf1.Name, metafora.CommandBalance())
 
-	time.Sleep(2 * time.Second)
-
 	// con2 is out of the picture. con1 has all the tasks.
-	c1Tasks4 := con1.Tasks()
-	c2Tasks4 := con2.Tasks()
-	if len(c1Tasks4) != 6 || len(c2Tasks4) != 0 {
-		t.Fatalf("Expected consumers to have 6|0 tasks: %d|%d", len(c1Tasks4), len(c2Tasks4))
+	waitForTasks(t, con1, 6)
+	waitForTasks(t, con2, 0)
+}
+
+// waitForNodes to startup and register
+func waitForNodes(c metafora.Client, expected int) bool {
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		n, _ := c.Nodes()
+		if len(n) == expected {
+			return true
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
+	return false
+}
+
+// waitForTasks to show up on a consumer
+func waitForTasks(t *testing.T, c *metafora.Consumer, expected int) {
+	last := 0
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		last = len(c.Tasks())
+		if last == expected {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("%s expected %d tasks but had %d", c, expected, last)
 }

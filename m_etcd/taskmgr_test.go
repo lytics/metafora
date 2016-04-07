@@ -20,7 +20,6 @@ type fakeEtcd struct {
 }
 
 func (f *fakeEtcd) Get(ctx context.Context, key string, opts *client.GetOptions) (*client.Response, error) {
-	f.t.Logf("Get(%v, %v, %#v)", ctx, key, opts)
 	var index uint64 = 1
 	if strings.HasSuffix(key, "/zombie") {
 		// Testing resurrection, see comment in Create above
@@ -30,7 +29,6 @@ func (f *fakeEtcd) Get(ctx context.Context, key string, opts *client.GetOptions)
 }
 
 func (f *fakeEtcd) Set(ctx context.Context, key, value string, opts *client.SetOptions) (*client.Response, error) {
-	f.t.Logf("Set(%v, %v, %v, %#v)", ctx, key, value, opts)
 	if opts.PrevValue != "" {
 		if key == "testns/testlost/owner" {
 			return nil, fmt.Errorf("test error")
@@ -52,7 +50,6 @@ func (f *fakeEtcd) Set(ctx context.Context, key, value string, opts *client.SetO
 }
 
 func (f *fakeEtcd) Delete(ctx context.Context, key string, opts *client.DeleteOptions) (*client.Response, error) {
-	f.t.Logf("Delete(%v, %v, %#v))", ctx, key, opts)
 	if opts.PrevValue != "" {
 		f.cad <- key
 		return nil, nil

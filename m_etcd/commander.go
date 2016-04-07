@@ -96,6 +96,7 @@ func (c *cmdrListener) sendMsg(resp *client.Response) (ok bool) {
 		return true
 	}
 
+	metafora.Debug("-----deleting command: ", resp.Node.Key)
 	// Remove command so it's not processed twice
 	opts := &client.DeleteOptions{PrevValue: resp.Node.Value}
 	if _, err := c.cli.Delete(context.TODO(), resp.Node.Key, opts); err != nil {

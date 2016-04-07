@@ -24,9 +24,7 @@ func TestSleepTest(t *testing.T) {
 	const sleepingtasks = "sleeping-task1"
 	cleanup := func() {
 		opts := &client.DeleteOptions{Recursive: true, Dir: true}
-		if _, err := etcdclient.Delete(context.TODO(), "/"+namespace, opts); err != nil {
-			t.Logf("Error deleting namespace %q - %v", namespace, err)
-		}
+		etcdclient.Delete(context.TODO(), "/"+namespace, opts)
 	}
 	cleanup()
 	defer cleanup()
@@ -367,9 +365,7 @@ func TestTaskResurrectionInt(t *testing.T) {
 	const namespace = "test-resurrect"
 	cleanup := func() {
 		opts := &client.DeleteOptions{Recursive: true, Dir: true}
-		if _, err := etcdclient.Delete(context.TODO(), "/"+namespace, opts); err != nil {
-			t.Logf("Error deleting namespace %q - %v", namespace, err)
-		}
+		etcdclient.Delete(context.TODO(), "/"+namespace, opts)
 	}
 	cleanup()
 	defer cleanup()
