@@ -43,6 +43,9 @@ type Config struct {
 
 	// EtcdConfig will be used to configure the etcd client.
 	EtcdConfig client.Config
+
+	// EtcdClient will be used instead of the EtcdConfig if it is non-nil.
+	EtcdClient client.KeysAPI
 }
 
 // NewConfig creates a Config with the required fields and uses defaults for

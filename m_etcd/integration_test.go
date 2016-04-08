@@ -135,7 +135,6 @@ func TestSleepTest(t *testing.T) {
 // automated here over and over. This is far more reliable than expecting
 // developers to do adhoc testing of all of the m_etcd package's features.
 func TestAll(t *testing.T) {
-	t.Parallel()
 	etcdclient, etcdconf := testutil.NewEtcdClient(t)
 
 	const nsa = "metafora-test-a"

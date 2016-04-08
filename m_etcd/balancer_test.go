@@ -47,7 +47,9 @@ func TestFairBalancer(t *testing.T) {
 	ctx.MClient.SubmitTask(DefaultTaskFunc("t5", ""))
 	ctx.MClient.SubmitTask(DefaultTaskFunc("t6", ""))
 
-	waitForTasks(t, con1, 6)
+	if got := waitForTasks(t, con1, 6); got != 6 {
+		t.Fatalf("expected 6 but got %d", got)
+	}
 
 	// Start the second consumer and force the 1st to rebalance
 	go con2.Run()
@@ -159,7 +161,9 @@ func TestFairBalancerShutdown(t *testing.T) {
 	ctx.MClient.SubmitTask(DefaultTaskFunc("t5", ""))
 	ctx.MClient.SubmitTask(DefaultTaskFunc("t6", ""))
 
-	waitForTasks(t, con1, 6)
+	if got := waitForTasks(t, con1, 6); got != 6 {
+		t.Fatalf("expected 6 but got %d", got)
+	}
 
 	// Start the second consumer and force the 1st to rebalance
 	go con2.Run()
@@ -170,16 +174,24 @@ func TestFairBalancerShutdown(t *testing.T) {
 		t.Fatalf("Error submitting balance command to %q", conf1.Name)
 	}
 
-	waitForTasks(t, con1, 4)
-	waitForTasks(t, con2, 2)
+	if got := waitForTasks(t, con1, 4); got != 4 {
+		t.Fatalf("expected 4 but got %d", got)
+	}
+	if got := waitForTasks(t, con2, 2); got != 2 {
+		t.Fatalf("expected 2 but got %d", got)
+	}
 
 	// Make sure that balancing the other node does nothing
 	ctx.MClient.SubmitCommand("node2", metafora.CommandBalance())
 
 	time.Sleep(2 * time.Second)
 
-	waitForTasks(t, con1, 4)
-	waitForTasks(t, con2, 2)
+	if got := waitForTasks(t, con1, 4); got != 4 {
+		t.Fatalf("expected 4 but got %d", got)
+	}
+	if got := waitForTasks(t, con2, 2); got != 2 {
+		t.Fatalf("expected 2 but got %d", got)
+	}
 
 	// Second consumer should block on a single task forever
 	// Rebalancing the first node should then cause it to pickup all but
@@ -196,8 +208,12 @@ func TestFairBalancerShutdown(t *testing.T) {
 
 	ctx.MClient.SubmitCommand(conf1.Name, metafora.CommandBalance())
 
-	waitForTasks(t, con1, 5)
-	waitForTasks(t, con2, 1)
+	if got := waitForTasks(t, con1, 5); got != 5 {
+		t.Fatalf("expected 5 but got %d", got)
+	}
+	if got := waitForTasks(t, con2, 1); got != 1 {
+		t.Fatalf("expected 1 but got %d", got)
+	}
 
 	// Now stop blocking task, rebalance and make sure the first node picked up the remaining
 	close(stop2)
@@ -210,8 +226,12 @@ func TestFairBalancerShutdown(t *testing.T) {
 	ctx.MClient.SubmitCommand(conf1.Name, metafora.CommandBalance())
 
 	// con2 is out of the picture. con1 has all the tasks.
-	waitForTasks(t, con1, 6)
-	waitForTasks(t, con2, 0)
+	if got := waitForTasks(t, con1, 6); got != 6 {
+		t.Fatalf("expected 6 but got %d", got)
+	}
+	if got := waitForTasks(t, con2, 0); got != 0 {
+		t.Fatalf("expected 0 but got %d", got)
+	}
 }
 
 // waitForNodes to startup and register
@@ -228,15 +248,15 @@ func waitForNodes(c metafora.Client, expected int) bool {
 }
 
 // waitForTasks to show up on a consumer
-func waitForTasks(t *testing.T, c *metafora.Consumer, expected int) {
+func waitForTasks(t *testing.T, c *metafora.Consumer, expected int) int {
 	last := 0
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		last = len(c.Tasks())
 		if last == expected {
-			return
+			return last
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	t.Fatalf("%s expected %d tasks but had %d", c, expected, last)
+	return last
 }

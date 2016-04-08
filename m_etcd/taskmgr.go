@@ -131,11 +131,14 @@ func (m *taskManager) add(task metafora.Task) bool {
 			close(finished)
 		}()
 
-		refreshopts := &client.SetOptions{PrevValue: value, PrevExist: client.PrevExist, Refresh: true}
+		refreshopts := &client.SetOptions{PrevValue: value, PrevExist: client.PrevExist}
 		for {
 			select {
 			case <-time.After(m.interval):
-				// Try to refresh the claim node (0 index means compare by value)
+				// Try to refresh the claim node
+				//FIXME As of 2.3.1 the client could not preserve a key's value when
+				//      using Refresh:true, so for now we can't use the new refresh
+				//      feature.
 				if _, err := m.client.Set(context.TODO(), key, value, refreshopts); err != nil {
 					metafora.Errorf("Error trying to update task %s ttl: %v", tid, err)
 					m.ctx.Lost(task)
@@ -144,7 +147,6 @@ func (m *taskManager) add(task metafora.Task) bool {
 				}
 			case <-done:
 				metafora.Debugf("Deleting directory for task %s as it's done.", tid)
-				const recursive = true
 				if _, err := m.client.Delete(context.TODO(), m.taskPath(tid), delRecurDir); err != nil {
 					metafora.Errorf("Error deleting done task %s: %v", tid, err)
 				}

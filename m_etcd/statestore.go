@@ -22,7 +22,7 @@ type stateStore struct {
 // NewStateStore returns a StateStore implementation that persists task states
 // in etcd.
 func NewStateStore(conf *Config) statemachine.StateStore {
-	c, _ := newEtcdClient(conf.EtcdConfig)
+	c, _ := newEtcdClient(conf)
 	return &stateStore{
 		c:    c,
 		path: path.Join(conf.Namespace, statePath),

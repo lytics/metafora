@@ -128,6 +128,8 @@ func TestCoordinatorWatchClaim(t *testing.T) {
 			claimed[recvdid] = true
 		case err := <-errc:
 			t.Fatalf("Watch returned an error instead of a task: %v", err)
+		case <-time.After(10 * time.Second):
+			t.Fatalf("Watch didn't return any tasks after 10s")
 		}
 	}
 
@@ -268,7 +270,11 @@ func TestCoordinatorRelease(t *testing.T) {
 
 	// Now release the task from coordinator1 and claim it with coordinator2
 	ctx.Coord.Release(tid)
-	tid = <-c2tasks
+	select {
+	case tid = <-c2tasks:
+	case <-time.After(10 * time.Second):
+		t.Fatalf("Task not released after 10s")
+	}
 	if ok := coordinator2.Claim(tid); !ok {
 		t.Fatalf("coordinator2.Claim(tid) should have succeded on released task", tid)
 	}

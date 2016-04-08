@@ -28,7 +28,7 @@ var (
 	getNoSortNoRecur = &client.GetOptions{Recursive: false, Sort: false, Quorum: true}
 	getNoSortRecur   = &client.GetOptions{Recursive: true, Sort: false, Quorum: true}
 	getSortRecur     = &client.GetOptions{Recursive: true, Sort: true, Quorum: true}
-	setCreateDir     = &client.SetOptions{Dir: true}
+	setCreateDir     = &client.SetOptions{Dir: true, PrevExist: client.PrevNoExist}
 	setDefault       = &client.SetOptions{}
 )
 
@@ -91,7 +91,7 @@ func (ec *EtcdCoordinator) closed() bool {
 func New(conf *Config, h statemachine.StatefulHandler) (
 	metafora.Coordinator, metafora.HandlerFunc, metafora.Balancer, error) {
 
-	kc, err := newEtcdClient(conf.EtcdConfig)
+	kc, err := newEtcdClient(conf)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -128,7 +128,7 @@ func NewEtcdCoordinator(conf *Config) (*EtcdCoordinator, error) {
 	if err := conf.Validate(); err != nil {
 		return nil, err
 	}
-	kc, err := newEtcdClient(conf.EtcdConfig)
+	kc, err := newEtcdClient(conf)
 	if err != nil {
 		return nil, err
 	}
@@ -165,18 +165,33 @@ func (ec *EtcdCoordinator) Init(cordCtx metafora.CoordinatorContext) error {
 
 	ec.cordCtx = cordCtx
 
-	ec.client.Set(context.TODO(), ec.conf.Namespace, "", setCreateDir)
-	ec.client.Set(context.TODO(), ec.taskPath, "", setCreateDir)
+	if _, err := ec.client.Set(context.TODO(), ec.conf.Namespace, "", setCreateDir); err != nil {
+		if !isNodeExist(err) {
+			return err
+		}
+	}
+	if _, err := ec.client.Set(context.TODO(), ec.taskPath, "", setCreateDir); err != nil {
+		if !isNodeExist(err) {
+			return err
+		}
+	}
 
 	nodePathOpts := &client.SetOptions{TTL: ec.conf.NodeTTL, Dir: true, PrevExist: client.PrevNoExist}
 	noderesp, err := ec.client.Set(context.TODO(), ec.nodePath, "", nodePathOpts)
 	if err != nil {
+		if isNodeExist(err) {
+			metafora.Errorf("Node with the name %q already registered. Possibly left from prior unclean shutdown?", ec.conf.Name)
+		}
 		return err
 	}
 
 	// Start goroutine to heartbeat node key in etcd
 	go ec.nodeRefresher(*noderesp.Node.Expiration)
-	ec.client.Set(context.TODO(), ec.commandPath, "", setCreateDir)
+	if _, err := ec.client.Set(context.TODO(), ec.commandPath, "", setCreateDir); err != nil {
+		if !isNodeExist(err) {
+			return err
+		}
+	}
 
 	ec.taskManager = newManager(cordCtx, ec.client, ec.taskPath, ec.conf.Name, ec.conf.ClaimTTL)
 	return nil
@@ -230,11 +245,15 @@ func (ec *EtcdCoordinator) refreshBy(ctx context.Context) (time.Time, error) {
 		default:
 		}
 
-		opts := &client.SetOptions{Dir: true, Refresh: true, PrevExist: client.PrevExist, TTL: ec.conf.NodeTTL}
+		opts := &client.SetOptions{Dir: true, PrevExist: client.PrevExist, TTL: ec.conf.NodeTTL}
 		resp, err = ec.client.Set(ctx, ec.nodePath, "", opts)
 		if err == nil {
 			// It worked, stop retrying
 			return *resp.Node.Expiration, nil
+		}
+		if client.IsKeyNotFound(err) {
+			// Not going to recover from this, just return it
+			return time.Time{}, err
 		}
 		metafora.Warnf("Unexpected error updating node key, retrying until %s: %v", deadline, err)
 		time.Sleep(500 * time.Millisecond) // rate limit retries a bit
@@ -310,7 +329,6 @@ startWatch:
 
 			// Found a claimable task!
 			if task := ec.parseTask(resp); task != nil {
-				metafora.Debugf("%s --SENDING--> action:%s, index:%d node:%#v", ec.name, resp.Action, resp.Index, resp.Node)
 				select {
 				case out <- task:
 				case <-ctx.Done():
@@ -529,8 +547,12 @@ func (ec *EtcdCoordinator) Name() string {
 	return ec.name
 }
 
-func newEtcdClient(conf client.Config) (client.KeysAPI, error) {
-	c, err := client.New(conf)
+func newEtcdClient(conf *Config) (client.KeysAPI, error) {
+	if conf.EtcdClient != nil {
+		return conf.EtcdClient, nil
+	}
+
+	c, err := client.New(conf.EtcdConfig)
 	if err != nil {
 		metafora.Errorf("Error creating etcd client: %v", err)
 		return nil, err
@@ -549,4 +571,12 @@ func ctxdone(ctx context.Context) bool {
 	default:
 		return false
 	}
+}
+
+// isNodeExist is based on https://github.com/coreos/etcd/blob/master/client/util.go#L18
+func isNodeExist(err error) bool {
+	if ee, ok := err.(client.Error); ok {
+		return ee.Code == client.ErrorCodeNodeExist
+	}
+	return false
 }

@@ -127,8 +127,21 @@ func (c *cmdrListener) sendMsg(resp *client.Response) (ok bool) {
 func (c *cmdrListener) watcher() {
 	opts := &client.WatcherOptions{Recursive: true}
 
+	//FIXME Create a cancellable context to pipe <-c.stop closes to etcd's client
+	ctx, cancel := context.WithCancel(context.TODO())
+	defer cancel()
+	go func() {
+		select {
+		case <-c.stop:
+			// Told to stop, cancel the context
+			cancel()
+		case <-ctx.Done():
+			// Something else stopped the context, exit
+		}
+	}()
+
 startWatch:
-	resp, err := c.cli.Get(context.TODO(), c.path, getNoSortNoRecur)
+	resp, err := c.cli.Get(ctx, c.path, getNoSortNoRecur)
 	if err != nil {
 		if ee, ok := err.(client.Error); ok && ee.Code == client.ErrorCodeKeyNotFound {
 			// No command found; this is normal. Grab index and skip to watching
@@ -148,24 +161,14 @@ startWatch:
 
 watchLoop:
 	watcher := c.cli.Watcher(c.path, opts)
-	for {
-		//TODO remove once Watcher's context checks ec.stop
-		select {
-		case <-c.stop:
-			return
-		default:
-		}
-
-		//TODO use ec.stop in context
-		resp, err := watcher.Next(context.TODO())
+	for !ctxdone(ctx) {
+		resp, err := watcher.Next(ctx)
 		if err != nil {
 			if ee, ok := err.(client.Error); ok && ee.Code == client.ErrorCodeEventIndexCleared {
 				// Need to restart watch with a new Get
 				goto startWatch
 			}
-
-			//FIXME what error is this replaced by?!
-			if err.Error() == "ErrWatchStoppedByUser" {
+			if err == context.Canceled {
 				return
 			}
 			metafora.Errorf("Error watching %s - sending error to stateful handler: %v", c.path, err)

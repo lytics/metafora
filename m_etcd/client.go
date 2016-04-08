@@ -21,7 +21,7 @@ func NewClient(namespace string, hosts []string) metafora.Client {
 //
 // Coordinator specific configuration values such as Name and TTLs are ignored. This is a conve
 func NewClientFromConfig(conf *Config) metafora.Client {
-	client, _ := newEtcdClient(conf.EtcdConfig)
+	client, _ := newEtcdClient(conf)
 	return &mclient{
 		etcd:      client,
 		namespace: conf.Namespace,

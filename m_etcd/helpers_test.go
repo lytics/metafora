@@ -17,12 +17,20 @@ import (
 	"github.com/lytics/metafora/m_etcd/testutil"
 )
 
+var loggerapi bool
+
 func init() {
 	rand.Seed(time.Now().UnixNano())
 	metafora.SetLogger(log.New(os.Stdout, "", log.Lmicroseconds|log.Lshortfile))
-	if os.Getenv("debug") == "" {
+	switch os.Getenv("debug") {
+	case "":
 		metafora.SetLogLevel(metafora.LogLevelWarn)
-	} else {
+	case "2":
+		log.SetFlags(log.Lshortfile | log.Lmicroseconds)
+		log.SetOutput(os.Stdout)
+		loggerapi = true
+		fallthrough
+	default:
 		metafora.SetLogLevel(metafora.LogLevelDebug)
 	}
 }
@@ -44,6 +52,9 @@ type testctx struct {
 // Namespaces are named after the caller, so helper functions shouldn't wrap this.
 func setupEtcd(t *testing.T) *testctx {
 	c, etcdconf := testutil.NewEtcdClient(t)
+	if loggerapi {
+		c = testutil.NewLoggerAPI(c)
+	}
 
 	ctx := &testctx{
 		EtcdClient: c,
@@ -64,6 +75,7 @@ func setupEtcd(t *testing.T) *testctx {
 	// Create a coordinator config
 	ctx.Conf = NewConfig("test-node-"+testid, ns, etcdconf.Endpoints)
 	ctx.Conf.EtcdConfig = etcdconf
+	ctx.Conf.EtcdClient = c
 
 	coord, err := NewEtcdCoordinator(ctx.Conf)
 	if err != nil {
