@@ -81,6 +81,7 @@ func NewDefaultFairBalancerWithThreshold(nodeid string, cs ClusterState, thresho
 		nodeid:           nodeid,
 		clusterstate:     cs,
 		releaseThreshold: threshold,
+		ClaimDelay:       10 * time.Millisecond,
 	}
 }
 
@@ -92,6 +93,16 @@ func NewDefaultFairBalancerWithThreshold(nodeid string, cs ClusterState, thresho
 // to Balance.
 type FairBalancer struct {
 	nodeid string
+
+	// ClaimDelay is how long to delay future claim attempts after a successful
+	// claim.
+	//
+	// Defaults to 10ms but may be overriden prior to running consumer.
+	ClaimDelay time.Duration
+
+	// lasttasks tracks how many tasks were last seen and delays claiming if
+	// currentN > lastN
+	lasttasks int
 
 	bc           BalancerContext
 	clusterstate ClusterState
@@ -107,14 +118,22 @@ func (e *FairBalancer) Init(s BalancerContext) {
 // CanClaim rejects tasks for a period of time if the last balance released
 // tasks. Otherwise all tasks are accepted.
 func (e *FairBalancer) CanClaim(task Task) (time.Time, bool) {
+	// If we just rebalanced, honor the delay it set
 	if e.delay.After(time.Now()) {
-		// Return delay set by Balance()
 		return e.delay, false
 	}
 
-	// Sleep proportional to number of tasks
-	n := len(e.bc.Tasks())
-	time.Sleep(time.Duration(n>>2) * time.Millisecond)
+	curtasks := len(e.bc.Tasks())
+	newlyclaimed := curtasks > e.lasttasks
+
+	// Make sure to update lasttasks so we don't delay repeatedly!
+	e.lasttasks = curtasks
+
+	// If we just claimed a task, backoff
+	if newlyclaimed {
+		return time.Now().Add(e.ClaimDelay), false
+	}
+
 	return NoDelay, true
 }
 
