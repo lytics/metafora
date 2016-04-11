@@ -173,6 +173,8 @@ func (c *Consumer) Run() {
 				break
 			}
 			c.claimed(task)
+			//FIXME Temporary hack to fix claim backoffs
+			time.Sleep(10 * time.Millisecond)
 		case cmd, ok := <-cmdChan:
 			if !ok {
 				Debug(c, " Command channel closed. Exiting main loop.")
