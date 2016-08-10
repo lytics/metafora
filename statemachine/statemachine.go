@@ -328,7 +328,8 @@ func (s *stateMachine) Run() (done bool) {
 		// A failure to load was reported by our provided loader, but the loader believed the failure
 		// was retiable. In most cases this will be some type of network partition or communication error,
 		// too many file handles, etc.
-		metafora.Errorf("task=%q could not load initial state but is retriable !", tid)
+		metafora.Errorf("task=%q could not load initial state but the task is retriable!", tid)
+		time.Sleep(time.Second) //defer releasing the task so other nodes don't thunder herd retrying it.
 		return false
 	} else if err != nil {
 		// A failure to load the state for a task is *fatal* - the task will be
