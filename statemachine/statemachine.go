@@ -13,6 +13,7 @@ import (
 var (
 	MissingUntilError  = errors.New("sleeping state missing deadline")
 	MissingErrorsError = errors.New("fault state has no errors")
+	ReleasableError    = errors.New("network error, release and retry")
 )
 
 // StateCode is the actual state key. The State struct adds additional metadata
@@ -323,7 +324,14 @@ func (s *stateMachine) Run() (done bool) {
 
 	// Load the initial state
 	state, err := s.ss.Load(s.task)
-	if err != nil {
+	if err == ReleasableError {
+		// A failure to load was reported by our provided loader, but the loader believed the failure
+		// was retriable. In most cases this will be some type of network partition or communication error,
+		// too many file handles, etc.
+		metafora.Errorf("task=%q could not load initial state but the task is retriable!", tid)
+		time.Sleep(time.Second) //defer releasing the task so other nodes don't thunder herd retrying it.
+		return false
+	} else if err != nil {
 		// A failure to load the state for a task is *fatal* - the task will be
 		// unscheduled and requires operator intervention to reschedule.
 		metafora.Errorf("task=%q could not load initial state. Marking done! Error: %v", tid, err)
@@ -332,7 +340,7 @@ func (s *stateMachine) Run() (done bool) {
 	if state == nil {
 		// Note to StateStore implementors: This should not happen! Either state or
 		// err must be non-nil. This code is simply to prevent a nil pointer panic.
-		metafora.Errorf("statestore %T returned nil state and err for task=%q - unscheduling")
+		metafora.Errorf("statestore %T returned nil state and err for task=%q - unscheduling", s.ss, tid)
 		return true
 	}
 	if state.Code.Terminal() {
