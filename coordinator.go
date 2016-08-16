@@ -40,6 +40,9 @@ type Coordinator interface {
 	// by the coordinator. Command must return (nil, nil) when Close is called.
 	Command() (Command, error)
 
+	// Errors returns a channel that receives all coordinator errors.
+	Errors() <-chan error
+
 	// Close the coordinator. Stop waiting for tasks and commands. Remove node from broker.
 	//
 	// Do not release tasks. The consumer will handle task releasing.

@@ -43,7 +43,11 @@ var (
 		actionSet:     true,
 	}
 
-	restartWatchError = errors.New("index too old, need to restart watch")
+	errRestartWatch = errors.New("index too old, need to restart watch")
+
+	// ErrRefreshFailed is an error returned when coordinator fails to update
+	// its node key in the database.
+	ErrRefreshFailed = errors.New("unable to refresh node key before deadline")
 )
 
 type ownerValue struct {
@@ -62,6 +66,7 @@ type EtcdCoordinator struct {
 
 	newTask     TaskFunc
 	taskManager *taskManager
+	errors      chan error
 
 	// Close() closes stop channel to signal to watchers to exit
 	stop chan bool
@@ -138,7 +143,8 @@ func NewEtcdCoordinator(conf *Config) (*EtcdCoordinator, error) {
 		nodePath:    path.Join(conf.Namespace, NodesPath, conf.Name),
 		taskPath:    path.Join(conf.Namespace, TasksPath),
 
-		stop: make(chan bool),
+		errors: make(chan error, 100),
+		stop:   make(chan bool),
 	}
 
 	// Protect callers of task functions from panics.
@@ -180,6 +186,10 @@ func (ec *EtcdCoordinator) Init(cordCtx metafora.CoordinatorContext) error {
 
 	ec.taskManager = newManager(cordCtx, tmc, ec.taskPath, ec.conf.Name, ec.conf.ClaimTTL)
 	return nil
+}
+
+func (ec *EtcdCoordinator) Errors() <-chan error {
+	return ec.errors
 }
 
 func (ec *EtcdCoordinator) upsertDir(path string, ttl uint64) {
@@ -241,6 +251,7 @@ func (ec *EtcdCoordinator) nodeRefresher() {
 		case <-time.After(time.Duration(ttl) * time.Second):
 			if err := ec.refreshBy(client, deadline); err != nil {
 				// We're in a bad state; shut everything down
+				ec.errors <- ErrRefreshFailed
 				metafora.Errorf("Unable to refresh node key before deadline %s. Last error: %v", deadline, err)
 				ec.Close()
 			}
@@ -257,6 +268,9 @@ func (ec *EtcdCoordinator) refreshBy(c *etcd.Client, deadline time.Time) (err er
 			return err
 		default:
 		}
+
+		// FIXME
+		return errors.New("lalala")
 
 		_, err = c.UpdateDir(ec.nodePath, ec.conf.NodeTTL)
 		if err == nil {
@@ -316,7 +330,7 @@ startWatch:
 		for {
 			resp, err := ec.watch(client, ec.taskPath, index, ec.stop)
 			if err != nil {
-				if err == restartWatchError {
+				if err == errRestartWatch {
 					continue startWatch
 				}
 				if err == etcd.ErrWatchStoppedByUser {
@@ -456,7 +470,7 @@ startWatch:
 		for {
 			resp, err := ec.watch(client, ec.commandPath, index, ec.stop)
 			if err != nil {
-				if err == restartWatchError {
+				if err == errRestartWatch {
 					continue startWatch
 				}
 				if err == etcd.ErrWatchStoppedByUser {
@@ -529,7 +543,7 @@ func (ec *EtcdCoordinator) Close() {
 //   1. etcd.ErrWatchStoppedByUser - the coordinator has closed, exit
 //                                   accordingly
 //
-//   2. restartWatchError - the specified index is too old, try again with a
+//   2. errRestartWatch - the specified index is too old, try again with a
 //                          newer index
 func (ec *EtcdCoordinator) watch(c *etcd.Client, path string, index uint64, stop chan bool) (*etcd.Response, error) {
 	const recursive = true
@@ -574,7 +588,7 @@ func (ec *EtcdCoordinator) watch(c *etcd.Client, path string, index uint64, stop
 					metafora.Debugf("%s Too many events have happened since index was updated. Restarting watch.", ec.taskPath)
 					// We need to retrieve all existing tasks to update our index
 					// without potentially missing some events.
-					return nil, restartWatchError
+					return nil, errRestartWatch
 				}
 			}
 			metafora.Errorf("%s Unexpected error unmarshalling etcd response: %+v", ec.taskPath, err)
