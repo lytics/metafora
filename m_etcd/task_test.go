@@ -17,7 +17,7 @@ import (
 type exTask struct {
 	id         string
 	SubmittedT *time.Time `json:"_submitted"`
-	UserID     string     `json:userid`
+	UserID     string     `json:"userid"`
 }
 
 func (t *exTask) ID() string            { return t.id }
