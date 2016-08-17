@@ -163,9 +163,15 @@ func (c *Consumer) Run() {
 				Debugf("%s task=%q ignored", c, tid)
 				continue
 			}
+			if c.coord.IsClaimed(task.ID()) {
+				Debugf("%s Coordinator unable to claim task=%q already claimed", c, tid)
+				break
+			}
 			if until, ok := c.bal.CanClaim(task); !ok {
 				Infof("%s Balancer rejected task=%q until %s", c, tid, until)
-				c.ignore(task, until)
+				// We can get into a lock-race here if we don't do in go-routine, as the ignore
+				// sends back to this c.tasks <- which is un-buffered
+				go c.ignore(task, until)
 				break
 			}
 			if !c.coord.Claim(task) {

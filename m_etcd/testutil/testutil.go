@@ -13,6 +13,11 @@ import (
 	"github.com/coreos/go-etcd/etcd"
 )
 
+var (
+	// "127.0.0.1:4001" ???
+	EtcdTestHosts = "127.0.0.1:2379"
+)
+
 // TestCase just defines the subset of *testing.T methods needed to avoid
 // pulling in the testing package.
 type TestCase interface {
@@ -30,7 +35,7 @@ func NewEtcdClient(t TestCase) (*etcd.Client, []string) {
 	peerAddrs := os.Getenv("ETCD_PEERS")
 
 	if peerAddrs == "" {
-		peerAddrs = "127.0.0.1:4001"
+		peerAddrs = EtcdTestHosts
 	}
 
 	peers := strings.Split(peerAddrs, ",")

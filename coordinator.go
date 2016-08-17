@@ -22,6 +22,9 @@ type Coordinator interface {
 	// or it encounters an error. Tasks are sent to consumer via the tasks chan.
 	Watch(tasks chan<- Task) (err error)
 
+	// Checks to see if a task is claimed
+	IsClaimed(taskId string) bool
+
 	// Claim is called by the Consumer when a Balancer has determined that a task
 	// ID can be claimed. Claim returns false if another consumer has already
 	// claimed the ID.
