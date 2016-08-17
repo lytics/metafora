@@ -28,8 +28,8 @@ func ignorer(tasks chan<- Task, stop <-chan struct{}) *ignoremgr {
 }
 
 func (im *ignoremgr) add(task Task, until time.Time) {
-	// short circuit ignores that have already elapsed
-	if until.Before(time.Now()) {
+	// short circuit zero times; queue everything else
+	if until.IsZero() {
 		return
 	}
 
@@ -72,6 +72,8 @@ func (im *ignoremgr) monitor(tasks chan<- Task, stop <-chan struct{}) {
 			}
 		}
 
+		// this duration *may* be negative, in which case the
+		// task will be pushed immediately
 		timer := time.NewTimer(next.time.Sub(time.Now()))
 
 		select {
