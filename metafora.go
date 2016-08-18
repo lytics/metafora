@@ -44,13 +44,15 @@ type Consumer struct {
 	freeze  bool
 }
 
+var BalanceEvery = 15 * time.Minute //TODO make balance wait configurable
+
 // NewConsumer returns a new consumer and calls Init on the Balancer and Coordinator.
 func NewConsumer(coord Coordinator, h HandlerFunc, b Balancer) (*Consumer, error) {
 	c := &Consumer{
 		running:  make(map[string]*runtask),
 		handler:  h,
 		bal:      b,
-		balEvery: 15 * time.Minute, //TODO make balance wait configurable
+		balEvery: BalanceEvery,
 		coord:    coord,
 		stop:     make(chan struct{}),
 		tasks:    make(chan Task),
