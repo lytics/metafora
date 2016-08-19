@@ -44,6 +44,10 @@ var (
 	}
 
 	restartWatchError = errors.New("index too old, need to restart watch")
+
+	// The time until we refresh and look at all tasks to make sure
+	// we didn't miss one
+	TaskRefreshDuration = time.Minute * 5
 )
 
 type ownerValue struct {
@@ -274,6 +278,13 @@ func (ec *EtcdCoordinator) refreshBy(c *etcd.Client, deadline time.Time) (err er
 // Watch streams tasks from etcd watches or GETs until Close is called or etcd
 // is unreachable (in which case an error is returned).
 func (ec *EtcdCoordinator) Watch(out chan<- metafora.Task) error {
+
+	defer func() {
+		if r := recover(); r != nil {
+			metafora.Errorf("Watch recovery error %v", r)
+		}
+	}()
+
 	var index uint64
 
 	client, err := newEtcdClient(ec.conf.Hosts)
@@ -283,6 +294,7 @@ func (ec *EtcdCoordinator) Watch(out chan<- metafora.Task) error {
 
 startWatch:
 	for {
+		watchStop := make(chan bool)
 		// Make sure we haven't been told to exit
 		select {
 		case <-ec.stop:
@@ -312,15 +324,26 @@ startWatch:
 			}
 		}
 
+		go func() {
+			defer func() { recover() }()
+			select {
+			// Every 5 minutes we are going to break out of the
+			// watch loop in order to refresh tasks
+			case <-time.After(TaskRefreshDuration):
+			case <-ec.stop:
+			}
+			close(watchStop)
+		}()
+
 		// Start blocking watch
 		for {
-			resp, err := ec.watch(client, ec.taskPath, index, ec.stop)
+			resp, err := ec.watch(client, ec.taskPath, index, watchStop)
 			if err != nil {
 				if err == restartWatchError {
 					continue startWatch
 				}
 				if err == etcd.ErrWatchStoppedByUser {
-					return nil
+					continue
 				}
 				return err
 			}
