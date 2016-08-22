@@ -47,7 +47,7 @@ var (
 
 	// The time until we refresh and look at all tasks to make sure
 	// we didn't miss one
-	TaskRefreshDuration = time.Minute * 20
+	TaskRefreshDuration = time.Minute * 5
 )
 
 type ownerValue struct {
