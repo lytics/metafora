@@ -345,7 +345,7 @@ startWatch:
 					continue startWatch
 				}
 				if err == etcd.ErrWatchStoppedByUser {
-					continue
+					continue startWatch
 				}
 				return err
 			}
