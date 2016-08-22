@@ -311,9 +311,7 @@ startWatch:
 
 		// Start watching at the index the Get retrieved since we've retrieved all
 		// tasks up to that point.
-		if watchIndex == 0 {
-			watchIndex = resp.EtcdIndex
-		}
+		watchIndex = resp.EtcdIndex
 
 		// Act like existing keys are newly created
 		for _, node := range resp.Node.Nodes {
