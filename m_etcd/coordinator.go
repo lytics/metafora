@@ -47,7 +47,7 @@ var (
 
 	// The time until we refresh and look at all tasks to make sure
 	// we didn't miss one
-	TaskRefreshDuration = time.Minute * 5
+	TaskRefreshDuration = time.Minute * 20
 )
 
 type ownerValue struct {
@@ -285,7 +285,7 @@ func (ec *EtcdCoordinator) Watch(out chan<- metafora.Task) error {
 		}
 	}()
 
-	var index uint64
+	var watchIndex uint64
 
 	client, err := newEtcdClient(ec.conf.Hosts)
 	if err != nil {
@@ -311,7 +311,9 @@ startWatch:
 
 		// Start watching at the index the Get retrieved since we've retrieved all
 		// tasks up to that point.
-		index = resp.EtcdIndex
+		if watchIndex == 0 {
+			watchIndex = resp.EtcdIndex
+		}
 
 		// Act like existing keys are newly created
 		for _, node := range resp.Node.Nodes {
@@ -337,7 +339,7 @@ startWatch:
 
 		// Start blocking watch
 		for {
-			resp, err := ec.watch(client, ec.taskPath, index, watchStop)
+			resp, err := ec.watch(client, ec.taskPath, watchIndex, watchStop)
 			if err != nil {
 				if err == restartWatchError {
 					continue startWatch
@@ -358,7 +360,7 @@ startWatch:
 			}
 
 			// Start the next watch from the latest index seen
-			index = resp.Node.ModifiedIndex
+			watchIndex = resp.Node.ModifiedIndex
 		}
 	}
 }
