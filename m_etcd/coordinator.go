@@ -6,6 +6,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/coreos/go-etcd/etcd"
@@ -63,6 +64,10 @@ type EtcdCoordinator struct {
 	commandPath string
 	nodePath    string
 	taskPath    string
+
+	// keep in-mem list of all claimed tasks
+	claimedtasks map[string]struct{}
+	claimMu      sync.Mutex
 
 	newTask     TaskFunc
 	taskManager *taskManager
@@ -137,6 +142,8 @@ func NewEtcdCoordinator(conf *Config) (*EtcdCoordinator, error) {
 		client: client,
 		conf:   conf,
 		name:   conf.String(),
+
+		claimedtasks: make(map[string]struct{}),
 
 		commandPath: path.Join(conf.Namespace, NodesPath, conf.Name, CommandsPath),
 		nodePath:    path.Join(conf.Namespace, NodesPath, conf.Name),
@@ -339,12 +346,14 @@ startWatch:
 		for {
 			resp, err := ec.watch(client, ec.taskPath, watchIndex, watchStop)
 			if err != nil {
+				metafora.Warnf("%p etcd error %v", ec, err)
 				if err == restartWatchError {
 					continue startWatch
 				}
 				if err == etcd.ErrWatchStoppedByUser {
 					continue startWatch
 				}
+
 				return err
 			}
 
@@ -378,7 +387,10 @@ func (ec *EtcdCoordinator) parseTask(resp *etcd.Response) metafora.Task {
 		// Make sure it's not already claimed before returning it
 		for _, n := range resp.Node.Nodes {
 			if strings.HasSuffix(n.Key, OwnerMarker) {
+				ec.claimMu.Lock()
 				metafora.Debugf("%s ignoring task as it's already claimed: %s", ec.name, parts[2])
+				ec.claimedtasks[parts[2]] = struct{}{}
+				ec.claimMu.Unlock()
 				return nil
 			}
 		}
@@ -416,11 +428,29 @@ func (ec *EtcdCoordinator) parseTask(resp *etcd.Response) metafora.Task {
 			metafora.Errorf("%s error getting properties while handling %s", ec.name, parts[2])
 			return nil
 		}
+		ec.claimMu.Lock()
+		delete(ec.claimedtasks, parts[2])
+		ec.claimMu.Unlock()
 		return ec.newTask(parts[2], propsnode.Node.Value)
+	}
+
+	if newActions[resp.Action] && len(parts) == 4 && parts[3] == OwnerMarker {
+		ec.claimMu.Lock()
+		ec.claimedtasks[parts[2]] = struct{}{}
+		ec.claimMu.Unlock()
+		return nil
 	}
 
 	// Ignore any other key events (_metafora keys, task deletion, etc.)
 	return nil
+}
+
+// IsClaimed is this taskId already claimed?
+func (ec *EtcdCoordinator) IsClaimed(taskId string) bool {
+	ec.claimMu.Lock()
+	_, claimed := ec.claimedtasks[taskId]
+	ec.claimMu.Unlock()
+	return claimed
 }
 
 // Claim is called by the Consumer when a Balancer has determined that a task
@@ -434,6 +464,9 @@ func (ec *EtcdCoordinator) Claim(task metafora.Task) bool {
 // Release deletes the claim file.
 func (ec *EtcdCoordinator) Release(task metafora.Task) {
 	const done = false
+	ec.claimMu.Lock()
+	delete(ec.claimedtasks, task.ID())
+	ec.claimMu.Unlock()
 	ec.taskManager.remove(task.ID(), done)
 }
 

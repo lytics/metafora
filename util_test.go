@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log"
 	"os"
+	"sync"
 )
 
 func init() {
@@ -21,25 +22,44 @@ type TestCoord struct {
 	Releases chan Task
 	Dones    chan Task
 	closed   chan bool
+	// keep in-mem list of all claimed tasks
+	claimedtasks map[string]struct{}
+	claimMu      sync.Mutex
 }
 
 func NewTestCoord() *TestCoord {
 	return &TestCoord{
-		name:     "testcoord",
-		Tasks:    make(chan Task, 10),
-		Commands: make(chan Command, 10),
-		Releases: make(chan Task, 10),
-		Dones:    make(chan Task, 10),
-		closed:   make(chan bool),
+		name:         "testcoord",
+		Tasks:        make(chan Task, 10),
+		Commands:     make(chan Command, 10),
+		Releases:     make(chan Task, 10),
+		Dones:        make(chan Task, 10),
+		closed:       make(chan bool),
+		claimedtasks: make(map[string]struct{}),
 	}
 }
 
 func (*TestCoord) Init(CoordinatorContext) error { return nil }
-func (*TestCoord) Claim(Task) bool               { return true }
 func (c *TestCoord) Close()                      { close(c.closed) }
-func (c *TestCoord) Release(task Task)           { c.Releases <- task }
-func (c *TestCoord) Done(task Task)              { c.Dones <- task }
-func (c *TestCoord) Name() string                { return c.name }
+func (c *TestCoord) Release(task Task) {
+	c.Releases <- task
+}
+func (c *TestCoord) Done(task Task) { c.Dones <- task }
+func (c *TestCoord) Name() string   { return c.name }
+func (c *TestCoord) Claim(task Task) bool {
+	c.claimMu.Lock()
+	c.claimedtasks[task.ID()] = struct{}{}
+	c.claimMu.Unlock()
+	return true
+}
+
+// IsClaimed is this taskId already claimed?
+func (c *TestCoord) IsClaimed(taskId string) bool {
+	c.claimMu.Lock()
+	_, claimed := c.claimedtasks[taskId]
+	c.claimMu.Unlock()
+	return claimed
+}
 
 // Watch sends tasks from the Tasks channel unless an empty string is sent.
 // Then an error is returned.
