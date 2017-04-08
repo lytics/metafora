@@ -455,7 +455,7 @@ func (ec *EtcdCoordinator) Done(task metafora.Task) {
 // Command blocks until a command for this node is received from the broker
 // by the coordinator.
 func (ec *EtcdCoordinator) Command() (metafora.Command, error) {
-	defer metafora.Infof("%s CommandWatcher exiting nodepath:%v cmdpath:%v nodettl:%v", ec.name, ec.nodePath, ec.commandPath, ec.conf.NodeTTL)
+	defer metafora.Debugf("%s CommandWatcher exiting nodepath:%v cmdpath:%v nodettl:%v", ec.name, ec.nodePath, ec.commandPath, ec.conf.NodeTTL)
 	if ec.closed() {
 		// already closed, don't restart watch
 		return nil, nil
