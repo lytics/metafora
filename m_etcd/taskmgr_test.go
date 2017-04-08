@@ -59,10 +59,10 @@ func (f *fakeEtcd) CompareAndSwap(k, v string, ttl uint64, pv string, _ uint64) 
 }
 func newFakeEtcd() *fakeEtcd {
 	return &fakeEtcd{
-		add: make(chan string, 10),
-		del: make(chan string, 10),
-		cas: make(chan string, 10),
-		cad: make(chan string, 10),
+		add: make(chan string, 2000),
+		del: make(chan string, 2000),
+		cas: make(chan string, 2000),
+		cad: make(chan string, 2000),
 	}
 }
 
@@ -143,7 +143,7 @@ func TestFullTaskMgr(t *testing.T) {
 	}
 
 	client := newFakeEtcd()
-	const ttl = 2
+	const ttl = 4
 	mgr := newManager(newCtx(t, "mgr"), client, "testns", "testnode", ttl)
 
 	// Add a few tasks and remove one
@@ -240,7 +240,7 @@ func TestTaskDone(t *testing.T) {
 
 	ctx := newCtx(t, "mgr")
 	client := newFakeEtcd()
-	const ttl = 2
+	const ttl = 4
 	mgr := newManager(ctx, client, "testns", "testnode", ttl)
 
 	mgr.add(&task{id: "t1"})

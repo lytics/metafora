@@ -1,0 +1,509 @@
+{
+	"comment": "",
+	"ignore": "test",
+	"package": [
+		{
+			"checksumSHA1": "XK3bGWVSdiXTI7uppQYmvwQy0kQ=",
+			"path": "github.com/coreos/etcd",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "sFGNqtSE3WlMiyT+JkVaW2OzstM=",
+			"path": "github.com/coreos/etcd/alarm",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "Z3hzrJY9xDVbYR/8gEyTRQElS8s=",
+			"path": "github.com/coreos/etcd/auth",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "7uspQtEpYuBxaxrBTcxa+ZfiuJo=",
+			"path": "github.com/coreos/etcd/auth/authpb",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "7UA5xypGCK2rsrcAf3udKkwOkJM=",
+			"path": "github.com/coreos/etcd/client",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "vbt/6PaOD0fbRDaBJVWVkAPpDis=",
+			"path": "github.com/coreos/etcd/clientv3",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "A+bxRVxwiX2GRArjmHMGIl9uNyI=",
+			"path": "github.com/coreos/etcd/compactor",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "ZF54ihnJgINmL3/6WOee4Gs1ZnA=",
+			"path": "github.com/coreos/etcd/discovery",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "5LQ/V+zC+cwOARhhVPEpfxhxEf8=",
+			"path": "github.com/coreos/etcd/embed",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "EnBEFQt3P/EUhLqKtddUR3YtMD8=",
+			"path": "github.com/coreos/etcd/error",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "qL5pmVcFhQnS3Ae2xyKgwrEtkcY=",
+			"path": "github.com/coreos/etcd/etcdmain",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "lBLbEFHq8/OwNHKWHngVQ2nNxSw=",
+			"path": "github.com/coreos/etcd/etcdserver",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "J9FmoxOzLqLFW6CiL69DVKv2YIQ=",
+			"path": "github.com/coreos/etcd/etcdserver/api",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "oyyORyrbhuMygR3I6O0TP7wQPO0=",
+			"path": "github.com/coreos/etcd/etcdserver/api/v2http",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "djmxCiKKH0PfLnJstIE9trjE0CY=",
+			"path": "github.com/coreos/etcd/etcdserver/api/v2http/httptypes",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "CnvoYqnvir6qSHgI8CczpNxaEt4=",
+			"path": "github.com/coreos/etcd/etcdserver/api/v3rpc",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "RatQqQRjsYDdYER+uD86XUBUktU=",
+			"path": "github.com/coreos/etcd/etcdserver/api/v3rpc/rpctypes",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "PilY+obr5RCU8jk21MauYrw4kRU=",
+			"path": "github.com/coreos/etcd/etcdserver/auth",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "Vu09CLLQRRgKmh4nRXk5dq9uQ3w=",
+			"path": "github.com/coreos/etcd/etcdserver/etcdserverpb",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "c/e3Vc9J3wpPRJtCgArmJGsg40k=",
+			"path": "github.com/coreos/etcd/etcdserver/membership",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "oOATSG5UaY5unrVP81KXL1ZUzMY=",
+			"path": "github.com/coreos/etcd/etcdserver/stats",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "dwwD96JAPJrUFl3VHPROhwMU5PA=",
+			"path": "github.com/coreos/etcd/lease",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "+6G8QfUtqAIgcvWQG49hJEO4nO8=",
+			"path": "github.com/coreos/etcd/lease/leasehttp",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "eXYNT1/NP1E1QyyoXxP1bl7pe6s=",
+			"path": "github.com/coreos/etcd/lease/leasepb",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "bZwh5A5KyKfer8FxD0dRAiA0RX8=",
+			"path": "github.com/coreos/etcd/mvcc",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "EJqABzXZxzaPjviqWepMbO9ZsSk=",
+			"path": "github.com/coreos/etcd/mvcc/backend",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "PAnQN6F8iZuIfu9HHOORyVFaaOA=",
+			"path": "github.com/coreos/etcd/mvcc/mvccpb",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "HBRBgHoShOYGF0v6T//dfTnDaW0=",
+			"path": "github.com/coreos/etcd/pkg/adt",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "sYxs4q1a4aBfcldumLAXzOytvq0=",
+			"path": "github.com/coreos/etcd/pkg/contention",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "wrh+pxOUAF/I07adB87cs6cG9Vw=",
+			"path": "github.com/coreos/etcd/pkg/cors",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "hfKFSIAIl8or4pvBF5rIIkIGXgA=",
+			"path": "github.com/coreos/etcd/pkg/cpuutil",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "1JFHG5teOXPBNsJ8NCdIp+NiStg=",
+			"path": "github.com/coreos/etcd/pkg/crc",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "ga3jt9r+dQBMSXG0gnpNcXp2xYA=",
+			"path": "github.com/coreos/etcd/pkg/fileutil",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "+Hv/2IqEKGRWhSFZCVKABRVUmAs=",
+			"path": "github.com/coreos/etcd/pkg/flags",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "8IHkaLXBL6cGo7Ie7mEBIJKpTvM=",
+			"path": "github.com/coreos/etcd/pkg/httputil",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "PZH6tG8kWunjsTUsNt1uZqE2fFE=",
+			"path": "github.com/coreos/etcd/pkg/idutil",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "1EK8rMhdEv2G5fJsLg0MhVSne44=",
+			"path": "github.com/coreos/etcd/pkg/ioutil",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "Iy1IjKJovzI/nvgkuKlus6xhR3s=",
+			"path": "github.com/coreos/etcd/pkg/logutil",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "nelBbtgE6qoX+zlj1Gq/mHx8OhU=",
+			"path": "github.com/coreos/etcd/pkg/monotime",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "vhTZUUs0Nf0Yi2E8FVgpGxZcXGg=",
+			"path": "github.com/coreos/etcd/pkg/netutil",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "zA1r42bzuHKhV5ih9HOcftnrG/0=",
+			"path": "github.com/coreos/etcd/pkg/osutil",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "mKIXx1kDwmVmdIpZ3pJtRBuUKso=",
+			"path": "github.com/coreos/etcd/pkg/pathutil",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "lJ9LwhbfPjVMQDaXjVbRM3+gXNk=",
+			"path": "github.com/coreos/etcd/pkg/pbutil",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "sEy7Pbgh5CImrcpWVLfUC6FXrjQ=",
+			"path": "github.com/coreos/etcd/pkg/runtime",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "5CoETIEg63O2zfbz5qWn/MmIjiQ=",
+			"path": "github.com/coreos/etcd/pkg/schedule",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "rMyIh9PsSvPs6Yd+YgKITQzQJx8=",
+			"path": "github.com/coreos/etcd/pkg/tlsutil",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "yytFqne2gO6x+G7oq/DMtMCY9YA=",
+			"path": "github.com/coreos/etcd/pkg/transport",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "gx1gJIMU6T0UNQ0bPZ/drQ8cpCI=",
+			"path": "github.com/coreos/etcd/pkg/types",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "VSaVO6sSzUMwM3X0Zi40P4YXguY=",
+			"path": "github.com/coreos/etcd/pkg/wait",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "kMCMkQBhLfsyjPwjDHanZ72NeHo=",
+			"path": "github.com/coreos/etcd/proxy/grpcproxy",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "M5nReYkiVNXB1kk8/AqN3saUd94=",
+			"path": "github.com/coreos/etcd/proxy/grpcproxy/cache",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "3WIWyt7IXp8KG4+UkZU+6CicDgI=",
+			"path": "github.com/coreos/etcd/proxy/httpproxy",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "Kp/UoBs8Rwl7V2gVRs4KoRoIBc0=",
+			"path": "github.com/coreos/etcd/proxy/tcpproxy",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "5oecycRyq6XzAqhTE2L42Rc+upQ=",
+			"path": "github.com/coreos/etcd/raft",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "OxrreF2Jcn1mldVIfxE5VPavPRc=",
+			"path": "github.com/coreos/etcd/raft/raftpb",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "3E9wtxDR8az8SgUAS6/MKQ9JvzI=",
+			"path": "github.com/coreos/etcd/rafthttp",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "Hz41gnRqXNpaMqqIIjP+3dHMPmc=",
+			"path": "github.com/coreos/etcd/snap",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "nJ8uKi9lAsLrJqAXRh6khpkU6QY=",
+			"path": "github.com/coreos/etcd/snap/snappb",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "nQDFXW8mXHmUltzjh9nGNs9v1NE=",
+			"path": "github.com/coreos/etcd/store",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "k4Oy4Bf6DMHdAIPPhYBjoaDd8Bo=",
+			"path": "github.com/coreos/etcd/version",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "gScwSgIpNsBBwSLx6ZDNMDY+urc=",
+			"path": "github.com/coreos/etcd/wal",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "B2+JhB70IDcxAfNGlTDuU2F+XRM=",
+			"path": "github.com/coreos/etcd/wal/walpb",
+			"revision": "21fdcc6443f3267111051240f0eca839acc96a39",
+			"revisionTime": "2017-03-10T17:05:16Z",
+			"version": "v3.1.3",
+			"versionExact": "v3.1.3"
+		},
+		{
+			"checksumSHA1": "BJXHEdzHxRPmVnt6GFaPpwgns2c=",
+			"path": "github.com/coreos/go-etcd/etcd",
+			"revision": "003851be7bb0694fe3cc457a49529a19388ee7cf",
+			"revisionTime": "2015-10-26T16:03:18Z"
+		}
+	],
+	"rootPath": "github.com/lytics/lio"
+}

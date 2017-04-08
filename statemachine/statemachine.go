@@ -454,7 +454,7 @@ func run(f StatefulHandler, task metafora.Task, cmd <-chan *Message) (m *Message
 			m = &Message{Code: Error, Err: fmt.Errorf("panic: %v\nstack: %s", r, stackTraceStr)}
 		}
 	}()
-
+ 
 	// Defensive code to give handlers a *copy* of the command chan. That way if
 	// a handler keeps receiving on the command chan in a goroutine past the
 	// handler's lifetime it doesn't intercept commands intended for the

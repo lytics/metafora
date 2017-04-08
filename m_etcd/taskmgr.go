@@ -37,8 +37,7 @@ type taskManager struct {
 	path   string                // etcd path to tasks
 	node   string                // node ID
 
-	ttl      uint64 // seconds
-	interval time.Duration
+	ttl uint64 // seconds
 }
 
 func newManager(ctx metafora.CoordinatorContext, client client, path, nodeID string, ttl uint64) *taskManager {
@@ -46,20 +45,13 @@ func newManager(ctx metafora.CoordinatorContext, client client, path, nodeID str
 		panic("refresher: TTL must be > 0")
 	}
 
-	// refresh more often than strictly necessary to be safe
-	interval := time.Duration((ttl>>1)+(ttl>>2)) * time.Second
-	if ttl == 1 {
-		interval = 750 * time.Millisecond
-		metafora.Warnf("Dangerously low TTL: %d; consider raising.", ttl)
-	}
 	return &taskManager{
-		ctx:      ctx,
-		client:   client,
-		tasks:    make(map[string]taskStates),
-		path:     path,
-		node:     nodeID,
-		ttl:      ttl,
-		interval: interval,
+		ctx:    ctx,
+		client: client,
+		tasks:  make(map[string]taskStates),
+		path:   path,
+		node:   nodeID,
+		ttl:    ttl,
 	}
 }
 
@@ -142,16 +134,36 @@ func (m *taskManager) add(task metafora.Task) bool {
 			close(finished)
 		}()
 
+		interval := 60 * time.Second
+		// refresh more often than strictly necessary to be safe
+		if m.ttl == 1 {
+			interval = 750 * time.Millisecond //should only happen in tests
+			metafora.Warnf("Dangerously low TTL: %d; consider raising.", m.ttl)
+		} else {
+			// See vendor/github.com/coreos/go-etcd/etcd/requests.go:286
+			// I think there is a chance that we get a noop reponse and miss a TTL internval.
+			// Then the task goes unclaimed until someone else picked it up.  To offset this lets refresh the ttls more often.
+			interval = (time.Duration(m.ttl/4) * time.Second) - 200*time.Millisecond
+		}
+
+		timer := time.NewTimer(interval)
+		defer timer.Stop()
 		for {
 			select {
-			case <-time.After(m.interval):
+			case <-timer.C:
+				st := time.Now()
 				// Try to refresh the claim node (0 index means compare by value)
-				if _, err := m.client.CompareAndSwap(key, value, m.ttl, value, 0); err != nil {
+				res, err := m.client.CompareAndSwap(key, value, m.ttl, value, 0)
+				if err != nil {
 					metafora.Errorf("Error trying to update task %s ttl: %v", tid, err)
 					m.ctx.Lost(task)
 					// On errors, don't even try to Delete as we're in a bad state
 					return
 				}
+				if rt := time.Since(st); rt > 3*time.Second {
+					metafora.Warnf("Slow TTL refresh task %s totalRuntime:%v res:[%v]", tid, rt, res)
+				}
+				timer.Reset(interval)
 			case <-done:
 				metafora.Debugf("Deleting directory for task %s as it's done.", tid)
 				const recursive = true
