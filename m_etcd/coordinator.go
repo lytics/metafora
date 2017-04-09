@@ -239,7 +239,7 @@ func (ec *EtcdCoordinator) nodeRefresher() {
 	// Create a local etcd client since it's not threadsafe, but don't bother
 	// checking for errors at this point.
 	client, _ := newEtcdClient(ec.conf.Hosts)
-	metafora.Infof("%s nodeRefresher starting nodepath:%v cmdpath:%v refresh-interval:%v nodettl:%v", ec.name, ec.nodePath, ec.commandPath, intr, ec.conf.NodeTTL)
+	metafora.Debugf("%s nodeRefresher starting nodepath:%v cmdpath:%v refresh-interval:%v nodettl:%v", ec.name, ec.nodePath, ec.commandPath, intr, ec.conf.NodeTTL)
 	for {
 		// Deadline for refreshes to finish by or the coordinator closes.
 		deadline := time.Now().Add(time.Duration(ec.conf.NodeTTL) * time.Second)
@@ -455,7 +455,7 @@ func (ec *EtcdCoordinator) Done(task metafora.Task) {
 // Command blocks until a command for this node is received from the broker
 // by the coordinator.
 func (ec *EtcdCoordinator) Command() (metafora.Command, error) {
-	defer metafora.Infof("%s CommandWatcher exiting nodepath:%v cmdpath:%v nodettl:%v", ec.name, ec.nodePath, ec.commandPath, ec.conf.NodeTTL)
+	defer metafora.Debugf("%s CommandWatcher exiting nodepath:%v cmdpath:%v nodettl:%v", ec.name, ec.nodePath, ec.commandPath, ec.conf.NodeTTL)
 	if ec.closed() {
 		// already closed, don't restart watch
 		return nil, nil
