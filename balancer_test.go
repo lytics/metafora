@@ -134,8 +134,8 @@ func (ctx *sbCtx) Tasks() []RunningTask {
 	}
 	return tasks
 }
-func (ctx *sbCtx) Log(l LogLevel, v string, args ...interface{}) {
-	ctx.t.Logf(l.String()+" "+v, args)
+func (ctx *sbCtx) Log(l int, v string, args ...interface{}) {
+	Infof(v, args)
 }
 
 func TestSleepBalancer(t *testing.T) {
