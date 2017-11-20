@@ -12,7 +12,7 @@ Metafora gives you the ablity to build an elastic distributed application.  It m
 
 #### Node failure or scaling in
 
-When a node fails (or you scale in your nodes), metafora will will release the tasks from the missing node back into the task pool.  Other metafora nodes will detect the unclaimed tasks and attempt to claim them.  It's important to note that metafora simple manages the reassigment of tasks, its upto your code (possiable in your metafora handler) to cleanup any bad state caused by a tasks crashing during processing.
+When a node fails (or you scale in your nodes), metafora will release the tasks from the missing node back into the task pool.  Other metafora nodes will detect the unclaimed tasks and attempt to claim them.  It's important to note that metafora simply manages the reassigment of tasks; it's up to your code (possibly in your metafora handler) to clean up any bad state caused by a task crashing during processing.
 
 ![logical1](/Documentation/images/metafora_nodefailure.png)
 
