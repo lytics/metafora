@@ -227,22 +227,27 @@ func (ec *EtcdCoordinator) upsertDir(path string, ttl uint64) {
 // refresh, so it's up to nodeRefresher to cause the coordinator to close if
 // it's unable to communicate with etcd.
 func (ec *EtcdCoordinator) nodeRefresher() {
-	ttl := ec.conf.NodeTTL >> 1 // have some leeway before ttl expires
+	//Refresh the node path 4 times per TTL instead of just once per TTL.
+	// This should decrease the chance that we miss an update.
+	ttl := ec.conf.NodeTTL / 4 // have some leeway before ttl expires
 	if ttl < 1 {
 		metafora.Warnf("%s Dangerously low NodeTTL: %d", ec.name, ec.conf.NodeTTL)
 		ttl = 1
 	}
+	intr := (time.Duration(ttl) * time.Second) - 200*time.Millisecond
 
 	// Create a local etcd client since it's not threadsafe, but don't bother
 	// checking for errors at this point.
 	client, _ := newEtcdClient(ec.conf.Hosts)
+	metafora.Debugf("%s nodeRefresher starting nodepath:%v cmdpath:%v refresh-interval:%v nodettl:%v", ec.name, ec.nodePath, ec.commandPath, intr, ec.conf.NodeTTL)
 	for {
 		// Deadline for refreshes to finish by or the coordinator closes.
 		deadline := time.Now().Add(time.Duration(ec.conf.NodeTTL) * time.Second)
 		select {
 		case <-ec.stop:
+			metafora.Debugf("%s nodeRefresher exiting nodepath:%v cmdpath:%v refresh-interval:%v nodettl:%v", ec.name, ec.nodePath, ec.commandPath, intr, ec.conf.NodeTTL)
 			return
-		case <-time.After(time.Duration(ttl) * time.Second):
+		case <-time.After(intr):
 			if err := ec.refreshBy(client, deadline); err != nil {
 				// We're in a bad state; shut everything down
 				metafora.Errorf("Unable to refresh node key before deadline %s. Last error: %v", deadline, err)
@@ -262,7 +267,11 @@ func (ec *EtcdCoordinator) refreshBy(c *etcd.Client, deadline time.Time) (err er
 		default:
 		}
 
+		st := time.Now()
 		_, err = c.UpdateDir(ec.nodePath, ec.conf.NodeTTL)
+		if rt := time.Since(st); rt > 4*time.Second {
+			metafora.Warnf("Slow TTL refresh node %s totalRuntime:%v err:%v", ec.nodePath, rt, err)
+		}
 		if err == nil {
 			// It worked!
 			return nil
@@ -278,7 +287,7 @@ func (ec *EtcdCoordinator) refreshBy(c *etcd.Client, deadline time.Time) (err er
 // Watch streams tasks from etcd watches or GETs until Close is called or etcd
 // is unreachable (in which case an error is returned).
 func (ec *EtcdCoordinator) Watch(out chan<- metafora.Task) error {
-
+	defer metafora.Debugf("%s TaskWatcher exiting nodepath:%v cmdpath:%v nodettl:%v", ec.name, ec.nodePath, ec.taskPath, ec.conf.ClaimTTL)
 	defer func() {
 		if r := recover(); r != nil {
 			metafora.Errorf("Watch recovery error %v", r)
@@ -446,6 +455,7 @@ func (ec *EtcdCoordinator) Done(task metafora.Task) {
 // Command blocks until a command for this node is received from the broker
 // by the coordinator.
 func (ec *EtcdCoordinator) Command() (metafora.Command, error) {
+	defer metafora.Debugf("%s CommandWatcher exiting nodepath:%v cmdpath:%v nodettl:%v", ec.name, ec.nodePath, ec.commandPath, ec.conf.NodeTTL)
 	if ec.closed() {
 		// already closed, don't restart watch
 		return nil, nil
@@ -485,6 +495,11 @@ startWatch:
 				if err == etcd.ErrWatchStoppedByUser {
 					return nil, nil
 				}
+			}
+
+			if len(resp.Node.Value) == 0 {
+				metafora.Warnf("watch with a nil value: key%s: action:%v commandPath:%v", resp.Node.Key, resp.Action, ec.commandPath)
+				continue startWatch
 			}
 
 			if cmd := ec.parseCommand(client, resp); cmd != nil {
