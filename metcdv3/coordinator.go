@@ -272,10 +272,10 @@ func (ec *EtcdV3Coordinator) Claim(task metafora.Task) bool {
 func (ec *EtcdV3Coordinator) Release(task metafora.Task) {
 	c := context.Background()
 	tid := task.ID()
-	key, _ := ec.ownerNode(tid)
+	key, value := ec.ownerNode(tid)
 	metafora.Debugf("Deleting claim for task %s as it's released.", tid)
 	txnRes, err := ec.kvc.Txn(c).
-		If(etcdv3.Compare(etcdv3.LeaseValue(key), "=", ec.leaseID)).
+		If(etcdv3.Compare(etcdv3.Value(key), "=", value)).
 		Then(etcdv3.OpDelete(key, etcdv3.WithPrefix())).
 		Commit()
 	if err != nil {
