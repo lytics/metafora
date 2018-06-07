@@ -28,7 +28,7 @@ var testcounter uint64
 //  * Clearing the test namespace in etcd
 func setupEtcd(t *testing.T) (*etcdv3.Client, *EtcdV3Coordinator, *Config) {
 	c := context.Background()
-	client, hosts := testutil.NewEtcdV3Client(t)
+	client := testutil.NewEtcdV3Client(t)
 	kvc := etcdv3.NewKV(client)
 	n := atomic.AddUint64(&testcounter, 1)
 	ns := fmt.Sprintf("metaforatests-%d", n)
@@ -36,7 +36,7 @@ func setupEtcd(t *testing.T) (*etcdv3.Client, *EtcdV3Coordinator, *Config) {
 	if err != nil {
 		t.Errorf("failed to clean up namespace in etcd")
 	}
-	conf := NewConfig("testclient", ns, hosts)
+	conf := NewConfig("testclient", ns)
 	coord := NewEtcdV3Coordinator(conf, client)
 	return client, coord, conf
 }

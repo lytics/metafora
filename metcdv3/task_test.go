@@ -32,14 +32,14 @@ func (t *exTask) String() string {
 }
 
 func TestAltTask(t *testing.T) {
-	etcdv3c, hosts := testutil.NewEtcdV3Client(t)
+	etcdv3c := testutil.NewEtcdV3Client(t)
 	kvc := etcdv3.NewKV(etcdv3c)
 	c := context.Background()
 	t.Parallel()
 	const namespace = "/alttask-metafora"
 	kvc.Delete(c, namespace, etcdv3.WithPrefix())
 
-	conf := metcdv3.NewConfig("testclient", namespace, hosts)
+	conf := metcdv3.NewConfig("testclient", namespace)
 
 	// Sample overridden NewTask func
 	conf.NewTaskFunc = func(id, props string) metafora.Task {

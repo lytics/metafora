@@ -17,9 +17,6 @@ type Config struct {
 	// effectively limit Metafora to one process per server.
 	Name string
 
-	// Hosts are the URLs to create etcd clients with.
-	Hosts []string
-
 	// NewTaskFunc is the function called to unmarshal tasks from etcd into a
 	// custom struct. The struct must implement the metafora.Task interface.
 	//
@@ -31,8 +28,8 @@ type Config struct {
 // the others.
 //
 // Panics on empty values.
-func NewConfig(name, namespace string, hosts []string) *Config {
-	if len(hosts) == 0 || namespace == "" || name == "" {
+func NewConfig(name, namespace string) *Config {
+	if namespace == "" || name == "" {
 		panic("invalid etcd config")
 	}
 
@@ -40,7 +37,6 @@ func NewConfig(name, namespace string, hosts []string) *Config {
 	return &Config{
 		Name:        name,
 		Namespace:   namespace,
-		Hosts:       hosts,
 		NewTaskFunc: DefaultTaskFunc,
 	}
 }
@@ -50,7 +46,6 @@ func (c *Config) Copy() *Config {
 	return &Config{
 		Name:        c.Name,
 		Namespace:   c.Namespace,
-		Hosts:       c.Hosts,
 		NewTaskFunc: c.NewTaskFunc,
 	}
 }

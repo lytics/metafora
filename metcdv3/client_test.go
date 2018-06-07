@@ -31,7 +31,7 @@ const (
 // registered in etcd.
 func TestNodes(t *testing.T) {
 	c := context.Background()
-	eclient, _ := testutil.NewEtcdV3Client(t)
+	eclient := testutil.NewEtcdV3Client(t)
 	kvc := etcdv3.NewKV(eclient)
 	eclient.Delete(c, Node1Path, etcdv3.WithPrefix())
 
@@ -54,7 +54,7 @@ func TestNodes(t *testing.T) {
 // the proper path in etcd, and that the same task id cannot be
 // submitted more than once.
 func TestSubmitTask(t *testing.T) {
-	client, _ := testutil.NewEtcdV3Client(t)
+	client := testutil.NewEtcdV3Client(t)
 	mclient := NewClient(Namespace, client)
 
 	task := DefaultTaskFunc("testid1", "")
@@ -75,7 +75,7 @@ func TestSubmitTask(t *testing.T) {
 // TestSubmitCommand tests that client.SubmitCommand(...) adds a command
 // to the proper node path in etcd, and that it can be read back.
 func TestSubmitCommand(t *testing.T) {
-	eclient, _ := testutil.NewEtcdV3Client(t)
+	eclient := testutil.NewEtcdV3Client(t)
 	kvc := etcdv3.NewKV(eclient)
 	mclient := NewClient(Namespace, eclient)
 

@@ -22,7 +22,7 @@ type TestCase interface {
 }
 
 // NewEtcdClient creates a new etcd client for use by the metafora client during testing.
-func NewEtcdV3Client(t TestCase) (*etcdv3.Client, []string) {
+func NewEtcdV3Client(t TestCase) *etcdv3.Client {
 	if os.Getenv("ETCDTESTS") == "" {
 		t.Skip("ETCDTESTS unset. Skipping etcd tests.")
 	}
@@ -42,5 +42,5 @@ func NewEtcdV3Client(t TestCase) (*etcdv3.Client, []string) {
 		t.Fatalf("failed to create etcdv3 client: %v", err)
 	}
 	//defer cli.Close()
-	return cli, peers
+	return cli
 }

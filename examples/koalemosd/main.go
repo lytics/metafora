@@ -52,7 +52,7 @@ func main() {
 	}
 	metafora.SetLogLevel(mlvl)
 
-	conf := metcdv3.NewConfig(*name, *namespace, hosts)
+	conf := metcdv3.NewConfig(*name, *namespace)
 
 	// Replace NewTask func with one that returns a *koalemos.Task
 	conf.NewTaskFunc = func(id, value string) metafora.Task {

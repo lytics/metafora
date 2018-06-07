@@ -18,7 +18,7 @@ const recursive = true
 // TestSleepTest is an integration test for all of m_etcd's components.
 //
 func TestSleepTest(t *testing.T) {
-	etcdv3c, hosts := testutil.NewEtcdV3Client(t)
+	etcdv3c := testutil.NewEtcdV3Client(t)
 	kvc := etcdv3.NewKV(etcdv3c)
 	t.Parallel()
 	const namespace = "/sleeptest-metafora"
@@ -44,7 +44,7 @@ func TestSleepTest(t *testing.T) {
 	}
 
 	newC := func(name, ns string) *metafora.Consumer {
-		conf := metcdv3.NewConfig(name, ns, hosts)
+		conf := metcdv3.NewConfig(name, ns)
 		coord, hf, bal := metcdv3.New(conf, etcdv3c, h)
 		cons, err := metafora.NewConsumer(coord, hf, bal)
 		if err != nil {
@@ -129,7 +129,7 @@ func TestSleepTest(t *testing.T) {
 // automated here over and over. This is far more reliable than expecting
 // developers to do adhoc testing of all of the m_etcd package's features.
 func TestAll(t *testing.T) {
-	etcdv3c, hosts := testutil.NewEtcdV3Client(t)
+	etcdv3c := testutil.NewEtcdV3Client(t)
 	kvc := etcdv3.NewKV(etcdv3c)
 	t.Parallel()
 
@@ -146,7 +146,7 @@ func TestAll(t *testing.T) {
 	}
 
 	newC := func(name, ns string) *metafora.Consumer {
-		conf := metcdv3.NewConfig(name, ns, hosts)
+		conf := metcdv3.NewConfig(name, ns)
 		conf.Name = name
 		coord, hf, bal := metcdv3.New(conf, etcdv3c, h)
 		cons, err := metafora.NewConsumer(coord, hf, bal)
@@ -316,7 +316,7 @@ func TestAll(t *testing.T) {
 // been deleted (marked as done). taskmgr has a non-integration version of this
 // test.
 func TestTaskResurrectionInt(t *testing.T) {
-	etcdv3c, hosts := testutil.NewEtcdV3Client(t)
+	etcdv3c := testutil.NewEtcdV3Client(t)
 	kvc := etcdv3.NewKV(etcdv3c)
 	c := context.Background()
 	t.Parallel()
@@ -325,7 +325,7 @@ func TestTaskResurrectionInt(t *testing.T) {
 
 	task := metcdv3.DefaultTaskFunc("xyz", "")
 
-	conf := metcdv3.NewConfig("testclient", "/test-resurrect", hosts)
+	conf := metcdv3.NewConfig("testclient", "/test-resurrect")
 	coord := metcdv3.NewEtcdV3Coordinator(conf, etcdv3c)
 	if err := coord.Init(nil); err != nil {
 		t.Fatalf("Error initializing coordinator: %v", err)
