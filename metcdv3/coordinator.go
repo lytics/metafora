@@ -113,6 +113,7 @@ func (ec *EtcdV3Coordinator) Watch(out chan<- metafora.Task) error {
 			if taskID == PropsPath {
 				_, taskID := path.Split(dir)
 				metafora.Debugf("%s received task with properties: %s", ec.name, taskID)
+				fmt.Printf("%s received task with properties: %s", ec.name, taskID)
 				if resp, err := ec.kvc.Get(c, path.Join(dir, OwnerPath), etcdv3.WithLimit(1)); err != nil {
 					metafora.Errorf("%s error getting properties while handling %s", ec.name, taskID)
 					return nil
