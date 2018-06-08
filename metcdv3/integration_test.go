@@ -106,7 +106,7 @@ func TestSleepTest(t *testing.T) {
 		cons2.Shutdown()
 	}()
 
-	timeout := time.NewTimer(1 * time.Second)
+	timeout := time.NewTimer(5 * time.Second)
 	select {
 	case <-wait1:
 	case <-timeout.C:
@@ -204,7 +204,7 @@ func TestAll(t *testing.T) {
 		if err := cmdr.Send("task1", statemachine.KillMessage()); err != nil {
 			t.Fatalf("Error sending kill to task1: %v", err)
 		}
-		time.Sleep(250 * time.Millisecond)
+		time.Sleep(500 * time.Millisecond)
 
 		for _, c := range []*metafora.Consumer{cons1a, cons2a} {
 			tasks := c.Tasks()

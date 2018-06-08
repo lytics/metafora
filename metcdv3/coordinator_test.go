@@ -97,8 +97,8 @@ func TestCoordinatorTC2(t *testing.T) {
 	}()
 
 	for _, taskid := range testTasks {
-		fmt.Printf("submitted task: %v", taskid)
 		err := mclient.SubmitTask(DefaultTaskFunc(taskid, ""))
+		fmt.Printf("submitted task: %v\n", taskid)
 		if err != nil {
 			t.Fatalf("Error submitting a task to metafora via the client.  Error:\n%v", err)
 		}
