@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path"
 	"sync/atomic"
 	"testing"
 
@@ -31,8 +30,8 @@ func setupEtcd(t *testing.T) (*etcdv3.Client, *EtcdV3Coordinator, *Config) {
 	client := testutil.NewEtcdV3Client(t)
 	kvc := etcdv3.NewKV(client)
 	n := atomic.AddUint64(&testcounter, 1)
-	ns := fmt.Sprintf("metaforatests-%d", n)
-	_, err := kvc.Delete(c, path.Join("/", ns), etcdv3.WithPrefix())
+	ns := fmt.Sprintf("/metaforatests-%d", n)
+	_, err := kvc.Delete(c, ns, etcdv3.WithPrefix())
 	if err != nil {
 		t.Errorf("failed to clean up namespace in etcd")
 	}

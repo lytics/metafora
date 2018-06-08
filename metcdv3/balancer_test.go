@@ -149,7 +149,7 @@ func TestFairBalancerShutdown(t *testing.T) {
 	cli.SubmitTask(DefaultTaskFunc("t5", ""))
 	cli.SubmitTask(DefaultTaskFunc("t6", ""))
 
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(1000 * time.Millisecond)
 
 	if len(con1.Tasks()) != 6 {
 		t.Fatalf("con1 should have claimed 6 tasks: %d", len(con1.Tasks()))
