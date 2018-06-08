@@ -113,12 +113,14 @@ func (ec *EtcdV3Coordinator) Watch(out chan<- metafora.Task) error {
 			if taskID == PropsPath {
 				_, taskID := path.Split(dir)
 				metafora.Debugf("%s received task with properties: %s", ec.name, taskID)
-				fmt.Printf("%s received task with properties: %s", ec.name, taskID)
+				fmt.Printf("%s received task with properties: %s\n", ec.name, taskID)
 				if resp, err := ec.kvc.Get(c, path.Join(dir, OwnerPath), etcdv3.WithLimit(1)); err != nil {
 					metafora.Errorf("%s error getting properties while handling %s", ec.name, taskID)
+					fmt.Printf("%s error getting properties while handling %s\n", ec.name, taskID)
 					return nil
 				} else if resp.Count == 1 {
 					metafora.Debugf("%s received claimed task: %s", ec.name, taskID)
+					fmt.Printf("%s received claimed task: %s\n", ec.name, taskID)
 					return nil
 				}
 				return ec.newTask(taskID, string(we.Value))
@@ -183,6 +185,7 @@ func (ec *EtcdV3Coordinator) Watch(out chan<- metafora.Task) error {
 	for _, kv := range getRes.Kvs {
 		key := string(kv.Key)
 		// FIXME Ask question about prop file and behavior
+		fmt.Println(key)
 		if base := path.Base(key); base == OwnerPath || base == MetadataPath {
 			continue
 		}
@@ -199,6 +202,7 @@ func (ec *EtcdV3Coordinator) Watch(out chan<- metafora.Task) error {
 			case <-ec.done:
 				return nil
 			case out <- task:
+				fmt.Printf("We definitely put %v on the out chan\n", task.ID())
 			}
 		}
 	}
