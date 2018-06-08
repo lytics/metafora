@@ -184,9 +184,7 @@ func (ec *EtcdV3Coordinator) Watch(out chan<- metafora.Task) error {
 
 	for _, kv := range getRes.Kvs {
 		key := string(kv.Key)
-		// FIXME Ask question about prop file and behavior
-		fmt.Println(key)
-		if base := path.Base(key); base == OwnerPath || base == MetadataPath {
+		if base := path.Base(key); base == OwnerPath || base == MetadataPath || base == PropsPath {
 			continue
 		}
 
@@ -225,7 +223,7 @@ func (ec *EtcdV3Coordinator) Watch(out chan<- metafora.Task) error {
 			}
 
 			key := string(watchEvent.Key)
-			if base := path.Base(key); base == MetadataPath {
+			if base := path.Base(key); base == MetadataPath || base == PropsPath {
 				continue
 			}
 

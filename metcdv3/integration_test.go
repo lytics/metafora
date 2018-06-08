@@ -174,7 +174,7 @@ func TestAll(t *testing.T) {
 	}
 
 	// Give consumers a bit to pick up tasks
-	time.Sleep(250 * time.Millisecond)
+	time.Sleep(500 * time.Millisecond)
 
 	assertRunning := func(tid string, cons ...*metafora.Consumer) {
 		found := false
