@@ -69,7 +69,7 @@ func (e *etcdClusterState) NodeTaskCount() (map[string]int, error) {
 		ownerPath := path.Base(string(kv.Key))
 		if ownerPath == OwnerPath {
 			ov := &ownerValue{}
-			err := json.Unmarshal(kv.Value, &ov)
+			err := json.Unmarshal(kv.Value, ov)
 			if err != nil {
 				return nil, err
 			}

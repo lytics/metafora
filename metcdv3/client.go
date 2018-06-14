@@ -14,16 +14,7 @@ import (
 )
 
 var (
-	//ErrNotOwner                    = errors.New("metafora etcd clientv3: not owner")
-	//ErrNotStarted                  = errors.New("metafora etcd clientv3: not started")
-	//ErrUnknownKey                  = errors.New("metafora etcd clientv3: unknown key")
-	//ErrNilEtcd                     = errors.New("metafora etcd clientv3: nil etcd")
-	//ErrAlreadyRegistered           = errors.New("metafora etcd clientv3: already registered")
-	//ErrFailedDeregistration        = errors.New("metafora etcd clientv3: failed deregistration")
-	//ErrUnknownNetAddressType       = errors.New("metafora etcd clientv3: unknown net address type")
-	//ErrWatchClosedUnexpectedly     = errors.New("metafora etcd clientv3: watch closed unexpectedly")
-	//ErrUnspecifiedNetAddressIP     = errors.New("metafora etcd clientv3: unspecified net address ip")
-
+	// ErrFailedSubmitTask because the task already existed most likely
 	ErrFailedSubmitTask            = errors.New("metafora etcdv3 client: failed submit task")
 	ErrLeaseDurationTooShort       = errors.New("metafora etcd clientv3: lease duration too short")
 	ErrKeepAliveClosedUnexpectedly = errors.New("metafora etcd clientv3: keep alive closed unexpectedly")
