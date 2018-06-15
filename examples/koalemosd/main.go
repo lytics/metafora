@@ -1,17 +1,19 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
 
-	"github.com/coreos/go-etcd/etcd"
+	etcdv3 "github.com/coreos/etcd/clientv3"
 	"github.com/lytics/metafora"
 	"github.com/lytics/metafora/examples/koalemos"
-	"github.com/lytics/metafora/m_etcd"
+	"github.com/lytics/metafora/metcdv3"
 )
 
 func main() {
@@ -25,7 +27,16 @@ func main() {
 	flag.Parse()
 
 	hosts := strings.Split(*peers, ",")
-	etcdc := etcd.NewClient(hosts)
+	etcdv3c, err := etcdv3.NewFromURLs(hosts)
+	if err != nil {
+		fmt.Printf("Unable to create to etcd clientv3: %s\n", err)
+		os.Exit(2)
+	}
+
+	if err := etcdv3c.Sync(context.Background()); err != nil {
+		fmt.Printf("Unable to connect to etcd cluster: %s\n", *peers)
+		os.Exit(2)
+	}
 
 	switch strings.ToLower(*loglvl) {
 	case "debug":
@@ -41,7 +52,7 @@ func main() {
 	}
 	metafora.SetLogLevel(mlvl)
 
-	conf := m_etcd.NewConfig(*name, *namespace, hosts)
+	conf := metcdv3.NewConfig(*name, *namespace)
 
 	// Replace NewTask func with one that returns a *koalemos.Task
 	conf.NewTaskFunc = func(id, value string) metafora.Task {
@@ -56,13 +67,13 @@ func main() {
 		return t
 	}
 
-	hfunc := makeHandlerFunc(etcdc)
-	ec, err := m_etcd.NewEtcdCoordinator(conf)
+	hfunc := makeHandlerFunc(etcdv3c)
+	ec := metcdv3.NewEtcdV3Coordinator(conf, etcdv3c)
 	if err != nil {
 		metafora.Errorf("Error creating etcd coordinator: %v", err)
 	}
 
-	bal := m_etcd.NewFairBalancer(conf)
+	bal := metcdv3.NewFairBalancer(conf, etcdv3c)
 	c, err := metafora.NewConsumer(ec, hfunc, bal)
 	if err != nil {
 		metafora.Errorf("Error creating consumer: %v", err)

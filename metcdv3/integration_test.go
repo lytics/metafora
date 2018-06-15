@@ -1,14 +1,15 @@
-package m_etcd_test
+package metcdv3_test
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
 
-	"github.com/coreos/go-etcd/etcd"
+	etcdv3 "github.com/coreos/etcd/clientv3"
 	"github.com/lytics/metafora"
-	"github.com/lytics/metafora/m_etcd"
-	"github.com/lytics/metafora/m_etcd/testutil"
+	"github.com/lytics/metafora/metcdv3"
+	"github.com/lytics/metafora/metcdv3/testutil"
 	"github.com/lytics/metafora/statemachine"
 )
 
@@ -17,12 +18,13 @@ const recursive = true
 // TestSleepTest is an integration test for all of m_etcd's components.
 //
 func TestSleepTest(t *testing.T) {
-	etcdc, hosts := testutil.NewEtcdClient(t)
+	etcdv3c := testutil.NewEtcdV3Client(t)
+	kvc := etcdv3.NewKV(etcdv3c)
 	t.Parallel()
-	const namespace = "sleeptest-metafora"
+	const namespace = "/sleeptest-metafora"
 	const sleepingtasks = "sleeping-task1"
 
-	etcdc.Delete(namespace, recursive)
+	kvc.Delete(context.Background(), namespace, etcdv3.WithPrefix())
 
 	holdtask := make(chan bool)
 	h := func(task metafora.Task, cmds <-chan *statemachine.Message) *statemachine.Message {
@@ -42,11 +44,8 @@ func TestSleepTest(t *testing.T) {
 	}
 
 	newC := func(name, ns string) *metafora.Consumer {
-		conf := m_etcd.NewConfig(name, ns, hosts)
-		coord, hf, bal, err := m_etcd.New(conf, h)
-		if err != nil {
-			t.Fatalf("Error creating new etcd stack: %v", err)
-		}
+		conf := metcdv3.NewConfig(name, ns)
+		coord, hf, bal := metcdv3.New(conf, etcdv3c, h)
 		cons, err := metafora.NewConsumer(coord, hf, bal)
 		if err != nil {
 			t.Fatalf("Error creating consumer %s:%s: %v", ns, name, err)
@@ -82,9 +81,9 @@ func TestSleepTest(t *testing.T) {
 	cons2 := newC("node2", namespace)
 
 	// Create clients and start some tests
-	cliA := m_etcd.NewClient(namespace, hosts)
+	cliA := metcdv3.NewClient(namespace, etcdv3c)
 
-	if err := cliA.SubmitTask(m_etcd.DefaultTaskFunc(sleepingtasks, "")); err != nil {
+	if err := cliA.SubmitTask(metcdv3.DefaultTaskFunc(sleepingtasks, "")); err != nil {
 		t.Fatalf("Error submitting task1 to a: %v", err)
 	}
 
@@ -107,7 +106,7 @@ func TestSleepTest(t *testing.T) {
 		cons2.Shutdown()
 	}()
 
-	timeout := time.NewTimer(1 * time.Second)
+	timeout := time.NewTimer(5 * time.Second)
 	select {
 	case <-wait1:
 	case <-timeout.C:
@@ -130,11 +129,13 @@ func TestSleepTest(t *testing.T) {
 // automated here over and over. This is far more reliable than expecting
 // developers to do adhoc testing of all of the m_etcd package's features.
 func TestAll(t *testing.T) {
-	etcdc, hosts := testutil.NewEtcdClient(t)
+	etcdv3c := testutil.NewEtcdV3Client(t)
+	kvc := etcdv3.NewKV(etcdv3c)
 	t.Parallel()
 
-	etcdc.Delete("test-a", recursive)
-	etcdc.Delete("test-b", recursive)
+	c := context.Background()
+	kvc.Delete(c, "/test-a", etcdv3.WithPrefix())
+	kvc.Delete(c, "/test-b", etcdv3.WithPrefix())
 
 	h := func(task metafora.Task, cmds <-chan *statemachine.Message) *statemachine.Message {
 		cmd := <-cmds
@@ -145,12 +146,9 @@ func TestAll(t *testing.T) {
 	}
 
 	newC := func(name, ns string) *metafora.Consumer {
-		conf := m_etcd.NewConfig(name, ns, hosts)
+		conf := metcdv3.NewConfig(name, ns)
 		conf.Name = name
-		coord, hf, bal, err := m_etcd.New(conf, h)
-		if err != nil {
-			t.Fatalf("Error creating new etcd stack: %v", err)
-		}
+		coord, hf, bal := metcdv3.New(conf, etcdv3c, h)
 		cons, err := metafora.NewConsumer(coord, hf, bal)
 		if err != nil {
 			t.Fatalf("Error creating consumer %s:%s: %v", ns, name, err)
@@ -159,24 +157,24 @@ func TestAll(t *testing.T) {
 		return cons
 	}
 	// Start 4 consumers, 2 per namespace
-	cons1a := newC("node1", "test-a")
-	cons2a := newC("node2", "test-a")
-	cons1b := newC("node1", "test-b")
-	cons2b := newC("node2", "test-b")
+	cons1a := newC("node1", "/test-a")
+	cons2a := newC("node2", "/test-a")
+	cons1b := newC("node1", "/test-b")
+	cons2b := newC("node2", "/test-b")
 
 	// Create clients and start some tests
-	cliA := m_etcd.NewClient("test-a", hosts)
-	cliB := m_etcd.NewClient("test-b", hosts)
+	cliA := metcdv3.NewClient("/test-a", etcdv3c)
+	cliB := metcdv3.NewClient("/test-b", etcdv3c)
 
-	if err := cliA.SubmitTask(m_etcd.DefaultTaskFunc("task1", "")); err != nil {
+	if err := cliA.SubmitTask(metcdv3.DefaultTaskFunc("task1", "")); err != nil {
 		t.Fatalf("Error submitting task1 to a: %v", err)
 	}
-	if err := cliB.SubmitTask(m_etcd.DefaultTaskFunc("task1", "")); err != nil {
+	if err := cliB.SubmitTask(metcdv3.DefaultTaskFunc("task1", "")); err != nil {
 		t.Fatalf("Error submitting task1 to b: %v", err)
 	}
 
 	// Give consumers a bit to pick up tasks
-	time.Sleep(250 * time.Millisecond)
+	time.Sleep(500 * time.Millisecond)
 
 	assertRunning := func(tid string, cons ...*metafora.Consumer) {
 		found := false
@@ -202,11 +200,11 @@ func TestAll(t *testing.T) {
 
 	// Kill task1 in A
 	{
-		cmdr := m_etcd.NewCommander("test-a", etcdc)
+		cmdr := metcdv3.NewCommander("/test-a", etcdv3c)
 		if err := cmdr.Send("task1", statemachine.KillMessage()); err != nil {
 			t.Fatalf("Error sending kill to task1: %v", err)
 		}
-		time.Sleep(250 * time.Millisecond)
+		time.Sleep(1000 * time.Millisecond)
 
 		for _, c := range []*metafora.Consumer{cons1a, cons2a} {
 			tasks := c.Tasks()
@@ -220,7 +218,7 @@ func TestAll(t *testing.T) {
 	{
 		tasks := []string{"task2", "task3", "task4", "task5", "task6", "task7"}
 		for _, tid := range tasks {
-			if err := cliA.SubmitTask(m_etcd.DefaultTaskFunc(tid, "")); err != nil {
+			if err := cliA.SubmitTask(metcdv3.DefaultTaskFunc(tid, "")); err != nil {
 				t.Fatalf("Error submitting task=%q to A: %v", tid, err)
 			}
 		}
@@ -267,7 +265,7 @@ func TestAll(t *testing.T) {
 	{
 		tasks := []string{"task8", "error-test"}
 		for _, tid := range tasks {
-			if err := cliB.SubmitTask(m_etcd.DefaultTaskFunc(tid, "")); err != nil {
+			if err := cliB.SubmitTask(metcdv3.DefaultTaskFunc(tid, "")); err != nil {
 				t.Fatalf("Error submitting task=%q to B: %v", tid, err)
 			}
 		}
@@ -281,7 +279,7 @@ func TestAll(t *testing.T) {
 		}
 
 		// Resuming error-test 8*2 times should cause it to be failed
-		cmdr := m_etcd.NewCommander("test-b", etcdc)
+		cmdr := metcdv3.NewCommander("/test-b", etcdv3c)
 		for i := 0; i < statemachine.DefaultErrMax*2; i++ {
 			if err := cmdr.Send("error-test", statemachine.RunMessage()); err != nil {
 				t.Fatalf("Unexpected error resuming error-test in B: %v", err)
@@ -295,7 +293,7 @@ func TestAll(t *testing.T) {
 		}
 
 		// Resubmitting a failed task shouldn't error but also shouldn't run.
-		if err := cliB.SubmitTask(m_etcd.DefaultTaskFunc("error-test", "")); err != nil {
+		if err := cliB.SubmitTask(metcdv3.DefaultTaskFunc("error-test", "")); err != nil {
 			t.Fatalf("Error resubmitting error-test task to B: %v", err)
 		}
 
@@ -312,46 +310,27 @@ func TestAll(t *testing.T) {
 	cons2a.Shutdown()
 	cons1b.Shutdown()
 	cons2b.Shutdown()
-
-	// Make sure everything is cleaned up
-	respA, err := etcdc.Get("/test-a/tasks", true, true)
-	if err != nil {
-		t.Fatalf("Error getting tasks from etcd: %v", err)
-	}
-	respB, err := etcdc.Get("/test-b/tasks", true, true)
-	if err != nil {
-		t.Fatalf("Error getting tasks from etcd: %v", err)
-	}
-
-	nodes := []*etcd.Node{}
-	nodes = append(nodes, respA.Node.Nodes...)
-	nodes = append(nodes, respB.Node.Nodes...)
-	for _, node := range nodes {
-		if len(node.Nodes) > 1 {
-			t.Fatalf("%s has %d (>1) nodes. First 2: %s, %s", node.Key, len(node.Nodes), node.Nodes[0].Key, node.Nodes[1].Key)
-		}
-	}
 }
 
 // TestTaskResurrectionInt ensures that a Claim won't recreate a task that had
 // been deleted (marked as done). taskmgr has a non-integration version of this
 // test.
 func TestTaskResurrectionInt(t *testing.T) {
-	etcdc, hosts := testutil.NewEtcdClient(t)
+	etcdv3c := testutil.NewEtcdV3Client(t)
+	kvc := etcdv3.NewKV(etcdv3c)
+	c := context.Background()
 	t.Parallel()
 
-	etcdc.Delete("test-resurrect", recursive)
+	kvc.Delete(c, "/test-resurrect", etcdv3.WithPrefix())
 
-	task := m_etcd.DefaultTaskFunc("xyz", "")
+	task := metcdv3.DefaultTaskFunc("xyz", "")
 
-	conf := m_etcd.NewConfig("testclient", "test-resurrect", hosts)
-	coord, err := m_etcd.NewEtcdCoordinator(conf)
-	if err != nil {
-		t.Fatalf("Error creating coordinator: %v", err)
-	}
+	conf := metcdv3.NewConfig("testclient", "/test-resurrect")
+	coord := metcdv3.NewEtcdV3Coordinator(conf, etcdv3c)
 	if err := coord.Init(nil); err != nil {
 		t.Fatalf("Error initializing coordinator: %v", err)
 	}
+	defer coord.Close()
 
 	// Try to claim a nonexistent
 	if claimed := coord.Claim(task); claimed {
@@ -359,8 +338,8 @@ func TestTaskResurrectionInt(t *testing.T) {
 	}
 
 	// Create a task, mark it as done, and try to claim it again
-	client := m_etcd.NewClient("test-resurrect", hosts)
-	if err := client.SubmitTask(m_etcd.DefaultTaskFunc("xyz", "")); err != nil {
+	client := metcdv3.NewClient("/test-resurrect", etcdv3c)
+	if err := client.SubmitTask(metcdv3.DefaultTaskFunc("xyz", "")); err != nil {
 		t.Fatalf("Error submitting task xyz: %v", err)
 	}
 

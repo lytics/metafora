@@ -1,4 +1,4 @@
-package m_etcd
+package metcdv3
 
 // NOTES
 //
@@ -12,29 +12,32 @@ package m_etcd
 // See: https://github.com/lytics/metafora/issues/31
 
 import (
+	"context"
 	"testing"
 
+	etcdv3 "github.com/coreos/etcd/clientv3"
 	"github.com/lytics/metafora"
-	"github.com/lytics/metafora/m_etcd/testutil"
+	"github.com/lytics/metafora/metcdv3/testutil"
 )
 
 const (
-	Namespace = `test`
-	NodesDir  = `/test/nodes`
-	Node1     = `node1`
-	Node1Path = NodesDir + `/` + Node1
+	Namespace = "test"
+	NodesDir  = "/test/nodes"
+	Node1     = "node1"
+	Node1Path = "/test/nodes/node1"
 )
 
 // TestNodes tests that client.Nodes() returns the metafora nodes
 // registered in etcd.
 func TestNodes(t *testing.T) {
-	eclient, hosts := testutil.NewEtcdClient(t)
-	const recursive = true
-	eclient.Delete(Node1Path, recursive)
+	c := context.Background()
+	eclient := testutil.NewEtcdV3Client(t)
+	kvc := etcdv3.NewKV(eclient)
+	eclient.Delete(c, Node1Path, etcdv3.WithPrefix())
 
-	mclient := NewClient(Namespace, hosts)
+	mclient := NewClient(Namespace, eclient)
 
-	if _, err := eclient.CreateDir(Node1Path, 0); err != nil {
+	if _, err := kvc.Put(c, Node1Path, "0"); err != nil {
 		t.Fatalf("AddChild %v returned error: %v", NodesDir, err)
 	}
 
@@ -51,9 +54,8 @@ func TestNodes(t *testing.T) {
 // the proper path in etcd, and that the same task id cannot be
 // submitted more than once.
 func TestSubmitTask(t *testing.T) {
-	_, hosts := testutil.NewEtcdClient(t)
-
-	mclient := NewClient(Namespace, hosts)
+	client := testutil.NewEtcdV3Client(t)
+	mclient := NewClient(Namespace, client)
 
 	task := DefaultTaskFunc("testid1", "")
 
@@ -73,17 +75,17 @@ func TestSubmitTask(t *testing.T) {
 // TestSubmitCommand tests that client.SubmitCommand(...) adds a command
 // to the proper node path in etcd, and that it can be read back.
 func TestSubmitCommand(t *testing.T) {
-	eclient, hosts := testutil.NewEtcdClient(t)
-
-	mclient := NewClient(Namespace, hosts)
+	eclient := testutil.NewEtcdV3Client(t)
+	kvc := etcdv3.NewKV(eclient)
+	mclient := NewClient(Namespace, eclient)
 
 	if err := mclient.SubmitCommand(Node1, metafora.CommandFreeze()); err != nil {
 		t.Fatalf("Unable to submit command.   error:%v", err)
 	}
 
-	if res, err := eclient.Get(NodesDir, false, false); err != nil {
+	if res, err := kvc.Get(context.Background(), NodesDir, etcdv3.WithPrefix()); err != nil {
 		t.Fatalf("Get on path %v returned error: %v", NodesDir, err)
-	} else if res.Node == nil || res.Node.Nodes == nil {
+	} else if res.Count == 0 {
 		t.Fatalf("Get on path %v returned nil for child nodes", NodesDir)
 	}
 }

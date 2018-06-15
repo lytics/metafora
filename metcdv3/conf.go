@@ -1,7 +1,8 @@
-package m_etcd
+package metcdv3
 
 import (
 	"fmt"
+	"path"
 	"strings"
 )
 
@@ -16,25 +17,6 @@ type Config struct {
 	// effectively limit Metafora to one process per server.
 	Name string
 
-	// Hosts are the URLs to create etcd clients with.
-	Hosts []string
-
-	// ClaimTTL is the timeout on task claim markers in seconds.
-	//
-	// Since every task must update its claim before the TTL expires, setting
-	// this lower will increase the load on etcd. Setting this setting higher
-	// increases the amount of time it takes a task to be rescheduled if the node
-	// it was running on shutsdown uncleanly (or is separated by a network
-	// partition).
-	//
-	// If 0 it is set to DefaultClaimTTL
-	ClaimTTL uint64
-
-	// NodeTTL is the timeout on the node's name entry in seconds.
-	//
-	// If 0 it is set to DefaultNodeTTL
-	NodeTTL uint64
-
 	// NewTaskFunc is the function called to unmarshal tasks from etcd into a
 	// custom struct. The struct must implement the metafora.Task interface.
 	//
@@ -46,19 +28,15 @@ type Config struct {
 // the others.
 //
 // Panics on empty values.
-func NewConfig(name, namespace string, hosts []string) *Config {
-	if len(hosts) == 0 || namespace == "" || name == "" {
+func NewConfig(name, namespace string) *Config {
+	if namespace == "" || name == "" {
 		panic("invalid etcd config")
 	}
 
-	namespace = "/" + strings.Trim(namespace, "/ ")
-
+	namespace = path.Join("/", strings.Trim(namespace, "/ "))
 	return &Config{
 		Name:        name,
 		Namespace:   namespace,
-		Hosts:       hosts,
-		ClaimTTL:    DefaultClaimTTL,
-		NodeTTL:     DefaultNodeTTL,
 		NewTaskFunc: DefaultTaskFunc,
 	}
 }
@@ -68,9 +46,6 @@ func (c *Config) Copy() *Config {
 	return &Config{
 		Name:        c.Name,
 		Namespace:   c.Namespace,
-		Hosts:       c.Hosts,
-		ClaimTTL:    c.ClaimTTL,
-		NodeTTL:     c.NodeTTL,
 		NewTaskFunc: c.NewTaskFunc,
 	}
 }

@@ -1,36 +1,40 @@
-package m_etcd_test
+package metcdv3
 
 import (
+	"context"
+	"fmt"
+	"path"
 	"testing"
 	"time"
 
+	etcdv3 "github.com/coreos/etcd/clientv3"
 	"github.com/lytics/metafora"
-	"github.com/lytics/metafora/m_etcd"
-	"github.com/lytics/metafora/m_etcd/testutil"
 	"github.com/lytics/metafora/statemachine"
 )
 
 func TestCommandListener(t *testing.T) {
 	t.Parallel()
 
-	// etcd clients are not safe for concurrent use, so create one for each
-	// component
-	cmdrclient, _ := testutil.NewEtcdClient(t)
-	clclient, _ := testutil.NewEtcdClient(t)
+	etcdv3c, _, conf := setupEtcd(t)
+	kvc := etcdv3.NewKV(etcdv3c)
 
-	const recursive = true
-	namespace := "cltest"
-	cmdrclient.Delete("/"+namespace, recursive)
+	namespace := "/cltest"
+	conf.Namespace = namespace
+	kvc.Delete(context.Background(), namespace, etcdv3.WithPrefix())
 
 	task := metafora.NewTask("testtask")
+	_, err := kvc.Put(context.Background(), path.Join(conf.Namespace, TasksPath, task.ID(), OwnerPath), fmt.Sprintf(`{"node":"%s"}`, conf.Name))
+	if err != nil {
+		t.Fatalf("Error creating fake claim: %v", err)
+	}
 
-	cmdr := m_etcd.NewCommander(namespace, cmdrclient)
+	cmdr := NewCommander(namespace, etcdv3c)
 
 	// Only the last command should be received once the listener is started
 	cmdr.Send(task.ID(), statemachine.PauseMessage())
 	cmdr.Send(task.ID(), statemachine.KillMessage())
 
-	cl := m_etcd.NewCommandListener(task, namespace, clclient)
+	cl := NewCommandListener(conf, task, etcdv3c)
 	defer cl.Stop()
 
 	// Ensure last command was received
@@ -39,7 +43,7 @@ func TestCommandListener(t *testing.T) {
 		if cmd.Code != statemachine.Kill {
 			t.Fatalf("Expected Kill message, received %v", cmd)
 		}
-	case <-time.After(3 * time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatal("CommandListener took too long to receive message")
 	}
 

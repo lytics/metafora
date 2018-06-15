@@ -1,14 +1,16 @@
-package m_etcd_test
+package metcdv3_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
 
+	etcdv3 "github.com/coreos/etcd/clientv3"
 	"github.com/lytics/metafora"
-	"github.com/lytics/metafora/m_etcd"
-	"github.com/lytics/metafora/m_etcd/testutil"
+	"github.com/lytics/metafora/metcdv3"
+	"github.com/lytics/metafora/metcdv3/testutil"
 	"github.com/lytics/metafora/statemachine"
 )
 
@@ -30,13 +32,14 @@ func (t *exTask) String() string {
 }
 
 func TestAltTask(t *testing.T) {
-	etcdc, hosts := testutil.NewEtcdClient(t)
+	etcdv3c := testutil.NewEtcdV3Client(t)
+	kvc := etcdv3.NewKV(etcdv3c)
+	c := context.Background()
 	t.Parallel()
-	const namespace = "alttask-metafora"
+	const namespace = "/alttask-metafora"
+	kvc.Delete(c, namespace, etcdv3.WithPrefix())
 
-	etcdc.Delete(namespace, recursive)
-
-	conf := m_etcd.NewConfig("testclient", namespace, hosts)
+	conf := metcdv3.NewConfig("testclient", namespace)
 
 	// Sample overridden NewTask func
 	conf.NewTaskFunc = func(id, props string) metafora.Task {
@@ -64,11 +67,7 @@ func TestAltTask(t *testing.T) {
 		return statemachine.PauseMessage()
 	}
 
-	coord, hf, bal, err := m_etcd.New(conf, h)
-	if err != nil {
-		t.Fatal(err)
-	}
-
+	coord, hf, bal := metcdv3.New(conf, etcdv3c, h)
 	consumer, err := metafora.NewConsumer(coord, hf, bal)
 	if err != nil {
 		t.Fatal(err)
@@ -76,7 +75,7 @@ func TestAltTask(t *testing.T) {
 	go consumer.Run()
 	defer consumer.Shutdown()
 
-	cli := m_etcd.NewClient(namespace, hosts)
+	cli := metcdv3.NewClient(namespace, etcdv3c)
 	if err := cli.SubmitTask(&exTask{id: "test1", UserID: "test2"}); err != nil {
 		t.Fatal(err)
 	}

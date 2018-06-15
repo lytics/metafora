@@ -11,7 +11,7 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/coreos/go-etcd/etcd"
+	etcdv3 "github.com/coreos/etcd/clientv3"
 	"github.com/lytics/metafora"
 	"github.com/lytics/metafora/examples/koalemos"
 )
@@ -117,7 +117,7 @@ func outFiles(name string) (io.WriteCloser, io.WriteCloser, error) {
 	return stdout, stderr, err
 }
 
-func makeHandlerFunc(c *etcd.Client) metafora.HandlerFunc {
+func makeHandlerFunc(c *etcdv3.Client) metafora.HandlerFunc {
 	return func(task metafora.Task) metafora.Handler {
 		return &shellHandler{task: task.(*koalemos.Task)}
 	}

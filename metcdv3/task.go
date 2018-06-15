@@ -1,4 +1,4 @@
-package m_etcd
+package metcdv3
 
 import "github.com/lytics/metafora"
 

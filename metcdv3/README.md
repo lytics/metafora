@@ -1,7 +1,7 @@
-metafora etcd client
+metafora etcdv3 client
 ====================
 
-See [Documentation/etcd.md](../Documentation/etcd.md) for details.
+See [Documentation/etcdv3.md](../Documentation/etcdv3.md) for details.
 
 Testing
 -------

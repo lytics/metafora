@@ -1,18 +1,21 @@
-package m_etcd
+package metcdv3
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
 	"sync/atomic"
 	"testing"
 
+	etcdv3 "github.com/coreos/etcd/clientv3"
 	"github.com/lytics/metafora"
-	"github.com/lytics/metafora/m_etcd/testutil"
+	"github.com/lytics/metafora/metcdv3/testutil"
 )
 
 func init() {
 	metafora.SetLogger(log.New(os.Stderr, "", log.Lmicroseconds|log.Lshortfile))
+	//metafora.SetLogLevel(metafora.LogLevelDebug)
 }
 
 var testcounter uint64
@@ -22,17 +25,19 @@ var testcounter uint64
 //  * Create and return an etcd client
 //  * Create and return an initial etcd coordinator
 //  * Clearing the test namespace in etcd
-func setupEtcd(t *testing.T) (*EtcdCoordinator, *Config) {
-	client, hosts := testutil.NewEtcdClient(t)
+func setupEtcd(t *testing.T) (*etcdv3.Client, *EtcdV3Coordinator, *Config) {
+	c := context.Background()
+	client := testutil.NewEtcdV3Client(t)
+	kvc := etcdv3.NewKV(client)
 	n := atomic.AddUint64(&testcounter, 1)
-	ns := fmt.Sprintf("metaforatests-%d", n)
-	client.Delete(ns, recursive)
-	conf := NewConfig("testclient", ns, hosts)
-	coord, err := NewEtcdCoordinator(conf)
+	ns := fmt.Sprintf("/metaforatests-%d", n)
+	_, err := kvc.Delete(c, ns, etcdv3.WithPrefix())
 	if err != nil {
-		t.Fatalf("Error creating etcd coordinator: %v", err)
+		t.Errorf("failed to clean up namespace in etcd")
 	}
-	return coord, conf
+	conf := NewConfig("testclient", ns)
+	coord := NewEtcdV3Coordinator(conf, client)
+	return client, coord, conf
 }
 
 type testLogger struct {

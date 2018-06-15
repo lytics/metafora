@@ -9,8 +9,9 @@ package testutil
 import (
 	"os"
 	"strings"
+	"time"
 
-	"github.com/coreos/go-etcd/etcd"
+	etcdv3 "github.com/coreos/etcd/clientv3"
 )
 
 // TestCase just defines the subset of *testing.T methods needed to avoid
@@ -21,27 +22,25 @@ type TestCase interface {
 }
 
 // NewEtcdClient creates a new etcd client for use by the metafora client during testing.
-func NewEtcdClient(t TestCase) (*etcd.Client, []string) {
+func NewEtcdV3Client(t TestCase) *etcdv3.Client {
 	if os.Getenv("ETCDTESTS") == "" {
 		t.Skip("ETCDTESTS unset. Skipping etcd tests.")
 	}
 
 	// This is the same ENV variable that etcdctl uses for peers.
 	peerAddrs := os.Getenv("ETCD_PEERS")
-
 	if peerAddrs == "" {
-		peerAddrs = "127.0.0.1:4001"
+		peerAddrs = "127.0.0.1:2379"
 	}
 
 	peers := strings.Split(peerAddrs, ",")
-
-	eclient := etcd.NewClient(peers)
-
-	if ok := eclient.SyncCluster(); !ok {
-		t.Fatalf("Cannot sync etcd cluster using peers: %v", strings.Join(peers, ", "))
+	cli, err := etcdv3.New(etcdv3.Config{
+		Endpoints:   peers,
+		DialTimeout: 5 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("failed to create etcdv3 client: %v", err)
 	}
-
-	eclient.SetConsistency(etcd.STRONG_CONSISTENCY)
-
-	return eclient, peers
+	//defer cli.Close()
+	return cli
 }

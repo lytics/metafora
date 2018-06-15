@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"math/rand"
@@ -8,13 +9,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/coreos/go-etcd/etcd"
+	etcdv3 "github.com/coreos/etcd/clientv3"
 	"github.com/lytics/metafora/examples/koalemos"
-	"github.com/lytics/metafora/m_etcd"
+	"github.com/lytics/metafora/metcdv3"
 )
 
 func main() {
-	peers := flag.String("etcd", "127.0.0.1:4001", "comma delimited etcd peer list")
+	peers := flag.String("etcd", "127.0.0.1:2379", "comma delimited etcd peer list")
 	namespace := flag.String("namespace", "koalemos", "metafora namespace")
 	flag.Parse()
 
@@ -25,9 +26,13 @@ func main() {
 	}
 
 	hosts := strings.Split(*peers, ",")
-	ec := etcd.NewClient(hosts)
+	etcdv3c, err := etcdv3.NewFromURLs(hosts)
+	if err != nil {
+		fmt.Printf("Unable to create to etcd clientv3: %s\n", err)
+		os.Exit(2)
+	}
 
-	if !ec.SyncCluster() {
+	if err := etcdv3c.Sync(context.Background()); err != nil {
 		fmt.Printf("Unable to connect to etcd cluster: %s\n", *peers)
 		os.Exit(2)
 	}
@@ -38,7 +43,7 @@ func main() {
 	task.Args = args
 
 	// Finally create the task for metafora
-	mc := m_etcd.NewClient(*namespace, hosts)
+	mc := metcdv3.NewClient(*namespace, etcdv3c)
 	if err := mc.SubmitTask(task); err != nil {
 		fmt.Println("Error submitting task:", task.ID())
 		os.Exit(2)

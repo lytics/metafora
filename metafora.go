@@ -225,12 +225,11 @@ func (c *Consumer) close() {
 
 // shutdown is the actual shutdown logic called when Run() exits.
 func (c *Consumer) shutdown() {
-	Debug("Closing Coordinator ", c)
-	c.coord.Close()
+	c.close()
 
 	// Build list of of currently running tasks
 	runningtasks := c.Tasks()
-	Infof("Coordinator closed. Sending stop signal to %d handler(s)", len(runningtasks))
+	Infof("Sending stop signal to %d handler(s)", len(runningtasks))
 
 	for _, rt := range runningtasks {
 		c.stopTask(rt.Task().ID())
@@ -238,6 +237,9 @@ func (c *Consumer) shutdown() {
 
 	Info(c, " Waiting for handlers to exit")
 	c.hwg.Wait()
+
+	Debug("Closing Coordinator ", c)
+	c.coord.Close()
 }
 
 // Shutdown stops the main Run loop, calls Stop on all handlers, and calls
