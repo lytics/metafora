@@ -2,7 +2,6 @@ package metcdv3
 
 import (
 	"context"
-	"fmt"
 	"path"
 	"strings"
 	"testing"
@@ -98,7 +97,6 @@ func TestCoordinatorTC2(t *testing.T) {
 
 	for _, taskid := range testTasks {
 		err := mclient.SubmitTask(DefaultTaskFunc(taskid, ""))
-		fmt.Printf("submitted task: %v on namespace: %v\n", taskid, conf.Namespace)
 		if err != nil {
 			t.Fatalf("Error submitting a task to metafora via the client.  Error:\n%v", err)
 		}

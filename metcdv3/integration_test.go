@@ -204,7 +204,7 @@ func TestAll(t *testing.T) {
 		if err := cmdr.Send("task1", statemachine.KillMessage()); err != nil {
 			t.Fatalf("Error sending kill to task1: %v", err)
 		}
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(1000 * time.Millisecond)
 
 		for _, c := range []*metafora.Consumer{cons1a, cons2a} {
 			tasks := c.Tasks()
