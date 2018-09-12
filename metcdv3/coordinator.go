@@ -31,7 +31,6 @@ type EtcdV3Coordinator struct {
 
 	closeOnce *sync.Once
 
-	failure       chan error
 	done          chan bool
 	exited        chan bool
 	etcdv3c       *etcdv3.Client
@@ -419,7 +418,6 @@ func (ec *EtcdV3Coordinator) Init(cordCtx metafora.CoordinatorContext) error {
 	//     2) The Client fails to signal keep-alive on it
 	//        lease repeatedly, in which case it will cancel
 	//        its context and exit.
-	ec.failure = make(chan error, 1)
 	go func() {
 		defer close(ec.exited)
 
@@ -447,15 +445,11 @@ func (ec *EtcdV3Coordinator) Init(cordCtx metafora.CoordinatorContext) error {
 						return
 					default:
 					}
-					select {
-					case ec.failure <- ErrKeepAliveClosedUnexpectedly:
-						// Testing hook.
-						if stats != nil {
-							stats.failure++
-						}
-						metafora.Infof("metafora etcdv3 coordinator: %v: keep alive closed unexpectedly", ec.name)
-					default:
+					// Testing hook.
+					if stats != nil {
+						stats.failure++
 					}
+					panic(fmt.Sprintf("metafora etcdv3 coordinator: %v: keep alive closed unexpectedly", ec.name))
 					return
 				}
 				metafora.Infof("metafora etcdv3 coordinator: %v: keep alive responded with heartbeat TTL: %vs", ec.name, res.TTL)
