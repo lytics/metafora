@@ -73,7 +73,8 @@ func main() {
 		metafora.Errorf("Error creating etcd coordinator: %v", err)
 	}
 
-	bal := metcdv3.NewFairBalancer(conf, etcdv3c)
+	filter := func(_ *metcdv3.FilterableValue) bool { return true }
+	bal := metcdv3.NewFairBalancer(conf, etcdv3c, filter)
 	c, err := metafora.NewConsumer(ec, hfunc, bal)
 	if err != nil {
 		metafora.Errorf("Error creating consumer: %v", err)

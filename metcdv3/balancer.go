@@ -11,12 +11,13 @@ import (
 
 // NewFairBalancer creates a new metafora.DefaultFairBalancer that uses etcd
 // for counting tasks per node.
-func NewFairBalancer(conf *Config, etcdv3c *etcdv3.Client) metafora.Balancer {
+func NewFairBalancer(conf *Config, etcdv3c *etcdv3.Client, filter func(*FilterableValue) bool) metafora.Balancer {
 	e := etcdClusterState{
 		etcdv3c:  etcdv3c,
 		kvc:      etcdv3.NewKV(etcdv3c),
 		taskPath: path.Join(conf.Namespace, TasksPath),
 		nodePath: path.Join(conf.Namespace, NodesPath),
+		filter:   filter,
 	}
 	return metafora.NewDefaultFairBalancer(conf.Name, &e)
 }
@@ -27,6 +28,11 @@ type etcdClusterState struct {
 	kvc      etcdv3.KV
 	taskPath string
 	nodePath string
+	filter   func(*FilterableValue) bool
+}
+
+type FilterableValue struct {
+	Name string
 }
 
 func (e *etcdClusterState) NodeTaskCount() (map[string]int, error) {
@@ -75,6 +81,9 @@ func (e *etcdClusterState) NodeTaskCount() (map[string]int, error) {
 			}
 			// We want to only include those nodes which were initially included,
 			// as some nodes may be shutting down, etc, and should not be counted
+			if !e.filter(&FilterableValue{Name: ov.Node}) {
+				continue
+			}
 			if _, ok := state[ov.Node]; ok {
 				state[ov.Node]++
 			}

@@ -24,14 +24,15 @@ func TestFairBalancer(t *testing.T) {
 		return false // never done
 	})
 
+	filter := func(_ *FilterableValue) bool { return true }
 	// Create two consumers
-	b1 := NewFairBalancer(conf1, etcdv3c)
+	b1 := NewFairBalancer(conf1, etcdv3c, filter)
 	con1, err := metafora.NewConsumer(coord1, h, b1)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	b2 := NewFairBalancer(conf2, etcdv3c)
+	b2 := NewFairBalancer(conf2, etcdv3c, filter)
 	con2, err := metafora.NewConsumer(coord2, h, b2)
 	if err != nil {
 		t.Fatal(err)
@@ -126,14 +127,15 @@ func TestFairBalancerShutdown(t *testing.T) {
 		return false // never done
 	})
 
+	filter := func(_ *FilterableValue) bool { return true }
 	// Create two consumers
-	b1 := NewFairBalancer(conf1, etcdv3c)
+	b1 := NewFairBalancer(conf1, etcdv3c, filter)
 	con1, err := metafora.NewConsumer(coord1, h1, b1)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	b2 := NewFairBalancer(conf2, etcdv3c)
+	b2 := NewFairBalancer(conf2, etcdv3c, filter)
 	con2, err := metafora.NewConsumer(coord2, h2, b2)
 	if err != nil {
 		t.Fatal(err)
