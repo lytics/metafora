@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	etcdv3 "github.com/coreos/etcd/clientv3"
+	etcdv3 "go.etcd.io/etcd/clientv3"
 	"github.com/lytics/metafora/examples/koalemos"
 	"github.com/lytics/metafora/metcdv3"
 )
@@ -39,7 +39,8 @@ func main() {
 
 	rand.Seed(time.Now().UnixNano())
 
-	task := koalemos.NewTask(fmt.Sprintf("%x", rand.Int63()))
+	//task := koalemos.NewTask(fmt.Sprintf("%x", rand.Int63()))
+	task := koalemos.NewTask(fmt.Sprintf("%x", "123456789"))
 	task.Args = args
 
 	// Finally create the task for metafora

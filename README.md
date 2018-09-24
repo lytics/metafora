@@ -44,7 +44,7 @@ is a sample consumer implementation that can be run as a daemon
 is a sample command line client for submitting tasks to `koalemosd`.
 
 ```sh
-# Install etcd as per https://github.com/coreos/etcd#getting-etcd
+# Install etcd as per https://github.com/etcd-io/etcd#getting-etcd
 # Run the following in one terminal:
 go get -v -u github.com/lytics/metafora/examples/koalemosd
 koalemosd
@@ -68,7 +68,7 @@ href="balancer.go">balancer.go</a>.</td>
 </tr>
 <tr>
 <th>Broker</th><td>external task and command store like
-<a href="https://github.com/coreos/etcd">etcd</a> for the <i>Coordinator</i> to
+<a href="https://github.com/etcd-io/etcd">etcd</a> for the <i>Coordinator</i> to
 use.</td>
 </tr>
 <th>Consumer</th><td>core work runner. Integrates <i>Balancer</i>,
