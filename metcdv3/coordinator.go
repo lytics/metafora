@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	etcdv3 "github.com/coreos/etcd/clientv3"
+	etcdv3 "go.etcd.io/etcd/clientv3"
 	"github.com/lytics/metafora"
 	"github.com/lytics/metafora/statemachine"
 )
