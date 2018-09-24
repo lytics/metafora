@@ -3,7 +3,7 @@
 Requires etcd v2. See [travis.yml](../.travis.yml) to see what version of etcd
 automated tests are run against.
 
-Metafora contains an [etcd](https://github.com/coreos/etcd) implementation of
+Metafora contains an [etcd](https://github.com/etcd-io/etcd) implementation of
 the core
 [`Coordinator`](https://godoc.org/github.com/lytics/metafora#Coordinator) and
 [`Client`](http://godoc.org/github.com/lytics/metafora#Client) interfaces, so
@@ -109,5 +109,5 @@ See [`statemachine`'s Documentation](../statemachine/README.md) for details.
 
 [The etcd API](https://coreos.com/docs/distributed-configuration/etcd-api/)
 
-[etcd cli tool](https://github.com/coreos/etcdctl)
+[etcd cli tool](https://github.com/etcd-io/etcdctl)
 
