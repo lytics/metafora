@@ -56,8 +56,9 @@ func New(conf *Config, etcdv3c *etcdv3.Client, h statemachine.StatefulHandler) (
 	// Create an etcd coordinator
 	coord := NewEtcdV3Coordinator(conf, etcdv3c)
 
+	filter := func(_ *FilterableValue) bool { return true }
 	// Create an etcd backed Fair Balancer (there's no harm in not using it)
-	bal := NewFairBalancer(conf, etcdv3c)
+	bal := NewFairBalancer(conf, etcdv3c, filter)
 	return coord, hf, bal
 }
 
