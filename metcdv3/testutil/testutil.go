@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	etcdv3 "github.com/coreos/etcd/clientv3"
+	etcdv3 "go.etcd.io/etcd/clientv3"
 )
 
 // TestCase just defines the subset of *testing.T methods needed to avoid
