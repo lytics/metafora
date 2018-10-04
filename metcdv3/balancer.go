@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"path"
 
-	etcdv3 "go.etcd.io/etcd/clientv3"
 	"github.com/lytics/metafora"
+	etcdv3 "go.etcd.io/etcd/clientv3"
 )
 
 // NewFairBalancer creates a new metafora.DefaultFairBalancer that uses etcd
@@ -53,7 +53,7 @@ func (e *etcdClusterState) NodeTaskCount() (map[string]int, error) {
 		// We're guarunteed to find nodes under the _metadata path (created on Coordinator startup)
 		dir, _ := path.Split(string(kv.Key))
 		dir, node := path.Split(path.Clean(dir))
-		if path.Clean(dir) == e.nodePath {
+		if path.Clean(dir) == e.nodePath && !e.filter(&FilterableValue{Name: node}) {
 			state[node] = 0
 		}
 	}
@@ -81,9 +81,6 @@ func (e *etcdClusterState) NodeTaskCount() (map[string]int, error) {
 			}
 			// We want to only include those nodes which were initially included,
 			// as some nodes may be shutting down, etc, and should not be counted
-			if !e.filter(&FilterableValue{Name: ov.Node}) {
-				continue
-			}
 			if _, ok := state[ov.Node]; ok {
 				state[ov.Node]++
 			}

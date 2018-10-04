@@ -93,6 +93,86 @@ func TestFairBalancer(t *testing.T) {
 	}
 }
 
+func TestFairBalancerFilter(t *testing.T) {
+	t.Parallel()
+	etcdv3c, coord1, conf1 := setupEtcd(t)
+	defer etcdv3c.Close()
+	conf2 := conf1.Copy()
+	conf2.Name = "coord2"
+	coord2 := NewEtcdV3Coordinator(conf2, etcdv3c)
+
+	cli := NewClient(conf1.Namespace, etcdv3c)
+
+	h := metafora.SimpleHandler(func(task metafora.Task, stop <-chan bool) bool {
+		metafora.Debugf("Starting %s", task.ID())
+		<-stop
+		metafora.Debugf("Stopping %s", task.ID())
+		return false // never done
+	})
+
+	filter := func(fv *FilterableValue) bool {
+		if fv.Name != conf1.Name {
+			return false
+		}
+		return true
+	}
+	// Create two consumers
+	b1 := NewFairBalancer(conf1, etcdv3c, filter)
+	con1, err := metafora.NewConsumer(coord1, h, b1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	filter2 := func(fv *FilterableValue) bool {
+		if fv.Name != conf2.Name {
+			return false
+		}
+		return true
+	}
+	b2 := NewFairBalancer(conf2, etcdv3c, filter2)
+	con2, err := metafora.NewConsumer(coord2, h, b2)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Start the first and let it claim a bunch of tasks
+	go con1.Run()
+	defer con1.Shutdown()
+	cli.SubmitTask(DefaultTaskFunc("t1", ""))
+	cli.SubmitTask(DefaultTaskFunc("t2", ""))
+	cli.SubmitTask(DefaultTaskFunc("t3", ""))
+	cli.SubmitTask(DefaultTaskFunc("t4", ""))
+	cli.SubmitTask(DefaultTaskFunc("t5", ""))
+	cli.SubmitTask(DefaultTaskFunc("t6", ""))
+	cli.SubmitTask(DefaultTaskFunc("t7", ""))
+	cli.SubmitTask(DefaultTaskFunc("t8", ""))
+	cli.SubmitTask(DefaultTaskFunc("t9", ""))
+
+	time.Sleep(5 * time.Second)
+
+	if len(con1.Tasks()) != 9 {
+		t.Fatalf("con1 should have claimed 9 tasks: %d", len(con1.Tasks()))
+	}
+
+	// Start the second consumer and force the 1st to rebalance
+	go con2.Run()
+	defer con2.Shutdown()
+
+	// Wait for node to startup and register
+	time.Sleep(1 * time.Second)
+
+	cli.SubmitCommand(conf1.Name, metafora.CommandBalance())
+
+	time.Sleep(2 * time.Second)
+
+	// Make sure that balancing never happened
+	c2Tasks := con2.Tasks()
+	if len(c2Tasks) != 0 {
+		t.Fatalf("expected no tasks to be rebalanced but got: %d", len(c2Tasks))
+	}
+
+}
+
 // Fair balancer shouldn't consider a shutting-down node
 // See https://github.com/lytics/metafora/issues/92
 func TestFairBalancerShutdown(t *testing.T) {
