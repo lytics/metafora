@@ -6,7 +6,7 @@ Koalemos
 
 Example daemon that uses Metafora for distributed task running.
 
-Koalemos uses [etcd](https://go.etcd.io/etcd) to distribute tasks that
+Koalemos uses [etcd](https://github.com/coreos/etcd) to distribute tasks that
 execute shell commands. It's meant as an example and **not intended for
 production use.**
 
@@ -20,7 +20,7 @@ If you want distributed process management, please check out the following proje
 Installation
 ------------
 
-First install `etcd` either via https://go.etcd.io/etcd#getting-started or the
+First install `etcd` either via https://github.com/coreos/etcd#getting-started or the
 [docker_run_etcd.sh](../scripts/docker_run_etcd.sh) script.
 
 Then the koalemos daemon and command line tool:

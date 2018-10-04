@@ -6,7 +6,8 @@ import (
 	"path"
 
 	"github.com/lytics/metafora"
-	etcdv3 "go.etcd.io/etcd/clientv3"
+
+	etcdv3 "github.com/coreos/etcd/clientv3"
 )
 
 // NewFairBalancer creates a new metafora.DefaultFairBalancer that uses etcd

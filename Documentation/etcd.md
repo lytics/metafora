@@ -3,7 +3,7 @@
 Requires etcd v2. See [travis.yml](../.travis.yml) to see what version of etcd
 automated tests are run against.
 
-Metafora contains an [etcd](https://go.etcd.io/etcd) implementation of
+Metafora contains an [etcd](https://github.com/coreos/etcd) implementation of
 the core
 [`Coordinator`](https://godoc.org/github.com/lytics/metafora#Coordinator) and
 [`Client`](http://godoc.org/github.com/lytics/metafora#Client) interfaces, so
@@ -16,7 +16,7 @@ that implementing Metafora with etcd in your own work system is quick and easy.
 └── <namespace>
     ├── nodes
     │   └── <node_id>          Ephemeral
-    │       └── commands
+    │       └── commands  
     │           └── <command>  JSON value
     │
     ├── tasks

@@ -7,14 +7,15 @@ import (
 	"testing"
 	"time"
 
-	etcdv3 "go.etcd.io/etcd/clientv3"
 	"github.com/lytics/metafora"
+
+	etcdv3 "github.com/coreos/etcd/clientv3"
 )
 
 /*
 	Running the Integration Test:
 
-ETCDTESTS=1 go test -v ./...
+go test -v ./...
 */
 
 func TestCoordinatorFirstNodeJoiner(t *testing.T) {
