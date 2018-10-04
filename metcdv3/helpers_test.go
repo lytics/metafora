@@ -8,9 +8,9 @@ import (
 	"sync/atomic"
 	"testing"
 
-	etcdv3 "go.etcd.io/etcd/clientv3"
 	"github.com/lytics/metafora"
 	"github.com/lytics/metafora/metcdv3/testutil"
+	etcdv3 "go.etcd.io/etcd/clientv3"
 )
 
 func init() {
@@ -21,7 +21,6 @@ func init() {
 var testcounter uint64
 
 // setupEtcd should be used for all etcd integration tests. It handles the following tasks:
-//  * Skip tests if ETCDTESTS is unset
 //  * Create and return an etcd client
 //  * Create and return an initial etcd coordinator
 //  * Clearing the test namespace in etcd
