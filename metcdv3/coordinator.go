@@ -388,7 +388,7 @@ func (ec *EtcdV3Coordinator) Name() string {
 	return ec.name
 }
 
-// Start an mclient.
+// Init starts an mclient.
 func (ec *EtcdV3Coordinator) Init(cordCtx metafora.CoordinatorContext) error {
 	ec.cordCtx = cordCtx
 

@@ -36,7 +36,7 @@ type Handler interface {
 // of work necessary to initialize a handler should be done.
 type HandlerFunc func(Task) Handler
 
-// SimpleHander creates a HandlerFunc for a simple function that accepts a stop
+// SimpleHandler creates a HandlerFunc for a simple function that accepts a stop
 // channel. The channel will be closed when Stop is called.
 func SimpleHandler(f func(t Task, stop <-chan bool) bool) HandlerFunc {
 	return func(t Task) Handler {
