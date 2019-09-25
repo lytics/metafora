@@ -2,8 +2,8 @@ language: go
 script: go test -race -cpu 1,2,4 -v -timeout 5m ./...
 sudo: false
 go:
-  - 1.9.x
-  - 1.10.x
+  - 1.12.x
+  - 1.13.x
 notifications:
   webhooks:
     urls:
@@ -14,5 +14,3 @@ notifications:
 before_script:
   - curl -sL https://github.com/coreos/etcd/releases/download/v3.3.7/etcd-v3.3.7-linux-amd64.tar.gz | tar xz
   - etcd-v3.3.7-linux-amd64/etcd 2> /dev/null &
-before_install:
-  - go get -t -v ./...
