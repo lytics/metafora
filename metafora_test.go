@@ -1,14 +1,13 @@
 package metafora
 
 import (
-	"flag"
+	"os"
 	"testing"
 	"time"
 )
 
 func init() {
-	flag.Parse()
-	if !testing.Verbose() {
+	if os.Getenv("VERBOSE_TESTS") != "" {
 		SetLogger(testlogger{})
 	}
 }
