@@ -442,7 +442,7 @@ func (c *Consumer) handleCommand(cmd Command) {
 			Error(c, " Stop task command didn't contain a valid task", c)
 			return
 		}
-		Info("%s Stopping task %s due to command", c, task)
+		Infof("%s Stopping task %s due to command", c, task)
 		c.stopTask(task)
 	default:
 		Warnf("%s Discarding unknown command: %s", c, cmd.Name())
