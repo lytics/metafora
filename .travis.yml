@@ -14,5 +14,5 @@ notifications:
     on_failure: "always"  # options: [always|never|change] default: always
     on_start: false     # default: false
 before_script:
-  - curl -sL https://github.com/coreos/etcd/releases/download/v3.3.7/etcd-v3.3.7-linux-amd64.tar.gz | tar xz
+  - curl -sL https://github.com/etcd-io/etcd/releases/download/v3.3.7/etcd-v3.3.7-linux-amd64.tar.gz | tar xz
   - etcd-v3.3.7-linux-amd64/etcd 2> /dev/null &

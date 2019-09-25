@@ -11,7 +11,7 @@ const (
 
 	//Etcd Error codes are passed directly through go-etcd from the http response,
 	//So to find the error codes use this ref:
-	//       https://github.com/coreos/etcd/blob/master/error/error.go#L67
+	//       https://go.etcd.io/etcd/blob/master/error/error.go#L67
 	EcodeKeyNotFound   = 100
 	EcodeCompareFailed = 101
 	EcodeNodeExist     = 105
