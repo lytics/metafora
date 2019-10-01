@@ -1,0 +1,43 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "go_default_library",
+    srcs = [
+        "balancer.go",
+        "client.go",
+        "commander.go",
+        "conf.go",
+        "const.go",
+        "coordinator.go",
+        "doc.go",
+        "statestore.go",
+        "task.go",
+    ],
+    importpath = "github.com/lytics/metafora/metcdv3",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//:go_default_library",
+        "//statemachine:go_default_library",
+        "@io_etcd_go_etcd//clientv3:go_default_library",
+    ],
+)
+
+go_test(
+    name = "go_default_test",
+    srcs = [
+        "balancer_test.go",
+        "client_test.go",
+        "commander_test.go",
+        "coordinator_test.go",
+        "helpers_test.go",
+        "integration_test.go",
+        "task_test.go",
+    ],
+    embed = [":go_default_library"],
+    deps = [
+        "//:go_default_library",
+        "//metcdv3/testutil:go_default_library",
+        "//statemachine:go_default_library",
+        "@io_etcd_go_etcd//clientv3:go_default_library",
+    ],
+)
