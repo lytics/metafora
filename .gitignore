@@ -32,3 +32,6 @@ cover.out
 cmd/metaforactl/metaforactl
 examples/koalemosd/koalemosd
 examples/koalemosctl/koalemosctl
+
+# bazel local only
+bazel-*
