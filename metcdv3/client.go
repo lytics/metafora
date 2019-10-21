@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"time"
 
-	etcdv3 "go.etcd.io/etcd/clientv3"
 	"github.com/lytics/metafora"
+	etcdv3 "go.etcd.io/etcd/clientv3"
 )
 
 var (
@@ -131,4 +131,25 @@ func (mc *mclient) Nodes() ([]string, error) {
 	}
 
 	return nil, nil
+}
+
+func (mc *mclient) Tasks() ([]string, error) {
+	res, err := mc.kvc.Get(
+		context.Background(),
+		path.Join("/", mc.namespace, TasksPath),
+		etcdv3.WithPrefix())
+	if err != nil {
+		return nil, err
+	}
+
+	var tasks []string
+	for _, kv := range res.Kvs {
+		key := string(kv.Key)
+		if base := path.Base(key); base == OwnerPath || base == MetadataPath || base == PropsPath {
+			continue
+		} else {
+			tasks = append(tasks, base)
+		}
+	}
+	return tasks, nil
 }
