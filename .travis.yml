@@ -4,7 +4,6 @@ env:
 script: go test -race -cpu 1,2,4 -v -timeout 5m ./...
 sudo: false
 go:
-  - 1.12.x
   - 1.13.x
 notifications:
   webhooks:
