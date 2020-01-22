@@ -1,10 +1,12 @@
 package statemachine_test
 
 import (
+	"errors"
 	"testing"
 	"time"
 
 	. "github.com/lytics/metafora/statemachine"
+	"github.com/stretchr/testify/assert"
 )
 
 type task string
@@ -41,4 +43,19 @@ func TestDefaultErrHandler(t *testing.T) {
 			t.Fatalf("Expected error handler to permanently fail but receied: %s", msg)
 		}
 	}
+}
+
+type errType1 struct{ error }
+type errType2 struct { error }
+
+func TestErr(t *testing.T) {
+	err := errType1{errors.New("some underlying error")}
+	se := NewErr(err, time.Now())
+
+	// confirm se implements the error interface
+	assert.Implements(t, (*error)(nil), se)
+
+	// confirm we can only convert se to an error of the same underlying type
+	assert.True(t, errors.As(se, new(errType1)))
+	assert.False(t, errors.As(se, new(errType2)))
 }
