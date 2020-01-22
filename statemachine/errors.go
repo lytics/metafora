@@ -16,17 +16,21 @@ var ExceededErrorRate = errors.New("exceeded error rate")
 type Err struct {
 	Time    time.Time `json:"timestamp"`
 	Err     string    `json:"error"`
-	error
+	baseErr error
 }
 
 // NewErr constructs an Err
 func NewErr(e error, t time.Time) Err {
-	return Err{Err: e.Error(), Time: t, error: e}
+	return Err{Err: e.Error(), Time: t, baseErr: e}
+}
+
+func (e Err) Error() string {
+	return e.Err
 }
 
 // As implements the error interface for Err
 func (e Err) As(target interface{}) bool {
-	return errors.As(e.error, target)
+	return errors.As(e.baseErr, target)
 }
 
 // ErrHandler functions should return Run, Sleep, or Fail messages depending on

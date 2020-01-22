@@ -7,6 +7,7 @@ import (
 
 	. "github.com/lytics/metafora/statemachine"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type task string
@@ -46,7 +47,7 @@ func TestDefaultErrHandler(t *testing.T) {
 }
 
 type errType1 struct{ error }
-type errType2 struct { error }
+type errType2 struct{ error }
 
 func TestErr(t *testing.T) {
 	err := errType1{errors.New("some underlying error")}
@@ -58,4 +59,10 @@ func TestErr(t *testing.T) {
 	// confirm we can only convert se to an error of the same underlying type
 	assert.True(t, errors.As(se, new(errType1)))
 	assert.False(t, errors.As(se, new(errType2)))
+
+	// make sure we don't panic if someone uses it the old way and baseErr is nil
+	se = Err{Time: time.Now(), Err: "something bad"}
+	require.NotPanics(t, func() { _ = se.Error() })
+	assert.Equal(t, "something bad", se.Error())
+	assert.False(t, errors.As(se, new(errType1)))
 }
