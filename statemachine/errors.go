@@ -13,22 +13,29 @@ import (
 var ExceededErrorRate = errors.New("exceeded error rate")
 
 // Err represents an error that occurred while a stateful handler was running.
+//
+// NewErr was added to allow callers to construct an instance from an underlying error.
+// The underlying error is now preserved so that Err can be converted back using errors.As
+// This is useful for custom error handlers that wish to inspect underlying error types
+// and decision accordingly.
 type Err struct {
 	Time    time.Time `json:"timestamp"`
 	Err     string    `json:"error"`
 	baseErr error
 }
 
-// NewErr constructs an Err
+// NewErr constructs an Err from an underlying error e
 func NewErr(e error, t time.Time) Err {
 	return Err{Err: e.Error(), Time: t, baseErr: e}
 }
 
+// Error implements the Error interface for Err
 func (e Err) Error() string {
 	return e.Err
 }
 
-// As implements the error interface for Err
+// As implements the error interface for Err. This allows an instance of Err to be
+// converted back to its underlying error type using errors.As
 func (e Err) As(target interface{}) bool {
 	return errors.As(e.baseErr, target)
 }
