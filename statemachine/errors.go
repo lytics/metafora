@@ -24,7 +24,7 @@ type Err struct {
 	baseErr error
 }
 
-// NewErr constructs an Err from an underlying error e
+// NewErr constructs an Err from an underlying error e.
 func NewErr(e error, t time.Time) Err {
 	return Err{Err: e.Error(), Time: t, baseErr: e}
 }
