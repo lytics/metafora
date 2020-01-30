@@ -34,10 +34,9 @@ func (e Err) Error() string {
 	return e.Err
 }
 
-// As implements the error interface for Err. This allows an instance of Err to be
-// converted back to its underlying error type using errors.As
-func (e Err) As(target interface{}) bool {
-	return errors.As(e.baseErr, target)
+// Unwrap returns baseErr.
+func (e Err) Unwrap() error {
+	return e.baseErr
 }
 
 // ErrHandler functions should return Run, Sleep, or Fail messages depending on

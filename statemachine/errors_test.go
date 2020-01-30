@@ -64,4 +64,11 @@ func TestErr(t *testing.T) {
 	se = Err{Time: time.Now(), Err: "something bad"}
 	assert.Equal(t, "something bad", se.Error())
 	assert.False(t, errors.As(se, new(errType1)))
+
+	// confirm we can check for a specific instance of baseErr too
+	e1 := errType1{errors.New("target instance")}
+	e2 := errType1{errors.New("different instance")}
+	se = NewErr(e1, time.Now())
+	assert.True(t, errors.Is(se, e1))
+	assert.False(t, errors.Is(se, e2))
 }
