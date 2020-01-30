@@ -54,7 +54,7 @@ func TestErr(t *testing.T) {
 	se := NewErr(err, time.Now())
 
 	// confirm se implements the error interface
-	assert.Implements(t, (*error)(nil), se)
+	require.Implements(t, (*error)(nil), se)
 
 	// confirm we can only convert se to an error of the same underlying type
 	assert.True(t, errors.As(se, new(errType1)))
