@@ -62,7 +62,6 @@ func TestErr(t *testing.T) {
 
 	// make sure we don't panic if someone uses it the old way and baseErr is nil
 	se = Err{Time: time.Now(), Err: "something bad"}
-	require.NotPanics(t, func() { _ = se.Error() })
 	assert.Equal(t, "something bad", se.Error())
 	assert.False(t, errors.As(se, new(errType1)))
 }
