@@ -29,7 +29,7 @@ func NewErr(e error, t time.Time) Err {
 	return Err{Err: e.Error(), Time: t, baseErr: e}
 }
 
-// Error implements the Error interface for Err
+// Error implements the Error interface.
 func (e Err) Error() string {
 	return e.Err
 }
