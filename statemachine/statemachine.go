@@ -508,7 +508,7 @@ func apply(cur *State, m *Message) (*State, bool) {
 			metafora.Debugf("Transitioned %s", trans)
 			if m.Err != nil {
 				// Append errors from message
-				cur.Errors = append(cur.Errors, Err{Time: time.Now(), Err: m.Err.Error()})
+				cur.Errors = append(cur.Errors, NewErr(m.Err, time.Now()))
 			}
 
 			// New State + Message's Until + Combined Errors
