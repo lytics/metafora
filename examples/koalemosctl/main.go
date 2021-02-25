@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	etcdv3 "go.etcd.io/etcd/clientv3"
 	"github.com/lytics/metafora/examples/koalemos"
 	"github.com/lytics/metafora/metcdv3"
+	etcdv3 "go.etcd.io/etcd/client/v3"
 )
 
 func main() {
