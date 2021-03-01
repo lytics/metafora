@@ -1,6 +1,4 @@
 language: go
-env:
-  - GO111MODULE=on
 script: go test -race -cpu 1,2,4 -v -timeout 5m ./...
 sudo: false
 go:
