@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	etcdv3 "go.etcd.io/etcd/clientv3"
 	"github.com/lytics/metafora"
 	"github.com/lytics/metafora/statemachine"
+	etcdv3 "go.etcd.io/etcd/client/v3"
 )
 
 func TestCommandListener(t *testing.T) {
