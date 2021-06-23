@@ -56,9 +56,9 @@ func (e *EmbeddedCoordinator) Watch(out chan<- metafora.Task) error {
 	}
 }
 
-func (e *EmbeddedCoordinator) Claim(task metafora.Task) bool {
+func (e *EmbeddedCoordinator) Claim(task metafora.Task) (bool, error) {
 	// We recieved on a channel, we are the only ones to pull that value
-	return true
+	return true, nil
 }
 
 func (e *EmbeddedCoordinator) Release(task metafora.Task) {

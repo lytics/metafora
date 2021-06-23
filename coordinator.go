@@ -25,7 +25,7 @@ type Coordinator interface {
 	// Claim is called by the Consumer when a Balancer has determined that a task
 	// ID can be claimed. Claim returns false if another consumer has already
 	// claimed the ID.
-	Claim(Task) bool
+	Claim(Task) (bool, error)
 
 	// Release a task for other consumers to claim. May be called after Close.
 	Release(Task)

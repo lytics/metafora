@@ -35,7 +35,7 @@ func NewTestCoord() *TestCoord {
 }
 
 func (*TestCoord) Init(CoordinatorContext) error { return nil }
-func (*TestCoord) Claim(Task) bool               { return true }
+func (*TestCoord) Claim(Task) (bool, error)      { return true, nil }
 func (c *TestCoord) Close()                      { close(c.closed) }
 func (c *TestCoord) Release(task Task)           { c.Releases <- task }
 func (c *TestCoord) Done(task Task)              { c.Dones <- task }

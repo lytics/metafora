@@ -19,9 +19,9 @@ func (c *tc) Watch(chan<- metafora.Task) error {
 	<-c.stop
 	return nil
 }
-func (c *tc) Claim(metafora.Task) bool { return false }
-func (c *tc) Release(metafora.Task)    {}
-func (c *tc) Done(metafora.Task)       {}
+func (c *tc) Claim(metafora.Task) (bool, error) { return false, nil }
+func (c *tc) Release(metafora.Task)             {}
+func (c *tc) Done(metafora.Task)                {}
 func (c *tc) Command() (metafora.Command, error) {
 	<-c.stop
 	return nil, nil

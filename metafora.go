@@ -170,8 +170,8 @@ func (c *Consumer) Run() {
 				c.ignore(task, until)
 				break
 			}
-			if !c.coord.Claim(task) {
-				Debugf("%s Coordinator unable to claim task=%q", c, tid)
+			if ok, err := c.coord.Claim(task); !ok || err != nil {
+				Debugf("%s Coordinator unable to claim task=%q err=%v", c, tid, err)
 				break
 			}
 			c.claimed(task)

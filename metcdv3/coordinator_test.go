@@ -105,7 +105,7 @@ func TestCoordinatorTC2(t *testing.T) {
 		if recvd.ID() != taskid {
 			t.Fatalf("%s != %s - received an unexpected task", recvd.ID(), taskid)
 		}
-		if ok := coordinator1.Claim(recvd); !ok {
+		if ok, _ := coordinator1.Claim(recvd); !ok {
 			t.Fatal("coordinator1.Claim() unable to claim the task")
 		}
 	}
@@ -168,10 +168,10 @@ func TestCoordinatorTC3(t *testing.T) {
 	}
 
 	// Make sure c1 can claim and c2 cannot
-	if ok := coordinator1.Claim(c1t); !ok {
+	if ok, _ := coordinator1.Claim(c1t); !ok {
 		t.Fatalf("coordinator1.Claim() unable to claim the task=%q", c1t)
 	}
-	if ok := coordinator2.Claim(c1t); ok {
+	if ok, _ := coordinator2.Claim(c1t); ok {
 		t.Fatalf("coordinator2.Claim() succeeded for task=%q when it shouldn't have!", c2t)
 	}
 
@@ -245,7 +245,7 @@ func TestCoordinatorTC4(t *testing.T) {
 	// Now release the task from coordinator1 and claim it with coordinator2
 	coordinator1.Release(tid)
 	tid = <-c2tasks
-	if ok := coordinator2.Claim(tid); !ok {
+	if ok, _ := coordinator2.Claim(tid); !ok {
 		t.Fatalf("coordinator2.Claim() should have succeded on released task=%q", tid)
 	}
 

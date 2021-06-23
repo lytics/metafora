@@ -245,7 +245,7 @@ func (ec *EtcdV3Coordinator) ownerNode(taskID string) (key, value string) {
 	return path.Join(ec.taskPath, taskID, OwnerPath), string(p)
 }
 
-func (ec *EtcdV3Coordinator) Claim(task metafora.Task) bool {
+func (ec *EtcdV3Coordinator) Claim(task metafora.Task) (bool, error) {
 	c := context.Background()
 	tid := task.ID()
 	// Attempt to claim the node
@@ -256,16 +256,16 @@ func (ec *EtcdV3Coordinator) Claim(task metafora.Task) bool {
 		Commit()
 	if err != nil {
 		metafora.Errorf("Claim of %s failed with an unexpected error: %v", key, err)
-		return false
+		return false, fmt.Errorf("claiming task %s: %w", task, err)
 	}
 	if !txnRes.Succeeded {
 		metafora.Debugf("Claim of %s failed, already claimed", key)
-		return false
+		return false, fmt.Errorf("unsuccessful claiming task %s", task)
 	}
 
 	// Claim successful, start the refresher
 	metafora.Debugf("Claim successful: %s", key)
-	return true
+	return true, nil
 }
 
 func (ec *EtcdV3Coordinator) Release(task metafora.Task) {
