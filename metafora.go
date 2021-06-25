@@ -1,6 +1,7 @@
 package metafora
 
 import (
+	"fmt"
 	"math/rand"
 	"runtime"
 	"sort"
@@ -115,8 +116,7 @@ func (c *Consumer) Run() {
 		for {
 			cmd, err := c.coord.Command()
 			if err != nil {
-				Errorf("Exiting because coordinator returned an error during command: %v", err)
-				return
+				panic(fmt.Errorf("coordinator returned an error during command: %v", err))
 			}
 			if cmd == nil {
 				Debug(c, " Command coordinator exited")
@@ -192,8 +192,7 @@ func (c *Consumer) watcher() {
 
 	err := c.coord.Watch(c.tasks)
 	if err != nil {
-		Errorf("Exiting because coordinator returned an error during watch: %v", err)
-		return
+		panic(fmt.Errorf("coordinator returned an error during watch: %v", err))
 	}
 }
 
