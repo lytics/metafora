@@ -22,9 +22,9 @@ func init() {
 var testcounter uint64
 
 // setupEtcd should be used for all etcd integration tests. It handles the following tasks:
-//  * Create and return an etcd client
-//  * Create and return an initial etcd coordinator
-//  * Clearing the test namespace in etcd
+//   - Create and return an etcd client
+//   - Create and return an initial etcd coordinator
+//   - Clearing the test namespace in etcd
 func setupEtcd(t *testing.T) (*etcdv3.Client, *EtcdV3Coordinator, *Config) {
 	c := context.Background()
 	client := testutil.NewEtcdV3Client(t)
@@ -45,8 +45,8 @@ type testLogger struct {
 	*testing.T
 }
 
-func (l testLogger) Log(lvl metafora.LogLevel, m string, v ...interface{}) {
-	l.T.Log(fmt.Sprintf("%s:[%s] %s", l.prefix, lvl, fmt.Sprintf(m, v...)))
+func (l testLogger) Log(lvl int, m string, v ...interface{}) {
+	l.T.Log(fmt.Sprintf("%s:[%d] %s", l.prefix, lvl, fmt.Sprintf(m, v...)))
 }
 
 type testCoordCtx struct {
@@ -62,6 +62,6 @@ func newCtx(t *testing.T, prefix string) *testCoordCtx {
 }
 
 func (t *testCoordCtx) Lost(task metafora.Task) {
-	t.Log(metafora.LogLevelDebug, "Lost(%s)", task.ID())
+	t.Log(4, "Lost(%s)", task.ID())
 	t.lost <- task.ID()
 }
