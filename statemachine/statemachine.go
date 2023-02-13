@@ -381,6 +381,7 @@ func (s *stateMachine) Run() (done bool) {
 			}
 
 			metafora.Errorf("task=%q Unable to persist state=%q. Continuing.", tid, newstate.Code)			
+			return true
 		}
 
 		// Set next state and loop if non-terminal
