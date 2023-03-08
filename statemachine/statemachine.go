@@ -4,9 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
-	"strings"
+
 	"github.com/lytics/metafora"
 )
 
@@ -360,8 +361,8 @@ func (s *stateMachine) Run() (done bool) {
 		// Apply Message
 		newstate, ok := apply(state, msg)
 		if !ok {
-			metafora.Warnf("task=%q Invalid state transition=%q returned by task. Old state=%q", tid, msg.Code, state.Code)
-			msg = ErrorMessage(err)
+			metafora.Warnf("task=%q Invalid state transition=%q returned by task. Old state=%q msg.Err=%s", tid, msg.Code, state.Code, msg.Err)
+			msg = ErrorMessage(msg.Err)
 			if newstate, ok = apply(state, msg); !ok {
 				metafora.Errorf("task=%q Unable to transition to error state! Exiting with state=%q", tid, state.Code)
 				return state.Code.Terminal()
@@ -371,16 +372,16 @@ func (s *stateMachine) Run() (done bool) {
 		metafora.Infof("task=%q transitioning %s --> %s --> %s", tid, state, msg, newstate)
 
 		// Save state
-		if err := s.ss.Store(s.task, newstate); err != nil {			
-			// After upgrading to 1.25.5-gke.2000 we started experiencing the metadata server throwing POD_FINDER_IP_MISMATCH 
+		if err := s.ss.Store(s.task, newstate); err != nil {
+			// After upgrading to 1.25.5-gke.2000 we started experiencing the metadata server throwing POD_FINDER_IP_MISMATCH
 			// errors resulting in failures authenticating to spanner. This panic will cause the pod to cyle
-			// See https://github.com/lytics/lio/issues/30414			
+			// See https://github.com/lytics/lio/issues/30414
 			if strings.Contains(err.Error(), "spanner: code = \"Unauthenticated\"") {
 				metafora.Errorf("task=%q Unable to persist state=%q due to failure to authenticate to spanner.", tid, newstate.Code)
-				panic(err)	
+				panic(err)
 			}
 
-			metafora.Errorf("task=%q Unable to persist state=%q. Continuing.", tid, newstate.Code)			
+			metafora.Errorf("task=%q Unable to persist state=%q. Continuing.", tid, newstate.Code)
 			return true
 		}
 

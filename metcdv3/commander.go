@@ -97,13 +97,6 @@ func (c *cmdListener) Stop() {
 	}
 }
 
-func (c *cmdListener) sendErr(err error) {
-	select {
-	case c.commands <- statemachine.ErrorMessage(err):
-	case <-c.stop:
-	}
-}
-
 func (cl *cmdListener) watch(c context.Context, prefix string) {
 	getRes, err := cl.kvc.Get(c, prefix, etcdv3.WithPrefix())
 	if err != nil {
