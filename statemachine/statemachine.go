@@ -372,17 +372,19 @@ func (s *stateMachine) Run() (done bool) {
 		metafora.Infof("task=%q transitioning %s --> %s --> %s", tid, state, msg, newstate)
 
 		// Save state
-		if err := s.ss.Store(s.task, newstate); err != nil {
-			// After upgrading to 1.25.5-gke.2000 we started experiencing the metadata server throwing POD_FINDER_IP_MISMATCH
-			// errors resulting in failures authenticating to spanner. This panic will cause the pod to cyle
-			// See https://github.com/lytics/lio/issues/30414
-			if strings.Contains(err.Error(), "spanner: code = \"Unauthenticated\"") {
-				metafora.Errorf("task=%q Unable to persist state=%q due to failure to authenticate to spanner.", tid, newstate.Code)
-				panic(err)
-			}
+		if msg.Code != Release {
+			if err := s.ss.Store(s.task, newstate); err != nil {
+				// After upgrading to 1.25.5-gke.2000 we started experiencing the metadata server throwing POD_FINDER_IP_MISMATCH
+				// errors resulting in failures authenticating to spanner. This panic will cause the pod to cyle
+				// See https://github.com/lytics/lio/issues/30414
+				if strings.Contains(err.Error(), "spanner: code = \"Unauthenticated\"") {
+					metafora.Errorf("task=%q Unable to persist state=%q due to failure to authenticate to spanner.", tid, newstate.Code)
+					panic(err)
+				}
 
-			metafora.Errorf("task=%q Unable to persist state=%q. Continuing.", tid, newstate.Code)
-			return true
+				metafora.Errorf("task=%q Unable to persist state=%q. Continuing.", tid, newstate.Code)
+				return true
+			}
 		}
 
 		// Set next state and loop if non-terminal
