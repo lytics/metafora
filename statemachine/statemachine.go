@@ -372,7 +372,7 @@ func (s *stateMachine) Run() (done bool) {
 		metafora.Infof("task=%q transitioning %s --> %s --> %s", tid, state, msg, newstate)
 
 		// Save state - second part of logic probably should never happen
-		if msg.Code != Release || (msg.Code == Release && state.Code != newstate.Code) {
+		if msg.Code != Release || (msg.Code == Release && (state.Code != newstate.Code || len(state.Errors) != len(newstate.Errors))) {
 			if err := s.ss.Store(s.task, newstate); err != nil {
 				// After upgrading to 1.25.5-gke.2000 we started experiencing the metadata server throwing POD_FINDER_IP_MISMATCH
 				// errors resulting in failures authenticating to spanner. This panic will cause the pod to cyle
