@@ -58,7 +58,7 @@ func TestCoordinatorTC1(t *testing.T) {
 		errc <- coordinator1.Watch(tasks)
 	}()
 
-	kvc.Put(context.Background(), taskPath, "5")
+	_, _ = kvc.Put(context.Background(), taskPath, "5")
 
 	select {
 	case task := <-tasks:

@@ -19,7 +19,7 @@ import (
 type exTask struct {
 	id         string
 	SubmittedT *time.Time `json:"_submitted"`
-	UserID     string     `json:userid`
+	UserID     string     `json:"UserID"`
 }
 
 func (t *exTask) ID() string            { return t.id }
@@ -37,7 +37,7 @@ func TestAltTask(t *testing.T) {
 	c := context.Background()
 	t.Parallel()
 	const namespace = "/alttask-metafora"
-	kvc.Delete(c, namespace, etcdv3.WithPrefix())
+	_, _ = kvc.Delete(c, namespace, etcdv3.WithPrefix())
 
 	conf := metcdv3.NewConfig("testclient", namespace)
 

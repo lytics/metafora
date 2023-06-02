@@ -279,9 +279,10 @@ func (ec *EtcdV3Coordinator) Release(task metafora.Task) {
 		Commit()
 	if err != nil {
 		metafora.Warnf("Error releasing task %s while stopping: %v", tid, err)
+		return
 	}
-	if txnRes == nil || !txnRes.Succeeded {
-		metafora.Warnf("Failed to release task %s while stopping.", tid)
+	if !txnRes.Succeeded {
+		metafora.Warnf("Failed to release task %s while stopping: %+v", tid, txnRes)
 	}
 }
 
@@ -364,7 +365,7 @@ func (ec *EtcdV3Coordinator) addMetadata(basepath string) error {
 	//  you have to know about it to find it :).  I'm using it to add some
 	//  info about when the cluster's schema was setup.
 	metaPath := path.Join(basepath, MetadataPath)
-	host, err := os.Hostname()
+	host, _ := os.Hostname()
 
 	metadataStruct := struct {
 		Host        string `json:"host"`
@@ -451,7 +452,6 @@ func (ec *EtcdV3Coordinator) Init(cordCtx metafora.CoordinatorContext) error {
 						stats.failure++
 					}
 					panic(fmt.Sprintf("metafora etcdv3 coordinator: %v: keep alive closed unexpectedly", ec.name))
-					return
 				}
 				metafora.Infof("metafora etcdv3 coordinator: %v: keep alive responded with heartbeat TTL: %vs", ec.name, res.TTL)
 				// Testing hook.
@@ -586,22 +586,16 @@ func (ec *EtcdV3Coordinator) watch(c context.Context, prefix string, revision in
 	deltas := ec.etcdv3c.Watch(c, prefix, etcdv3.WithPrefix(), etcdv3.WithRev(revision+1))
 	go func() {
 		defer close(watchEvents)
-		for {
-			select {
-			case delta, open := <-deltas:
-				if !open {
-					putTerminalError(&WatchEvent{Error: ErrWatchClosedUnexpectedly})
-					return
-				}
-				if delta.Err() != nil {
-					putTerminalError(&WatchEvent{Error: delta.Err()})
-					return
-				}
-				for _, event := range delta.Events {
-					put(createWatchEvent(event))
-				}
+		for delta := range deltas {
+			if delta.Err() != nil {
+				putTerminalError(&WatchEvent{Error: delta.Err()})
+				return
+			}
+			for _, event := range delta.Events {
+				put(createWatchEvent(event))
 			}
 		}
+		putTerminalError(&WatchEvent{Error: ErrWatchClosedUnexpectedly})
 	}()
 
 	return watchEvents, nil

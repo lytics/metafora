@@ -74,7 +74,7 @@ func (im *ignoremgr) monitor(tasks chan<- Task, stop <-chan struct{}) {
 
 		// this duration *may* be negative, in which case the
 		// task will be pushed immediately
-		timer := time.NewTimer(next.time.Sub(time.Now()))
+		timer := time.NewTimer(time.Until(next.time))
 
 		select {
 		case newtask := <-im.incoming:

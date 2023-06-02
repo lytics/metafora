@@ -36,7 +36,7 @@ func (s testStore) Store(task metafora.Task, newstate *State) error {
 func setup(t *testing.T, tid string) (*embedded.StateStore, Commander, metafora.Handler, chan bool) {
 	t.Parallel()
 	ss := embedded.NewStateStore().(*embedded.StateStore)
-	ss.Store(task(tid), &State{Code: Runnable})
+	_ = ss.Store(task(tid), &State{Code: Runnable})
 	<-ss.Stored // pop initial state out
 	cmdr := embedded.NewCommander()
 	cmdlistener := cmdr.NewListener(tid)
@@ -46,7 +46,7 @@ func setup(t *testing.T, tid string) (*embedded.StateStore, Commander, metafora.
 	return ss, cmdr, sm, done
 }
 
-//FIXME leaks goroutines
+// FIXME leaks goroutines
 func TestRules(t *testing.T) {
 	t.Parallel()
 	for i, trans := range Rules {

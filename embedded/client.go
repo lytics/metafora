@@ -21,7 +21,7 @@ func (ec *EmbeddedClient) DeleteTask(taskid string) error {
 	nodes, _ := ec.Nodes()
 	// Simply submit stop for all nodes
 	for _, nid := range nodes {
-		ec.SubmitCommand(nid, metafora.CommandStopTask(taskid))
+		_ = ec.SubmitCommand(nid, metafora.CommandStopTask(taskid))
 	}
 	return nil
 }

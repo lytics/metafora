@@ -13,10 +13,7 @@ import (
 	etcdv3 "go.etcd.io/etcd/client/v3"
 )
 
-const recursive = true
-
 // TestSleepTest is an integration test for all of m_etcd's components.
-//
 func TestSleepTest(t *testing.T) {
 	etcdv3c := testutil.NewEtcdV3Client(t)
 	kvc := etcdv3.NewKV(etcdv3c)
@@ -24,7 +21,7 @@ func TestSleepTest(t *testing.T) {
 	const namespace = "/sleeptest-metafora"
 	const sleepingtasks = "sleeping-task1"
 
-	kvc.Delete(context.Background(), namespace, etcdv3.WithPrefix())
+	_, _ = kvc.Delete(context.Background(), namespace, etcdv3.WithPrefix())
 
 	holdtask := make(chan bool)
 	h := func(task metafora.Task, cmds <-chan *statemachine.Message) *statemachine.Message {
@@ -134,8 +131,8 @@ func TestAll(t *testing.T) {
 	t.Parallel()
 
 	c := context.Background()
-	kvc.Delete(c, "/test-a", etcdv3.WithPrefix())
-	kvc.Delete(c, "/test-b", etcdv3.WithPrefix())
+	_, _ = kvc.Delete(c, "/test-a", etcdv3.WithPrefix())
+	_, _ = kvc.Delete(c, "/test-b", etcdv3.WithPrefix())
 
 	h := func(task metafora.Task, cmds <-chan *statemachine.Message) *statemachine.Message {
 		cmd := <-cmds
@@ -321,7 +318,7 @@ func TestTaskResurrectionInt(t *testing.T) {
 	c := context.Background()
 	t.Parallel()
 
-	kvc.Delete(c, "/test-resurrect", etcdv3.WithPrefix())
+	_, _ = kvc.Delete(c, "/test-resurrect", etcdv3.WithPrefix())
 
 	task := metcdv3.DefaultTaskFunc("xyz", "")
 

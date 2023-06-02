@@ -33,7 +33,7 @@ func TestNodes(t *testing.T) {
 	c := context.Background()
 	eclient := testutil.NewEtcdV3Client(t)
 	kvc := etcdv3.NewKV(eclient)
-	eclient.Delete(c, Node1Path, etcdv3.WithPrefix())
+	_, _ = eclient.Delete(c, Node1Path, etcdv3.WithPrefix())
 
 	mclient := NewClient(Namespace, eclient)
 
