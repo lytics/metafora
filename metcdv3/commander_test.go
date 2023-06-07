@@ -20,7 +20,7 @@ func TestCommandListener(t *testing.T) {
 
 	namespace := "/cltest"
 	conf.Namespace = namespace
-	kvc.Delete(context.Background(), namespace, etcdv3.WithPrefix())
+	_, _ = kvc.Delete(context.Background(), namespace, etcdv3.WithPrefix())
 
 	task := metafora.NewTask("testtask")
 	_, err := kvc.Put(context.Background(), path.Join(conf.Namespace, TasksPath, task.ID(), OwnerPath), fmt.Sprintf(`{"node":"%s"}`, conf.Name))
@@ -31,8 +31,8 @@ func TestCommandListener(t *testing.T) {
 	cmdr := NewCommander(namespace, etcdv3c)
 
 	// Only the last command should be received once the listener is started
-	cmdr.Send(task.ID(), statemachine.PauseMessage())
-	cmdr.Send(task.ID(), statemachine.KillMessage())
+	_ = cmdr.Send(task.ID(), statemachine.PauseMessage())
+	_ = cmdr.Send(task.ID(), statemachine.KillMessage())
 
 	cl := NewCommandListener(conf, task, etcdv3c)
 	defer cl.Stop()
@@ -61,7 +61,7 @@ func TestCommandListener(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 
 	// Ensure receiving after Stopping never succeeds
-	cmdr.Send(task.ID(), statemachine.RunMessage())
+	_ = cmdr.Send(task.ID(), statemachine.RunMessage())
 	select {
 	case cmd := <-cl.Receive():
 		t.Fatalf("Unexpected command received: %v", cmd)

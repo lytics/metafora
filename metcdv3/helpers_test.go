@@ -46,7 +46,7 @@ type testLogger struct {
 }
 
 func (l testLogger) Log(lvl int, m string, v ...interface{}) {
-	l.T.Log(fmt.Sprintf("%s:[%d] %s", l.prefix, lvl, fmt.Sprintf(m, v...)))
+	l.T.Logf("%s:[%d] %s", l.prefix, lvl, fmt.Sprintf(m, v...))
 }
 
 type testCoordCtx struct {

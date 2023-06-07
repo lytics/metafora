@@ -63,9 +63,7 @@ func (s *State) copy() *State {
 		until := *s.Until
 		ns.Until = &until
 	}
-	for i := range s.Errors {
-		ns.Errors = append(ns.Errors, s.Errors[i])
-	}
+	ns.Errors = append(ns.Errors, s.Errors...)
 	return ns
 }
 
@@ -429,7 +427,7 @@ func (s *stateMachine) exec(state *State) *Message {
 			metafora.Warnf("task=%q told to sleep without a time. Resuming.", s.task.ID())
 			return RunMessage()
 		}
-		dur := state.Until.Sub(time.Now())
+		dur := time.Until(*state.Until)
 		metafora.Infof("task=%q sleeping for %s", s.task.ID(), dur)
 		timer := time.NewTimer(dur)
 		select {

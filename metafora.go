@@ -265,7 +265,7 @@ func (c *Consumer) Tasks() []RunningTask {
 	// Create a sorted list of task IDs
 	ids := make([]string, len(c.running))
 	i := 0
-	for id, _ := range c.running {
+	for id := range c.running {
 		ids[i] = id
 		i++
 	}
@@ -334,7 +334,7 @@ func (c *Consumer) claimed(task Task) {
 			Infof("%s Task %q exited (%s)", c, tid, status)
 		} else {
 			// Task exited due to Stop() being called
-			Infof("%s Task %q exited (%s) after %s", c, tid, status, time.Now().Sub(stopped))
+			Infof("%s Task %q exited (%s) after %s", c, tid, status, time.Since(stopped))
 		}
 
 		// **This is the only place tasks should be removed from c.running**

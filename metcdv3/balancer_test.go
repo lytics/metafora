@@ -41,12 +41,12 @@ func TestFairBalancer(t *testing.T) {
 	// Start the first and let it claim a bunch of tasks
 	go con1.Run()
 	defer con1.Shutdown()
-	cli.SubmitTask(DefaultTaskFunc("t1", ""))
-	cli.SubmitTask(DefaultTaskFunc("t2", ""))
-	cli.SubmitTask(DefaultTaskFunc("t3", ""))
-	cli.SubmitTask(DefaultTaskFunc("t4", ""))
-	cli.SubmitTask(DefaultTaskFunc("t5", ""))
-	cli.SubmitTask(DefaultTaskFunc("t6", ""))
+	_ = cli.SubmitTask(DefaultTaskFunc("t1", ""))
+	_ = cli.SubmitTask(DefaultTaskFunc("t2", ""))
+	_ = cli.SubmitTask(DefaultTaskFunc("t3", ""))
+	_ = cli.SubmitTask(DefaultTaskFunc("t4", ""))
+	_ = cli.SubmitTask(DefaultTaskFunc("t5", ""))
+	_ = cli.SubmitTask(DefaultTaskFunc("t6", ""))
 
 	time.Sleep(5 * time.Second)
 
@@ -61,7 +61,7 @@ func TestFairBalancer(t *testing.T) {
 	// Wait for node to startup and register
 	time.Sleep(1 * time.Second)
 
-	cli.SubmitCommand(conf1.Name, metafora.CommandBalance())
+	_ = cli.SubmitCommand(conf1.Name, metafora.CommandBalance())
 
 	time.Sleep(2 * time.Second)
 
@@ -72,7 +72,7 @@ func TestFairBalancer(t *testing.T) {
 	}
 
 	// Finally make sure that balancing the other node does nothing
-	cli.SubmitCommand("node2", metafora.CommandBalance())
+	_ = cli.SubmitCommand("node2", metafora.CommandBalance())
 
 	time.Sleep(2 * time.Second)
 
@@ -110,12 +110,7 @@ func TestFairBalancerFilter(t *testing.T) {
 		return false // never done
 	})
 
-	filter := func(fv *FilterableValue) bool {
-		if fv.Name != conf1.Name {
-			return false
-		}
-		return true
-	}
+	filter := func(fv *FilterableValue) bool { return fv.Name == conf1.Name }
 	// Create two consumers
 	b1 := NewFairBalancer(conf1, etcdv3c, filter)
 	con1, err := metafora.NewConsumer(coord1, h, b1)
@@ -123,12 +118,7 @@ func TestFairBalancerFilter(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	filter2 := func(fv *FilterableValue) bool {
-		if fv.Name != conf2.Name {
-			return false
-		}
-		return true
-	}
+	filter2 := func(fv *FilterableValue) bool { return fv.Name == conf2.Name }
 	b2 := NewFairBalancer(conf2, etcdv3c, filter2)
 	con2, err := metafora.NewConsumer(coord2, h, b2)
 	if err != nil {
@@ -138,15 +128,15 @@ func TestFairBalancerFilter(t *testing.T) {
 	// Start the first and let it claim a bunch of tasks
 	go con1.Run()
 	defer con1.Shutdown()
-	cli.SubmitTask(DefaultTaskFunc("t1", ""))
-	cli.SubmitTask(DefaultTaskFunc("t2", ""))
-	cli.SubmitTask(DefaultTaskFunc("t3", ""))
-	cli.SubmitTask(DefaultTaskFunc("t4", ""))
-	cli.SubmitTask(DefaultTaskFunc("t5", ""))
-	cli.SubmitTask(DefaultTaskFunc("t6", ""))
-	cli.SubmitTask(DefaultTaskFunc("t7", ""))
-	cli.SubmitTask(DefaultTaskFunc("t8", ""))
-	cli.SubmitTask(DefaultTaskFunc("t9", ""))
+	_ = cli.SubmitTask(DefaultTaskFunc("t1", ""))
+	_ = cli.SubmitTask(DefaultTaskFunc("t2", ""))
+	_ = cli.SubmitTask(DefaultTaskFunc("t3", ""))
+	_ = cli.SubmitTask(DefaultTaskFunc("t4", ""))
+	_ = cli.SubmitTask(DefaultTaskFunc("t5", ""))
+	_ = cli.SubmitTask(DefaultTaskFunc("t6", ""))
+	_ = cli.SubmitTask(DefaultTaskFunc("t7", ""))
+	_ = cli.SubmitTask(DefaultTaskFunc("t8", ""))
+	_ = cli.SubmitTask(DefaultTaskFunc("t9", ""))
 
 	time.Sleep(5 * time.Second)
 
@@ -161,7 +151,7 @@ func TestFairBalancerFilter(t *testing.T) {
 	// Wait for node to startup and register
 	time.Sleep(1 * time.Second)
 
-	cli.SubmitCommand(conf1.Name, metafora.CommandBalance())
+	_ = cli.SubmitCommand(conf1.Name, metafora.CommandBalance())
 
 	time.Sleep(2 * time.Second)
 
@@ -224,12 +214,12 @@ func TestFairBalancerShutdown(t *testing.T) {
 	// Start the first and let it claim a bunch of tasks
 	go con1.Run()
 	defer con1.Shutdown()
-	cli.SubmitTask(DefaultTaskFunc("t1", ""))
-	cli.SubmitTask(DefaultTaskFunc("t2", ""))
-	cli.SubmitTask(DefaultTaskFunc("t3", ""))
-	cli.SubmitTask(DefaultTaskFunc("t4", ""))
-	cli.SubmitTask(DefaultTaskFunc("t5", ""))
-	cli.SubmitTask(DefaultTaskFunc("t6", ""))
+	_ = cli.SubmitTask(DefaultTaskFunc("t1", ""))
+	_ = cli.SubmitTask(DefaultTaskFunc("t2", ""))
+	_ = cli.SubmitTask(DefaultTaskFunc("t3", ""))
+	_ = cli.SubmitTask(DefaultTaskFunc("t4", ""))
+	_ = cli.SubmitTask(DefaultTaskFunc("t5", ""))
+	_ = cli.SubmitTask(DefaultTaskFunc("t6", ""))
 
 	time.Sleep(1000 * time.Millisecond)
 
@@ -245,7 +235,7 @@ func TestFairBalancerShutdown(t *testing.T) {
 	// Wait for node to startup and register
 	time.Sleep(500 * time.Millisecond)
 
-	cli.SubmitCommand(conf1.Name, metafora.CommandBalance())
+	_ = cli.SubmitCommand(conf1.Name, metafora.CommandBalance())
 
 	time.Sleep(2 * time.Second)
 
@@ -256,7 +246,7 @@ func TestFairBalancerShutdown(t *testing.T) {
 	}
 
 	// Make sure that balancing the other node does nothing
-	cli.SubmitCommand("node2", metafora.CommandBalance())
+	_ = cli.SubmitCommand("node2", metafora.CommandBalance())
 
 	time.Sleep(2 * time.Second)
 
@@ -287,7 +277,7 @@ func TestFairBalancerShutdown(t *testing.T) {
 
 	time.Sleep(500 * time.Millisecond)
 
-	cli.SubmitCommand(conf1.Name, metafora.CommandBalance())
+	_ = cli.SubmitCommand(conf1.Name, metafora.CommandBalance())
 
 	time.Sleep(2 * time.Second)
 
@@ -304,7 +294,7 @@ func TestFairBalancerShutdown(t *testing.T) {
 	// Consumer 2 should stop now
 	<-c2stop
 
-	cli.SubmitCommand(conf1.Name, metafora.CommandBalance())
+	_ = cli.SubmitCommand(conf1.Name, metafora.CommandBalance())
 
 	time.Sleep(2 * time.Second)
 
