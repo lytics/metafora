@@ -12,7 +12,7 @@ import (
 var (
 	// balance calls are randomized and this is the upper bound of the random
 	// amount
-	balanceJitterMax = 10 * int64(time.Second)
+	balanceJitterMax = 3 * int64(time.Minute)
 )
 
 // Consumer is the core Metafora task runner.

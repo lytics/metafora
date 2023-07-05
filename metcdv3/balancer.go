@@ -51,7 +51,7 @@ func (e *etcdClusterState) NodeTaskCount() (map[string]int, error) {
 	}
 
 	for _, kv := range resp.Kvs {
-		// We're guarunteed to find nodes under the _metadata path (created on Coordinator startup)
+		// We're guaranteed to find nodes under the _metadata path (created on Coordinator startup)
 		dir, _ := path.Split(string(kv.Key))
 		dir, node := path.Split(path.Clean(dir))
 		if path.Clean(dir) == e.nodePath && !e.filter(&FilterableValue{Name: node}) {
