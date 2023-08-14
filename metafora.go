@@ -45,7 +45,7 @@ type Consumer struct {
 	freeze  bool
 }
 
-var BalanceEvery = 15 * time.Minute //TODO make balance wait configurable
+var BalanceEvery = 5 * time.Minute //TODO make balance wait configurable
 
 // NewConsumer returns a new consumer and calls Init on the Balancer and Coordinator.
 func NewConsumer(coord Coordinator, h HandlerFunc, b Balancer) (*Consumer, error) {
