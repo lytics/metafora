@@ -128,6 +128,7 @@ func (e *FairBalancer) Balance() []string {
 
 	// If local tasks <= 1 this node should never rebalance
 	if len(nodetasks) < 2 {
+		Infof("balancing decision: nodetasks:%v", len(nodetasks))
 		return nil
 	}
 
@@ -139,6 +140,7 @@ func (e *FairBalancer) Balance() []string {
 
 	shouldrelease := current[e.nodeid] - e.desiredCount(current)
 	if shouldrelease < 1 {
+		Infof("balancing decision: nodetasks:%v current:%v shouldrelease:%v", len(nodetasks), len(current), shouldrelease)
 		return nil
 	}
 
