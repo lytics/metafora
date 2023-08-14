@@ -154,6 +154,8 @@ func (e *FairBalancer) Balance() []string {
 		}
 	}
 
+	Infof("balancing decision: nodetasks:%v current:%v shouldrelease:%v releasetasks:%v", len(nodetasks), len(current), shouldrelease, len(releasetasks))
+
 	e.delay = time.Now().Add(time.Duration(len(releasetasks)) * time.Second)
 	return releasetasks
 }
