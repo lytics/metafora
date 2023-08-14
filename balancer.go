@@ -140,7 +140,7 @@ func (e *FairBalancer) Balance() []string {
 
 	shouldrelease := current[e.nodeid] - e.desiredCount(current)
 	if shouldrelease < 1 {
-		Infof("balancing decision: nodetasks:%v current:%v shouldrelease:%v", len(nodetasks), len(current), shouldrelease)
+		Infof("balancing decision: nodetasks:%v current:%+v shouldrelease:%v", len(nodetasks), current, shouldrelease)
 		return nil
 	}
 
@@ -156,7 +156,7 @@ func (e *FairBalancer) Balance() []string {
 		}
 	}
 
-	Infof("balancing decision: nodetasks:%v current:%v shouldrelease:%v releasetasks:%v", len(nodetasks), len(current), shouldrelease, len(releasetasks))
+	Infof("balancing decision: nodetasks:%v current:%+v shouldrelease:%v releasetasks:%v", len(nodetasks), current, shouldrelease, len(releasetasks))
 
 	e.delay = time.Now().Add(time.Duration(len(releasetasks)) * time.Second)
 	return releasetasks
