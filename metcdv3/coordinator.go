@@ -178,13 +178,23 @@ func (ec *EtcdV3Coordinator) Watch(out chan<- metafora.Task) error {
 		metafora.Errorf("metafora etcdv3 coordinator: Error GETting %s - sending error to stateful handler: %v", ec.taskPath, err)
 		return err
 	}
-
+	claimedTasks := make(map[string]struct{})
+	for _, kv := range getRes.Kvs {
+		key := string(kv.Key)
+		dir, end := path.Split(key)
+		if end == OwnerPath {
+			dir = path.Clean(dir)
+			claimedTasks[dir] = struct{}{}
+		}
+	}
 	for _, kv := range getRes.Kvs {
 		key := string(kv.Key)
 		if base := path.Base(key); base == OwnerPath || base == MetadataPath || base == PropsPath {
 			continue
 		}
-
+		if _, ok := claimedTasks[key]; ok {
+			continue
+		}
 		we := &WatchEvent{
 			Key:   key,
 			Value: kv.Value,
