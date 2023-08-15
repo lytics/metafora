@@ -95,7 +95,6 @@ func (c *Consumer) Run() {
 				// Shutdown has been called.
 				return
 			case <-time.After(c.balEvery + time.Duration(randInt(balanceJitterMax))):
-				Info(c, " Balancing")
 				select {
 				case balance <- true:
 					// Ticked balance
@@ -199,7 +198,7 @@ func (c *Consumer) watcher() {
 func (c *Consumer) balance() {
 	tasks := c.bal.Balance()
 	if len(tasks) > 0 {
-		Infof("%s Balancer releasing: %v", c, tasks)
+		Infof("%s balancer releasing %d tasks: %v", c, len(tasks), tasks)
 	}
 	for _, task := range tasks {
 		// Actually release the rebalanced task.

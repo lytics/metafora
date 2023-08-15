@@ -128,17 +128,20 @@ func (e *FairBalancer) Balance() []string {
 
 	// If local tasks <= 1 this node should never rebalance
 	if len(nodetasks) < 2 {
+		Infof("balancing skipped: nodetasks:%v ", nodetasks)
 		return nil
 	}
 
 	current, err := e.clusterstate.NodeTaskCount()
 	if err != nil {
-		Warnf("Error retrieving cluster state: %v", err)
+		Warnf("balancing skipped: retrieving cluster state: %v", err)
 		return nil
 	}
 
-	shouldrelease := current[e.nodeid] - e.desiredCount(current)
+	desired := e.desiredCount(current)
+	shouldrelease := current[e.nodeid] - desired
 	if shouldrelease < 1 {
+		Infof("balancing skipped: shouldrelease <1 nodetasks:%v desired:%v shouldrelease:%v", len(nodetasks), desired, shouldrelease)
 		return nil
 	}
 
