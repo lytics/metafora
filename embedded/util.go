@@ -7,7 +7,7 @@ type NodeCommand struct {
 	NodeId string
 }
 
-// Returns a connected client/coordinator pair for embedded/testing use
+// NewEmbeddedPair returns a connected client/coordinator pair for embedded/testing use
 func NewEmbeddedPair(nodeid string) (metafora.Coordinator, metafora.Client) {
 	taskchan := make(chan metafora.Task)
 	cmdchan := make(chan *NodeCommand)
