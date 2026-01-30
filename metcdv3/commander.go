@@ -52,8 +52,9 @@ type cmdListener struct {
 
 	commands chan *statemachine.Message
 
-	mu   *sync.Mutex
-	stop chan bool
+	mu     *sync.Mutex
+	stop   chan bool
+	cancel context.CancelFunc
 }
 
 // NewCommandListener makes a statemachine.CommandListener implementation
@@ -61,6 +62,8 @@ type cmdListener struct {
 // commands use a separate path within a namespace than tasks or nodes.
 func NewCommandListener(conf *Config, task metafora.Task, c *etcdv3.Client) statemachine.CommandListener {
 	taskcmdpath := path.Join("/", conf.Namespace, TasksPath, task.ID(), CommandsPath)
+
+	ctxt, cancel := context.WithCancel(context.Background())
 	cl := &cmdListener{
 		etcdv3c:     c,
 		name:        conf.Name,
@@ -69,8 +72,8 @@ func NewCommandListener(conf *Config, task metafora.Task, c *etcdv3.Client) stat
 		commands:    make(chan *statemachine.Message),
 		mu:          &sync.Mutex{},
 		stop:        make(chan bool),
+		cancel:      cancel,
 	}
-	ctxt := context.Background()
 	go cl.watch(ctxt, taskcmdpath)
 	return cl
 }
@@ -90,6 +93,8 @@ func (c *cmdListener) ownerValueString() string {
 func (c *cmdListener) Stop() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	c.cancel()
 	select {
 	case <-c.stop:
 	default:
