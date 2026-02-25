@@ -93,6 +93,10 @@ func (im *ignoremgr) monitor(tasks chan<- Task, stop <-chan struct{}) {
 			// Notify the consumer
 			select {
 			case tasks <- next.task:
+			case newtask := <-im.incoming:
+				// We always have to listen for incoming tasks to prevent a deadlock
+				heap.Push(&times, newtask)
+				heap.Push(&times, next)
 			case <-stop:
 				return
 			}
