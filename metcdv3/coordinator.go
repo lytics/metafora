@@ -3,6 +3,7 @@ package metcdv3
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -99,11 +100,6 @@ func NewEtcdV3Coordinator(conf *Config, client *etcdv3.Client) *EtcdV3Coordinato
 // is unreachable (in which case an error is returned).
 func (ec *EtcdV3Coordinator) Watch(out chan<- metafora.Task) error {
 	c := context.Background()
-	select {
-	case <-ec.done:
-		return nil
-	default:
-	}
 
 	parseTask := func(we *WatchEvent) metafora.Task {
 		// Pickup new tasks
@@ -173,67 +169,45 @@ func (ec *EtcdV3Coordinator) Watch(out chan<- metafora.Task) error {
 		return nil
 	}
 
-	getRes, err := ec.kvc.Get(c, ec.taskPath, etcdv3.WithPrefix())
-	if err != nil {
-		metafora.Errorf("metafora etcdv3 coordinator: Error GETting %s - sending error to stateful handler: %v", ec.taskPath, err)
-		return err
-	}
-	claimedTasks := make(map[string]struct{})
-	for _, kv := range getRes.Kvs {
-		key := string(kv.Key)
-		dir, end := path.Split(key)
-		if end == OwnerPath {
-			dir = path.Clean(dir)
-			claimedTasks[dir] = struct{}{}
-		}
-	}
-	for _, kv := range getRes.Kvs {
-		key := string(kv.Key)
-		if base := path.Base(key); base == OwnerPath || base == MetadataPath || base == PropsPath {
-			continue
-		}
-		if _, ok := claimedTasks[key]; ok {
-			continue
-		}
-		we := &WatchEvent{
-			Key:   key,
-			Value: kv.Value,
-		}
-		task := parseTask(we)
-		if task != nil {
-			select {
-			case <-c.Done():
-				return nil
-			case <-ec.done:
-				return nil
-			case out <- task:
-			}
-		}
-	}
-
-	watchEvents, err := ec.watch(c, ec.taskPath, getRes.Header.Revision)
-	if err != nil {
-		return err
-	}
-
-	var watchEvent *WatchEvent
+	// Loop so we can re-sync (re-Get + re-watch) if etcd compacts away the
+	// revision we're watching from, which commonly happens during member
+	// restarts/relocations.
+	var backoff resyncBackoff
+restart:
 	for {
 		select {
-		case <-c.Done():
-			return nil
 		case <-ec.done:
 			return nil
-		case watchEvent = <-watchEvents:
-			if watchEvent.Error != nil {
-				return watchEvent.Error
-			}
+		default:
+		}
 
-			key := string(watchEvent.Key)
-			if base := path.Base(key); base == MetadataPath || base == PropsPath {
+		getRes, err := ec.kvc.Get(c, ec.taskPath, etcdv3.WithPrefix())
+		if err != nil {
+			metafora.Errorf("metafora etcdv3 coordinator: Error GETting %s - sending error to stateful handler: %v", ec.taskPath, err)
+			return err
+		}
+		claimedTasks := make(map[string]struct{})
+		for _, kv := range getRes.Kvs {
+			key := string(kv.Key)
+			dir, end := path.Split(key)
+			if end == OwnerPath {
+				dir = path.Clean(dir)
+				claimedTasks[dir] = struct{}{}
+			}
+		}
+		for _, kv := range getRes.Kvs {
+			key := string(kv.Key)
+			if base := path.Base(key); base == OwnerPath || base == MetadataPath || base == PropsPath {
 				continue
 			}
-
-			task := parseTask(watchEvent)
+			if _, ok := claimedTasks[key]; ok {
+				continue
+			}
+			we := &WatchEvent{
+				Key:   key,
+				Value: kv.Value,
+			}
+			task := parseTask(we)
 			if task != nil {
 				select {
 				case <-c.Done():
@@ -241,6 +215,60 @@ func (ec *EtcdV3Coordinator) Watch(out chan<- metafora.Task) error {
 				case <-ec.done:
 					return nil
 				case out <- task:
+				}
+			}
+		}
+
+		watchEvents, err := ec.watch(c, ec.taskPath, getRes.Header.Revision)
+		if err != nil {
+			return err
+		}
+		watchStart := time.Now()
+
+		var watchEvent *WatchEvent
+		for {
+			select {
+			case <-c.Done():
+				return nil
+			case <-ec.done:
+				return nil
+			case watchEvent = <-watchEvents:
+				if watchEvent.Error != nil {
+					if errors.Is(watchEvent.Error, ErrWatchCompacted) {
+						delay, escalated := backoff.next(time.Since(watchStart))
+						if escalated {
+							// Re-syncs are failing in a tight loop; fall back to
+							// surfacing the error rather than re-syncing forever.
+							metafora.Errorf("metafora etcdv3 coordinator: task watch %s compacted %d times in a row; giving up and returning error", ec.taskPath, backoff.consecutive)
+							return watchEvent.Error
+						}
+						metafora.Warnf("metafora etcdv3 coordinator: task watch revision compacted, re-syncing %s in %s", ec.taskPath, delay)
+						select {
+						case <-c.Done():
+							return nil
+						case <-ec.done:
+							return nil
+						case <-time.After(delay):
+						}
+						continue restart
+					}
+					return watchEvent.Error
+				}
+
+				key := string(watchEvent.Key)
+				if base := path.Base(key); base == MetadataPath || base == PropsPath {
+					continue
+				}
+
+				task := parseTask(watchEvent)
+				if task != nil {
+					select {
+					case <-c.Done():
+						return nil
+					case <-ec.done:
+						return nil
+					case out <- task:
+					}
 				}
 			}
 		}
@@ -306,17 +334,6 @@ func (ec *EtcdV3Coordinator) Done(task metafora.Task) {
 
 func (ec *EtcdV3Coordinator) Command() (metafora.Command, error) {
 	c := context.Background()
-	select {
-	case <-ec.done:
-		return nil, nil
-	default:
-	}
-
-	getRes, err := ec.kvc.Get(c, ec.commandPath, etcdv3.WithPrefix())
-	if err != nil {
-		metafora.Errorf("metafora etcdv3 coordinator: Error GETting %s - sending error to stateful handler: %v", ec.commandPath, err)
-		return nil, err
-	}
 
 	parseCommand := func(we *WatchEvent) (metafora.Command, error) {
 		if _, err := ec.kvc.Delete(c, we.Key, etcdv3.WithPrefix()); err != nil {
@@ -331,41 +348,79 @@ func (ec *EtcdV3Coordinator) Command() (metafora.Command, error) {
 		return cmd, err
 	}
 
-	for _, kv := range getRes.Kvs {
-		key := string(kv.Key)
-		if path.Base(key) == MetadataPath || key == ec.commandPath {
-			continue
-		}
-
-		we := &WatchEvent{
-			Key:   key,
-			Value: kv.Value,
-		}
-		return parseCommand(we)
-	}
-
-	watchEvents, err := ec.watch(c, ec.commandPath, getRes.Header.Revision)
-	if err != nil {
-		return nil, err
-	}
-
-	var watchEvent *WatchEvent
+	// Loop so we can re-sync (re-Get + re-watch) if etcd compacts away the
+	// revision we're watching from, which commonly happens during member
+	// restarts/relocations.
+	var backoff resyncBackoff
+restart:
 	for {
 		select {
-		case <-c.Done():
-			return nil, nil
 		case <-ec.done:
 			return nil, nil
-		case watchEvent = <-watchEvents:
-			if watchEvent.Error != nil {
-				return nil, watchEvent.Error
-			}
+		default:
+		}
 
-			if path.Base(watchEvent.Key) == MetadataPath || watchEvent.Key == ec.commandPath {
+		getRes, err := ec.kvc.Get(c, ec.commandPath, etcdv3.WithPrefix())
+		if err != nil {
+			metafora.Errorf("metafora etcdv3 coordinator: Error GETting %s - sending error to stateful handler: %v", ec.commandPath, err)
+			return nil, err
+		}
+
+		for _, kv := range getRes.Kvs {
+			key := string(kv.Key)
+			if path.Base(key) == MetadataPath || key == ec.commandPath {
 				continue
 			}
 
-			return parseCommand(watchEvent)
+			we := &WatchEvent{
+				Key:   key,
+				Value: kv.Value,
+			}
+			return parseCommand(we)
+		}
+
+		watchEvents, err := ec.watch(c, ec.commandPath, getRes.Header.Revision)
+		if err != nil {
+			return nil, err
+		}
+		watchStart := time.Now()
+
+		var watchEvent *WatchEvent
+		for {
+			select {
+			case <-c.Done():
+				return nil, nil
+			case <-ec.done:
+				return nil, nil
+			case watchEvent = <-watchEvents:
+				if watchEvent.Error != nil {
+					if errors.Is(watchEvent.Error, ErrWatchCompacted) {
+						delay, escalated := backoff.next(time.Since(watchStart))
+						if escalated {
+							// Re-syncs are failing in a tight loop; fall back to
+							// surfacing the error rather than re-syncing forever.
+							metafora.Errorf("metafora etcdv3 coordinator: command watch %s compacted %d times in a row; giving up and returning error", ec.commandPath, backoff.consecutive)
+							return nil, watchEvent.Error
+						}
+						metafora.Warnf("metafora etcdv3 coordinator: command watch revision compacted, re-syncing %s in %s", ec.commandPath, delay)
+						select {
+						case <-c.Done():
+							return nil, nil
+						case <-ec.done:
+							return nil, nil
+						case <-time.After(delay):
+						}
+						continue restart
+					}
+					return nil, watchEvent.Error
+				}
+
+				if path.Base(watchEvent.Key) == MetadataPath || watchEvent.Key == ec.commandPath {
+					continue
+				}
+
+				return parseCommand(watchEvent)
+			}
 		}
 	}
 }
@@ -598,6 +653,13 @@ func (ec *EtcdV3Coordinator) watch(c context.Context, prefix string, revision in
 		defer close(watchEvents)
 		for delta := range deltas {
 			if delta.Err() != nil {
+				// A non-zero CompactRevision means etcd compacted away the
+				// revision we started watching from. Surface a recognizable
+				// error so callers can re-sync instead of treating it as fatal.
+				if delta.CompactRevision != 0 {
+					putTerminalError(&WatchEvent{Error: ErrWatchCompacted})
+					return
+				}
 				putTerminalError(&WatchEvent{Error: delta.Err()})
 				return
 			}

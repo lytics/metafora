@@ -16,6 +16,11 @@ import (
 
 var (
 	ErrWatchClosedUnexpectedly = errors.New("metafora: watch closed unexpectedly")
+	// ErrWatchCompacted is reported when etcd has compacted away the revision
+	// the watch was started from (e.g. around member restarts/relocations).
+	// Callers should re-sync with a fresh Get and restart the watch rather
+	// than treating it as fatal.
+	ErrWatchCompacted = errors.New("metafora: watch revision compacted")
 )
 
 type cmdr struct {
@@ -103,18 +108,6 @@ func (c *cmdListener) Stop() {
 }
 
 func (cl *cmdListener) watch(c context.Context, prefix string) {
-	getRes, err := cl.kvc.Get(c, prefix, etcdv3.WithPrefix())
-	if err != nil {
-		metafora.Errorf("Error GETting %s - sending error to stateful handler: %v", prefix, err)
-		select {
-		case <-c.Done():
-			// TODO Do I need the stop channel?
-		case <-cl.stop:
-		case cl.commands <- statemachine.ErrorMessage(err):
-		}
-		return
-	}
-
 	// Create a message from an event.
 	createMessage := func(key string, value []byte) (*statemachine.Message, error) {
 		msg := &statemachine.Message{}
@@ -144,20 +137,6 @@ func (cl *cmdListener) watch(c context.Context, prefix string) {
 		case cl.commands <- msg:
 		}
 	}
-	for _, kv := range getRes.Kvs {
-		key := string(kv.Key)
-		if path.Base(key) == MetadataPath {
-			continue
-		}
-		value := kv.Value
-		msg, err := createMessage(key, value)
-		if err != nil {
-			msg = statemachine.ErrorMessage(err)
-		}
-		if msg != nil {
-			put(msg)
-		}
-	}
 
 	putTerminalError := func(msg *statemachine.Message) {
 		go func() {
@@ -172,31 +151,89 @@ func (cl *cmdListener) watch(c context.Context, prefix string) {
 		}()
 	}
 
-	// Watch deltas in etcd, with the give prefix, starting
-	// at the revision of the get call above.
-	deltas := cl.etcdv3c.Watch(c, prefix, etcdv3.WithPrefix(), etcdv3.WithRev(getRes.Header.Revision+1), etcdv3.WithFilterDelete())
+	// Loop so we can re-sync (re-Get + re-watch) if etcd compacts away the
+	// revision we're watching from, which commonly happens during member
+	// restarts/relocations. Surfacing the compacted error to the state machine
+	// would otherwise fault an otherwise-healthy task.
+	var backoff resyncBackoff
+restart:
 	for {
-		select {
-		case <-c.Done():
-			return
-		case <-cl.stop:
-			return
-		case delta, open := <-deltas:
-			if !open {
-				putTerminalError(statemachine.ErrorMessage(ErrWatchClosedUnexpectedly))
-				return
+		getRes, err := cl.kvc.Get(c, prefix, etcdv3.WithPrefix())
+		if err != nil {
+			metafora.Errorf("Error GETting %s - sending error to stateful handler: %v", prefix, err)
+			select {
+			case <-c.Done():
+				// TODO Do I need the stop channel?
+			case <-cl.stop:
+			case cl.commands <- statemachine.ErrorMessage(err):
 			}
-			if delta.Err() != nil {
-				putTerminalError(statemachine.ErrorMessage(delta.Err()))
-				return
+			return
+		}
+
+		for _, kv := range getRes.Kvs {
+			key := string(kv.Key)
+			if path.Base(key) == MetadataPath {
+				continue
 			}
-			for _, event := range delta.Events {
-				msg, err := createMessage(string(event.Kv.Key), event.Kv.Value)
-				if err != nil {
-					msg = statemachine.ErrorMessage(err)
+			value := kv.Value
+			msg, err := createMessage(key, value)
+			if err != nil {
+				msg = statemachine.ErrorMessage(err)
+			}
+			if msg != nil {
+				put(msg)
+			}
+		}
+
+		// Watch deltas in etcd, with the give prefix, starting
+		// at the revision of the get call above.
+		deltas := cl.etcdv3c.Watch(c, prefix, etcdv3.WithPrefix(), etcdv3.WithRev(getRes.Header.Revision+1), etcdv3.WithFilterDelete())
+		watchStart := time.Now()
+		for {
+			select {
+			case <-c.Done():
+				return
+			case <-cl.stop:
+				return
+			case delta, open := <-deltas:
+				if !open {
+					putTerminalError(statemachine.ErrorMessage(ErrWatchClosedUnexpectedly))
+					return
 				}
-				if msg != nil {
-					put(msg)
+				if delta.Err() != nil {
+					// A non-zero CompactRevision means etcd compacted away the
+					// revision we started watching from. Re-sync with a fresh
+					// Get and restart the watch instead of faulting the task.
+					if delta.CompactRevision != 0 {
+						delay, escalated := backoff.next(time.Since(watchStart))
+						if escalated {
+							// Re-syncs are failing in a tight loop; fall back to
+							// surfacing the error rather than re-syncing forever.
+							metafora.Errorf("metafora command listener: watch %s compacted %d times in a row; giving up and faulting task", prefix, backoff.consecutive)
+							putTerminalError(statemachine.ErrorMessage(delta.Err()))
+							return
+						}
+						metafora.Warnf("metafora command listener: watch revision compacted, re-syncing %s in %s", prefix, delay)
+						select {
+						case <-c.Done():
+							return
+						case <-cl.stop:
+							return
+						case <-time.After(delay):
+						}
+						continue restart
+					}
+					putTerminalError(statemachine.ErrorMessage(delta.Err()))
+					return
+				}
+				for _, event := range delta.Events {
+					msg, err := createMessage(string(event.Kv.Key), event.Kv.Value)
+					if err != nil {
+						msg = statemachine.ErrorMessage(err)
+					}
+					if msg != nil {
+						put(msg)
+					}
 				}
 			}
 		}
