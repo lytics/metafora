@@ -3,6 +3,7 @@ package metcdv3
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -98,6 +99,29 @@ func NewEtcdV3Coordinator(conf *Config, client *etcdv3.Client) *EtcdV3Coordinato
 // Watch streams tasks from etcd watches or GETs until Close is called or etcd
 // is unreachable (in which case an error is returned).
 func (ec *EtcdV3Coordinator) Watch(out chan<- metafora.Task) error {
+	var backoff resyncBackoff
+	for {
+		start := time.Now()
+		err := ec.watchOnce(out)
+		if err == nil || !errors.Is(err, ErrWatchCompacted) {
+			return err
+		}
+
+		delay, escalated := backoff.next(time.Since(start))
+		if escalated {
+			metafora.Errorf("metafora etcdv3 coordinator: task watch %s compacted %d times in a row; giving up and returning error", ec.taskPath, backoff.consecutive)
+			return err
+		}
+		metafora.Warnf("metafora etcdv3 coordinator: task watch revision compacted, re-syncing %s in %s", ec.taskPath, delay)
+		select {
+		case <-ec.done:
+			return nil
+		case <-time.After(delay):
+		}
+	}
+}
+
+func (ec *EtcdV3Coordinator) watchOnce(out chan<- metafora.Task) error {
 	c := context.Background()
 	select {
 	case <-ec.done:
@@ -304,7 +328,32 @@ func (ec *EtcdV3Coordinator) Done(task metafora.Task) {
 	}
 }
 
+// Command returns the next command for this node, blocking until one is
+// available, the coordinator is closed, or an error occurs.
 func (ec *EtcdV3Coordinator) Command() (metafora.Command, error) {
+	var backoff resyncBackoff
+	for {
+		start := time.Now()
+		cmd, err := ec.commandOnce()
+		if err == nil || !errors.Is(err, ErrWatchCompacted) {
+			return cmd, err
+		}
+
+		delay, escalated := backoff.next(time.Since(start))
+		if escalated {
+			metafora.Errorf("metafora etcdv3 coordinator: command watch %s compacted %d times in a row; giving up and returning error", ec.commandPath, backoff.consecutive)
+			return cmd, err
+		}
+		metafora.Warnf("metafora etcdv3 coordinator: command watch revision compacted, re-syncing %s in %s", ec.commandPath, delay)
+		select {
+		case <-ec.done:
+			return nil, nil
+		case <-time.After(delay):
+		}
+	}
+}
+
+func (ec *EtcdV3Coordinator) commandOnce() (metafora.Command, error) {
 	c := context.Background()
 	select {
 	case <-ec.done:
@@ -598,6 +647,13 @@ func (ec *EtcdV3Coordinator) watch(c context.Context, prefix string, revision in
 		defer close(watchEvents)
 		for delta := range deltas {
 			if delta.Err() != nil {
+				// A non-zero CompactRevision means etcd compacted away the
+				// revision we started watching from. Surface a recognizable
+				// error so callers can re-sync instead of treating it as fatal.
+				if delta.CompactRevision != 0 {
+					putTerminalError(&WatchEvent{Error: ErrWatchCompacted})
+					return
+				}
 				putTerminalError(&WatchEvent{Error: delta.Err()})
 				return
 			}
