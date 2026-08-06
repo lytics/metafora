@@ -50,10 +50,12 @@ func (c *cmdr) Send(taskID string, m *statemachine.Message) error {
 }
 
 type cmdListener struct {
-	etcdv3c     *etcdv3.Client
-	kvc         etcdv3.KV
-	name        string
-	taskcmdpath string
+	etcdv3c       *etcdv3.Client
+	kvc           etcdv3.KV
+	name          string
+	taskid        string
+	taskcmdpath   string
+	taskownerpath string
 
 	commands chan *statemachine.Message
 
@@ -66,20 +68,22 @@ type cmdListener struct {
 // backed by etcd. The namespace should be the same as the coordinator as
 // commands use a separate path within a namespace than tasks or nodes.
 func NewCommandListener(conf *Config, task metafora.Task, c *etcdv3.Client) statemachine.CommandListener {
-	taskcmdpath := path.Join("/", conf.Namespace, TasksPath, task.ID(), CommandsPath)
+	taskpath := path.Join("/", conf.Namespace, TasksPath, task.ID())
 
 	ctxt, cancel := context.WithCancel(context.Background())
 	cl := &cmdListener{
-		etcdv3c:     c,
-		name:        conf.Name,
-		taskcmdpath: taskcmdpath,
-		kvc:         etcdv3.NewKV(c),
-		commands:    make(chan *statemachine.Message),
-		mu:          &sync.Mutex{},
-		stop:        make(chan bool),
-		cancel:      cancel,
+		etcdv3c:       c,
+		name:          conf.Name,
+		taskid:        task.ID(),
+		taskcmdpath:   path.Join(taskpath, CommandsPath),
+		taskownerpath: path.Join(taskpath, OwnerPath),
+		kvc:           etcdv3.NewKV(c),
+		commands:      make(chan *statemachine.Message),
+		mu:            &sync.Mutex{},
+		stop:          make(chan bool),
+		cancel:        cancel,
 	}
-	go cl.watch(ctxt, taskcmdpath)
+	go cl.watch(ctxt, cl.taskcmdpath)
 	return cl
 }
 
@@ -165,16 +169,21 @@ func (cl *cmdListener) watchOnce(c context.Context, prefix string) error {
 			return nil, err
 		}
 
+		// Compare against the owner key built from the task path. Deriving it
+		// from the command key's parent instead silently resolves to the wrong
+		// key if the command ever moves within the prefix being watched.
 		txnRes, err := cl.kvc.Txn(c).
-			If(etcdv3.Compare(etcdv3.Value(path.Join(path.Dir(key), OwnerPath)), "=", cl.ownerValueString())).
-			Then(etcdv3.OpDelete(key, etcdv3.WithPrefix())).
+			If(etcdv3.Compare(etcdv3.Value(cl.taskownerpath), "=", cl.ownerValueString())).
+			Then(etcdv3.OpDelete(key)).
 			Commit()
 		if err != nil {
 			metafora.Errorf("Error deleting command %s: %s - sending error to stateful handler: %v", key, msg, err)
 			return nil, err
 		}
 		if !txnRes.Succeeded {
-			metafora.Infof("Received successive commands; attempting to retrieve the latest")
+			// This node no longer owns the task, so it must not consume the
+			// command; whoever holds the claim will pick it up instead.
+			metafora.Warnf("task=%q no longer owned by %s, leaving command %s at %s for the new owner", cl.taskid, cl.name, msg, key)
 			return nil, nil
 		}
 		return msg, nil

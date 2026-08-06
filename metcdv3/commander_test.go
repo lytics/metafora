@@ -69,3 +69,49 @@ func TestCommandListener(t *testing.T) {
 		// Ok
 	}
 }
+
+// A listener on a node that doesn't hold the claim must neither consume the
+// command nor delete it, so the node that does hold the claim still gets it.
+func TestCommandListenerLeavesCommandsForTheOwner(t *testing.T) {
+	t.Parallel()
+
+	etcdv3c, _, conf := setupEtcd(t)
+	kvc := etcdv3.NewKV(etcdv3c)
+
+	namespace := "/clnotownedtest"
+	conf.Namespace = namespace
+	_, _ = kvc.Delete(context.Background(), namespace, etcdv3.WithPrefix())
+
+	task := metafora.NewTask("testtask")
+	cmdpath := path.Join(namespace, TasksPath, task.ID(), CommandsPath)
+
+	// Claimed by somebody else.
+	_, err := kvc.Put(context.Background(),
+		path.Join(namespace, TasksPath, task.ID(), OwnerPath), `{"node":"someothernode"}`)
+	if err != nil {
+		t.Fatalf("Error creating fake claim: %v", err)
+	}
+
+	if err := NewCommander(namespace, etcdv3c).Send(task.ID(), statemachine.RunMessage()); err != nil {
+		t.Fatalf("Error sending command: %v", err)
+	}
+
+	cl := NewCommandListener(conf, task, etcdv3c)
+	defer cl.Stop()
+
+	select {
+	case cmd := <-cl.Receive():
+		t.Fatalf("Received a command for a task this node doesn't own: %v", cmd)
+	case <-time.After(time.Second):
+		// Ok!
+	}
+
+	// The command must still be there for the real owner.
+	res, err := kvc.Get(context.Background(), cmdpath)
+	if err != nil {
+		t.Fatalf("Error reading command back: %v", err)
+	}
+	if res.Count != 1 {
+		t.Fatalf("Expected the command to survive, found %d keys at %s", res.Count, cmdpath)
+	}
+}
