@@ -117,7 +117,7 @@ func (mc *mclient) SubmitCommand(node string, command metafora.Command) error {
 // nodes are registered.
 func (mc *mclient) Nodes() ([]string, error) {
 	res, err := mc.kvc.Get(context.Background(), mc.nodesPath(), etcdv3.WithPrefix())
-	if err != nil && res != nil && len(res.Kvs) > 0 {
+	if err == nil && res != nil && len(res.Kvs) > 0 {
 		nodes := make([]string, len(res.Kvs))
 		for i, kv := range res.Kvs {
 			var node string
