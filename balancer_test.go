@@ -166,3 +166,46 @@ func TestSleepBalancer(t *testing.T) {
 		t.Fatalf("SleepBalancer went a worrying amount over the expected time: %s > %s", post, minimum)
 	}
 }
+
+func TestFairBalancerClaimSleep(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		expected int
+		n        int
+		want     time.Duration
+	}{
+		{"no tasks", 1000, 0, 0},
+		{"half the expected count", 1000, 500, 10 * time.Millisecond},
+		{"the expected count", 1000, 1000, 20 * time.Millisecond},
+		{"2.5x the expected count", 1000, 2500, 50 * time.Millisecond},
+		{"the expected count of a small node", 40, 40, 20 * time.Millisecond},
+		{"5x the expected count", 1000, 5000, 100 * time.Millisecond},
+		{"9x the expected count", 1000, 9000, 180 * time.Millisecond},
+		{"no expectation keeps n/4", 0, 800, 200 * time.Millisecond},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			fb := NewFairBalancerWithExpectedTasks("node1", &TestClusterState{}, tt.expected).(*FairBalancer)
+			if got := fb.claimSleep(tt.n); got != tt.want {
+				t.Errorf("claimSleep(%d) with %d expected = %v, want %v", tt.n, tt.expected, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFairBalancerCanClaimSleepsByExpectedTasks(t *testing.T) {
+	t.Parallel()
+	fb := NewFairBalancerWithExpectedTasks("node1", &TestClusterState{}, 1)
+	fb.Init(&TestConsumerState{[]string{"1", "2", "3", "4", "5"}})
+
+	// 5 tasks at 1 expected is 100ms; the 1ms per 4 tasks it replaces would be 1ms.
+	start := time.Now()
+	if _, ok := fb.CanClaim(testTask{"6"}); !ok {
+		t.Fatal("CanClaim rejected a task")
+	}
+	if slept := time.Since(start); slept < 100*time.Millisecond {
+		t.Errorf("CanClaim slept %v, want at least 100ms", slept)
+	}
+}
