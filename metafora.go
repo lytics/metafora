@@ -40,12 +40,19 @@ type Consumer struct {
 	stop     chan struct{} // closed by Shutdown to cause Run to exit
 	tasks    chan Task     // channel for watcher to send tasks to main loop
 
+	// Most Balancer.CanClaim calls running at once
+	canClaimLimit int
+
 	// Set by command handler, read anywhere via Consumer.frozen()
 	freezeL sync.Mutex
 	freeze  bool
 }
 
 var BalanceEvery = 15 * time.Minute //TODO make balance wait configurable
+
+// CanClaimConcurrency bounds how many Balancer.CanClaim calls a new Consumer
+// runs at once; at the limit it stops reading tasks until one returns.
+var CanClaimConcurrency = 100
 
 // NewConsumer returns a new consumer and calls Init on the Balancer and Coordinator.
 func NewConsumer(coord Coordinator, h HandlerFunc, b Balancer) (*Consumer, error) {
@@ -57,6 +64,8 @@ func NewConsumer(coord Coordinator, h HandlerFunc, b Balancer) (*Consumer, error
 		coord:    coord,
 		stop:     make(chan struct{}),
 		tasks:    make(chan Task),
+
+		canClaimLimit: CanClaimConcurrency,
 	}
 	c.im = ignorer(c.tasks, c.stop)
 
@@ -87,8 +96,8 @@ func (c *Consumer) Run() {
 	cmdChan := make(chan Command)
 	verdicts := make(chan claimVerdict)
 
-	// Tasks whose CanClaim is still running, so a repeated watch event doesn't
-	// start a second one. Only the main loop touches it.
+	// Tasks whose CanClaim is still running, one goroutine each, so a repeated
+	// watch event doesn't start a second one. Only the main loop touches it.
 	awaiting := make(map[string]struct{})
 
 	// Balance is called by the main loop when the balance channel is ticked
@@ -157,13 +166,21 @@ func (c *Consumer) Run() {
 			continue
 		}
 
+		// At the limit, stop reading tasks but keep receiving verdicts, which free
+		// slots. Blocking on a free slot instead would deadlock: only this loop
+		// receives the verdicts that free them.
+		tasks := c.tasks
+		if len(awaiting) >= c.canClaimLimit {
+			tasks = nil
+		}
+
 		select {
 		case <-c.stop:
 			// Shutdown has been called.
 			return
 		case <-balance:
 			c.balance()
-		case task := <-c.tasks:
+		case task := <-tasks:
 			tid := task.ID()
 			if c.ignored(tid) {
 				Debugf("%s task=%q ignored", c, tid)

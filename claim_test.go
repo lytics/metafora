@@ -172,3 +172,87 @@ func TestConsumerShutdownDoesNotWaitForBalancer(t *testing.T) {
 		t.Fatal("Shutdown waited on a blocked CanClaim")
 	}
 }
+
+// blockingBalancer blocks each task's CanClaim until that task ID is released.
+type blockingBalancer struct {
+	entered chan string
+
+	mu       sync.Mutex
+	gates    map[string]chan struct{}
+	released map[string]bool
+}
+
+func newBlockingBalancer(ids ...string) *blockingBalancer {
+	b := &blockingBalancer{
+		entered:  make(chan string, 100),
+		gates:    map[string]chan struct{}{},
+		released: map[string]bool{},
+	}
+	for _, id := range ids {
+		b.gates[id] = make(chan struct{})
+	}
+	return b
+}
+
+func (b *blockingBalancer) Init(BalancerContext) {}
+func (b *blockingBalancer) Balance() []string    { return nil }
+
+func (b *blockingBalancer) CanClaim(task Task) (time.Time, bool) {
+	b.entered <- task.ID()
+	b.mu.Lock()
+	gate := b.gates[task.ID()]
+	b.mu.Unlock()
+	<-gate
+	return NoDelay, true
+}
+
+func (b *blockingBalancer) release(ids ...string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, id := range ids {
+		if !b.released[id] {
+			b.released[id] = true
+			close(b.gates[id])
+		}
+	}
+}
+
+func TestConsumerBoundsConcurrentCanClaims(t *testing.T) {
+	t.Parallel()
+	tc := NewTestCoord()
+	bal := newBlockingBalancer("a", "b", "c")
+	hf, tasksRun := newTestHandlerFunc(t)
+	c, err := NewConsumer(tc, hf, bal)
+	if err != nil {
+		t.Fatalf("NewConsumer: %v", err)
+	}
+	c.canClaimLimit = 2
+	go c.Run()
+	defer c.Shutdown()
+	defer bal.release("a", "b", "c")
+
+	for _, id := range []string{"a", "b", "c"} {
+		tc.Tasks <- testTask{id}
+	}
+	started := map[string]bool{}
+	for range 2 {
+		select {
+		case id := <-bal.entered:
+			started[id] = true
+		case <-time.After(claimTestTimeout):
+			t.Fatalf("only %d CanClaim calls started, want 2", len(started))
+		}
+	}
+	if !started["a"] || !started["b"] {
+		t.Fatalf("CanClaim started for %v, want a and b", started)
+	}
+	select {
+	case id := <-bal.entered:
+		t.Fatalf("CanClaim for %q started while 2 were running with a limit of 2", id)
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	bal.release("a")
+	expectID(t, tasksRun, "a", "task run once its CanClaim returns")
+	expectID(t, bal.entered, "c", "CanClaim once a slot frees")
+}
