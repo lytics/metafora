@@ -3,6 +3,7 @@ package metafora
 import (
 	"math"
 	"math/rand"
+	"sync"
 	"time"
 )
 
@@ -38,6 +39,9 @@ type Balancer interface {
 	//
 	// When denying a claim by returning false, CanClaim should return the time
 	// at which to reconsider the task for claiming.
+	//
+	// The Consumer calls CanClaim from its own goroutine per task, concurrently
+	// with other CanClaim calls and with Balance.
 	CanClaim(task Task) (ignoreUntil time.Time, claim bool)
 
 	// Balance should return the list of Task IDs that should be released. The
@@ -97,7 +101,10 @@ type FairBalancer struct {
 	clusterstate ClusterState
 
 	releaseThreshold float64
-	delay            time.Time
+
+	// The Consumer calls CanClaim concurrently with itself and with Balance.
+	delayMu sync.Mutex
+	delay   time.Time
 }
 
 func (e *FairBalancer) Init(s BalancerContext) {
@@ -107,9 +114,12 @@ func (e *FairBalancer) Init(s BalancerContext) {
 // CanClaim rejects tasks for a period of time if the last balance released
 // tasks. Otherwise all tasks are accepted.
 func (e *FairBalancer) CanClaim(task Task) (time.Time, bool) {
-	if e.delay.After(time.Now()) {
+	e.delayMu.Lock()
+	delay := e.delay
+	e.delayMu.Unlock()
+	if delay.After(time.Now()) {
 		// Return delay set by Balance()
-		return e.delay, false
+		return delay, false
 	}
 
 	// Sleep proportional to number of tasks
@@ -124,7 +134,7 @@ func (e *FairBalancer) Balance() []string {
 	nodetasks := e.bc.Tasks()
 
 	// Reset delay
-	e.delay = time.Time{}
+	e.setDelay(time.Time{})
 
 	// If local tasks <= 1 this node should never rebalance
 	if len(nodetasks) < 2 {
@@ -157,8 +167,14 @@ func (e *FairBalancer) Balance() []string {
 		}
 	}
 
-	e.delay = time.Now().Add(time.Duration(len(releasetasks)) * time.Second)
+	e.setDelay(time.Now().Add(time.Duration(len(releasetasks)) * time.Second))
 	return releasetasks
+}
+
+func (e *FairBalancer) setDelay(delay time.Time) {
+	e.delayMu.Lock()
+	e.delay = delay
+	e.delayMu.Unlock()
 }
 
 // Retrieve the desired maximum count, based on current cluster state

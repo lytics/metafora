@@ -1,6 +1,7 @@
 package metafora
 
 import (
+	"sync"
 	"testing"
 	"time"
 )
@@ -165,4 +166,27 @@ func TestSleepBalancer(t *testing.T) {
 	if post.After(minimum.Add(50 * time.Millisecond)) {
 		t.Fatalf("SleepBalancer went a worrying amount over the expected time: %s > %s", post, minimum)
 	}
+}
+
+// Run with -race: the Consumer calls CanClaim concurrently with Balance.
+func TestFairBalancerCanClaimConcurrentWithBalance(t *testing.T) {
+	t.Parallel()
+	clusterstate := &TestClusterState{Current: map[string]int{"node1": 4, "node2": 0}}
+	fb := NewDefaultFairBalancer("node1", clusterstate)
+	fb.Init(&TestConsumerState{[]string{"1", "2", "3", "4"}})
+
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 50 {
+				fb.CanClaim(testTask{"x"})
+			}
+		}()
+	}
+	for range 50 {
+		fb.Balance()
+	}
+	wg.Wait()
 }

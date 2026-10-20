@@ -85,6 +85,11 @@ func (c *Consumer) Run() {
 	// chans for core goroutines to communicate with main loop
 	balance := make(chan bool)
 	cmdChan := make(chan Command)
+	verdicts := make(chan claimVerdict)
+
+	// Tasks whose CanClaim is still running, so a repeated watch event doesn't
+	// start a second one. Only the main loop touches it.
+	awaiting := make(map[string]struct{})
 
 	// Balance is called by the main loop when the balance channel is ticked
 	go func() {
@@ -164,16 +169,29 @@ func (c *Consumer) Run() {
 				Debugf("%s task=%q ignored", c, tid)
 				continue
 			}
-			if until, ok := c.bal.CanClaim(task); !ok {
-				Infof("%s Balancer rejected task=%q until %s", c, tid, until)
-				c.ignore(task, until)
+			if _, ok := awaiting[tid]; ok {
+				Debugf("%s task=%q already awaiting the balancer", c, tid)
+				continue
+			}
+			// CanClaim sleeps in proportion to this node's load; running it here would
+			// stop the loop from reading further tasks for that long.
+			awaiting[tid] = struct{}{}
+			go c.askBalancer(task, verdicts)
+		case v := <-verdicts:
+			tid := v.task.ID()
+			delete(awaiting, tid)
+			if !v.ok {
+				Infof("%s Balancer rejected task=%q until %s", c, tid, v.until)
+				c.ignore(v.task, v.until)
 				break
 			}
-			if !c.coord.Claim(task) {
+			// Claims stay serial in the main loop so a burst of tasks doesn't
+			// become a burst of concurrent coordinator requests.
+			if !c.coord.Claim(v.task) {
 				Debugf("%s Coordinator unable to claim task=%q", c, tid)
 				break
 			}
-			c.claimed(task)
+			c.claimed(v.task)
 		case cmd, ok := <-cmdChan:
 			if !ok {
 				Debug(c, " Command channel closed. Exiting main loop.")
@@ -181,6 +199,21 @@ func (c *Consumer) Run() {
 			}
 			c.handleCommand(cmd)
 		}
+	}
+}
+
+type claimVerdict struct {
+	task  Task
+	until time.Time
+	ok    bool
+}
+
+// askBalancer sends the balancer's CanClaim verdict for task to the main loop.
+func (c *Consumer) askBalancer(task Task, verdicts chan<- claimVerdict) {
+	until, ok := c.bal.CanClaim(task)
+	select {
+	case verdicts <- claimVerdict{task: task, until: until, ok: ok}:
+	case <-c.stop:
 	}
 }
 
