@@ -67,7 +67,8 @@ func TestRules(t *testing.T) {
 
 		// Create a new statemachine that starts from the From state
 		sm := New(task("test"), testhandler, ts, cmdlistener, nil)
-		go sm.Run()
+		returned := make(chan bool, 1)
+		go func() { returned <- sm.Run() }()
 		initial := <-store
 		if initial.Code != trans.From {
 			t.Fatalf("%d Initial state %q not set. Found: %q", i, trans.From, initial.Code)
@@ -89,6 +90,20 @@ func TestRules(t *testing.T) {
 			if err := cmdr.Send("test", msg); err != nil {
 				t.Fatalf("Error sending message %s: %v", trans.Event, err)
 			}
+		}
+		if trans.Event == Release {
+			// Release never changes the state, so nothing is stored; Run just exits.
+			select {
+			case newstate := <-store:
+				t.Fatalf("%d Release stored unchanged state %q for transition %s", i, newstate.Code, trans)
+			case done := <-returned:
+				if done {
+					t.Fatalf("%d Release returned done for transition %s", i, trans)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatalf("%d Run did not exit on Release for transition %s", i, trans)
+			}
+			continue
 		}
 		newstate := <-store
 		if trans.From == Fault && trans.To == Failed {
@@ -205,12 +220,21 @@ func TestSleepRelease(t *testing.T) {
 		if err := cmdr.Send("sleep-test", ReleaseMessage()); err != nil {
 			t.Fatalf("Error sending release: %v", err)
 		}
-		newstate := <-ss.Stored
-		if newstate.State.Code != Sleeping || newstate.State.Until == nil || !newstate.State.Until.Equal(until) {
-			t.Fatalf("Releasing unexpectedly changed state: %s != Sleeping || %v != %s", newstate.State.Code, newstate.State.Until, until)
+		select {
+		case done := <-returned:
+			if done {
+				t.Fatal("Releasing should not have returned done.")
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("Releasing sleeping task should have exited the statemachine, but didn't.")
 		}
-		if done := <-returned; done {
-			t.Fatal("Releasing should not have returned done.")
+		select {
+		case newstate := <-ss.Stored:
+			t.Fatalf("Releasing stored unchanged state: %s", newstate.State)
+		default:
+		}
+		if state, err := ss.Load(task("sleep-test")); err != nil || state.Code != Sleeping || state.Until == nil || !state.Until.Equal(until) {
+			t.Fatalf("Releasing unexpectedly changed state: state=%s err=%v", state, err)
 		}
 	}
 }
@@ -296,10 +320,6 @@ func TestPause(t *testing.T) {
 
 	// Releasing paused work should make it exit but leave it in the paused state
 	sm.Stop()
-	newstate = <-ss.Stored
-	if newstate.State.Code != Paused {
-		t.Fatalf("Releasing should not have changed paused state but stored: %s", newstate.State)
-	}
 	select {
 	case d := <-done:
 		if d {
@@ -308,10 +328,48 @@ func TestPause(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("Releasing paused task should have exited the statemachine, but didn't.")
 	}
+	select {
+	case newstate := <-ss.Stored:
+		t.Fatalf("Releasing stored unchanged state: %s", newstate.State)
+	default:
+	}
 
 	// Ensure task is stored with the paused state
 	if state, err := ss.Load(task("test-pause")); err != nil || state.Code != Paused {
 		t.Fatalf("Failed to load expected paused state for task: state=%s err=%v", state, err)
+	}
+}
+
+func TestStopBeforeRun(t *testing.T) {
+	t.Parallel()
+	ss := embedded.NewStateStore().(*embedded.StateStore)
+	_ = ss.Store(task("stop-before-run"), &State{Code: Runnable})
+	<-ss.Stored // pop initial state out
+	cmdr := embedded.NewCommander()
+	sm := New(task("stop-before-run"), testhandler, ss, cmdr.NewListener("stop-before-run"), nil)
+
+	stopped := make(chan struct{})
+	go func() {
+		sm.Stop()
+		close(stopped)
+	}()
+	// Give Stop time to reach its send before Run starts.
+	time.Sleep(50 * time.Millisecond)
+	returned := make(chan bool, 1)
+	go func() { returned <- sm.Run() }()
+
+	select {
+	case done := <-returned:
+		if done {
+			t.Fatal("Releasing should not have returned done.")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not exit for a Stop called before it started")
+	}
+	select {
+	case <-stopped:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Stop did not return")
 	}
 }
 
