@@ -147,7 +147,7 @@ func (c *Consumer) Run() {
 	// Make sure Run() cleans up on exit (stops coordinator, releases tasks, etc)
 	defer c.shutdown()
 
-	// Main Loop ensures events are processed synchronously
+	// Main Loop serializes claims, balancing and commands; only CanClaim runs elsewhere
 	for {
 		if c.Frozen() {
 			// Only recv commands while frozen

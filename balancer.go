@@ -20,9 +20,10 @@ var NoDelay = time.Time{}
 // BalancerContext is a limited interface exposed to Balancers from the
 // Consumer for access to limited Consumer state.
 type BalancerContext interface {
-	// Tasks returns a sorted list of task IDs owned by this Consumer. The
-	// Consumer stops task manipulations during claiming and balancing, so the
-	// list will be accurate unless a task naturally completes.
+	// Tasks returns this Consumer's running tasks sorted by ID. During Balance
+	// the list only changes as tasks exit, since claims happen on the same
+	// goroutine. CanClaim runs concurrently with claims, so the list it sees
+	// may already be out of date.
 	Tasks() []RunningTask
 }
 
