@@ -270,6 +270,8 @@ func New(task metafora.Task, h StatefulHandler, ss StateStore, cl CommandListene
 		ts:         time.Now(),
 		stopL:      &sync.Mutex{},
 		stopped:    make(chan bool),
+		// Made here, not in Run: Stop may be called before Run starts.
+		cmds: make(chan *Message),
 	}
 }
 
@@ -293,7 +295,6 @@ func (s *stateMachine) setState(state *State) {
 // listener into the handler's commands chan.
 func (s *stateMachine) Run() (done bool) {
 	// Multiplex external (Stop) messages and internal ones
-	s.cmds = make(chan *Message)
 	go func() {
 		for {
 			select {
