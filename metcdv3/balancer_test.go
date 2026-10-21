@@ -5,10 +5,44 @@ import (
 	"time"
 
 	"github.com/lytics/metafora"
+	etcdv3 "go.etcd.io/etcd/client/v3"
 )
+
+type runningTasks int
+
+func (n runningTasks) Tasks() []metafora.RunningTask { return make([]metafora.RunningTask, n) }
+
+func TestNewFairBalancerWithExpectedTasksSleepsByExpectedTasks(t *testing.T) {
+	t.Parallel()
+	// CanClaim never talks to etcd, so an unconnected client is enough.
+	bal := NewFairBalancerWithExpectedTasks(NewConfig("node1", "test"), &etcdv3.Client{}, func(*FilterableValue) bool { return true }, 1)
+	bal.Init(runningTasks(5))
+
+	// 5 tasks at 1 expected is 100ms; without the expected count it would be 5/4 ms.
+	start := time.Now()
+	if _, ok := bal.CanClaim(DefaultTaskFunc("t1", "")); !ok {
+		t.Fatal("CanClaim rejected a task")
+	}
+	if slept := time.Since(start); slept < 100*time.Millisecond {
+		t.Errorf("CanClaim slept %v, want at least 100ms", slept)
+	}
+}
 
 func TestFairBalancer(t *testing.T) {
 	t.Parallel()
+	testFairBalancer(t, NewFairBalancer)
+}
+
+func TestFairBalancerWithExpectedTasks(t *testing.T) {
+	t.Parallel()
+	testFairBalancer(t, func(conf *Config, etcdv3c *etcdv3.Client, filter func(*FilterableValue) bool) metafora.Balancer {
+		return NewFairBalancerWithExpectedTasks(conf, etcdv3c, filter, 6)
+	})
+}
+
+// testFairBalancer checks that a second consumer gets a share of the first's
+// tasks after a balance, with balancers made by newBalancer.
+func testFairBalancer(t *testing.T, newBalancer func(*Config, *etcdv3.Client, func(*FilterableValue) bool) metafora.Balancer) {
 	etcdv3c, coord1, conf1 := setupEtcd(t)
 	defer etcdv3c.Close()
 	conf2 := conf1.Copy()
@@ -26,13 +60,13 @@ func TestFairBalancer(t *testing.T) {
 
 	filter := func(_ *FilterableValue) bool { return true }
 	// Create two consumers
-	b1 := NewFairBalancer(conf1, etcdv3c, filter)
+	b1 := newBalancer(conf1, etcdv3c, filter)
 	con1, err := metafora.NewConsumer(coord1, h, b1)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	b2 := NewFairBalancer(conf2, etcdv3c, filter)
+	b2 := newBalancer(conf2, etcdv3c, filter)
 	con2, err := metafora.NewConsumer(coord2, h, b2)
 	if err != nil {
 		t.Fatal(err)

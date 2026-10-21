@@ -13,14 +13,23 @@ import (
 // NewFairBalancer creates a new metafora.DefaultFairBalancer that uses etcd
 // for counting tasks per node.
 func NewFairBalancer(conf *Config, etcdv3c *etcdv3.Client, filter func(*FilterableValue) bool) metafora.Balancer {
-	e := etcdClusterState{
+	return metafora.NewDefaultFairBalancer(conf.Name, newClusterState(conf, etcdv3c, filter))
+}
+
+// NewFairBalancerWithExpectedTasks is NewFairBalancer with the claim sleep of
+// metafora.NewFairBalancerWithExpectedTasks.
+func NewFairBalancerWithExpectedTasks(conf *Config, etcdv3c *etcdv3.Client, filter func(*FilterableValue) bool, expectedTasks int) metafora.Balancer {
+	return metafora.NewFairBalancerWithExpectedTasks(conf.Name, newClusterState(conf, etcdv3c, filter), expectedTasks)
+}
+
+func newClusterState(conf *Config, etcdv3c *etcdv3.Client, filter func(*FilterableValue) bool) *etcdClusterState {
+	return &etcdClusterState{
 		etcdv3c:  etcdv3c,
 		kvc:      etcdv3.NewKV(etcdv3c),
 		taskPath: path.Join(conf.Namespace, TasksPath),
 		nodePath: path.Join(conf.Namespace, NodesPath),
 		filter:   filter,
 	}
-	return metafora.NewDefaultFairBalancer(conf.Name, &e)
 }
 
 // Checks the current state of an Etcd cluster

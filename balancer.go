@@ -9,6 +9,10 @@ import (
 const (
 	// Default threshold is 120% of cluster average
 	defaultThreshold float64 = 1.2
+
+	// With an expected task count, CanClaim sleeps claimSleepPerExpected for
+	// every expected-task-count running tasks.
+	claimSleepPerExpected = 20 * time.Millisecond
 )
 
 // NoDelay is simply the zero value for time and meant to be a more meaningful
@@ -84,6 +88,15 @@ func NewDefaultFairBalancerWithThreshold(nodeid string, cs ClusterState, thresho
 	}
 }
 
+// NewFairBalancerWithExpectedTasks is NewDefaultFairBalancer with CanClaim
+// sleeping 20ms for every expectedTasks running tasks instead of 1ms per 4
+// tasks. expectedTasks <= 0 keeps the 1ms per 4 tasks.
+func NewFairBalancerWithExpectedTasks(nodeid string, cs ClusterState, expectedTasks int) Balancer {
+	b := NewDefaultFairBalancer(nodeid, cs).(*FairBalancer)
+	b.expectedTasks = expectedTasks
+	return b
+}
+
 // An implementation of Balancer which attempts to randomly release tasks in
 // the case when the count of those currently running on this node is greater
 // than some percentage of the cluster average (default 120%).
@@ -98,6 +111,7 @@ type FairBalancer struct {
 
 	releaseThreshold float64
 	delay            time.Time
+	expectedTasks    int
 }
 
 func (e *FairBalancer) Init(s BalancerContext) {
@@ -112,10 +126,17 @@ func (e *FairBalancer) CanClaim(task Task) (time.Time, bool) {
 		return e.delay, false
 	}
 
-	// Sleep proportional to number of tasks
-	n := len(e.bc.Tasks())
-	time.Sleep(time.Duration(n>>2) * time.Millisecond)
+	time.Sleep(e.claimSleep(len(e.bc.Tasks())))
 	return NoDelay, true
+}
+
+// claimSleep grows with the n tasks this node runs, so less loaded nodes win
+// claim races.
+func (e *FairBalancer) claimSleep(n int) time.Duration {
+	if e.expectedTasks <= 0 {
+		return time.Duration(n>>2) * time.Millisecond
+	}
+	return time.Duration(n) * claimSleepPerExpected / time.Duration(e.expectedTasks)
 }
 
 // Balance releases tasks if this node has 120% more tasks than the average
