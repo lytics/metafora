@@ -7,14 +7,12 @@ import "github.com/lytics/metafora"
 // StateStore can be used and implementations should be safe for concurrent
 // access.
 type StateStore interface {
-	// Load the persisted or initial state for a task. Errors will cause tasks to
-	// be marked as done.
-	//
-	// The one exception is the special error StateNotFound which will cause the
-	// state machine to start from the initial (Runnable) state.
+	// Load the persisted or initial state for a task. Returning ReleasableError
+	// itself releases the task for retry; any other error marks it as done.
 	Load(metafora.Task) (*State, error)
 
 	// Store the current task state. Errors will prevent current state from being
-	// persisted and prevent state transitions.
+	// persisted and prevent state transitions. An error wrapping ReleasableError
+	// releases the task for retry; any other error marks it as done.
 	Store(metafora.Task, *State) error
 }

@@ -380,7 +380,13 @@ func (s *stateMachine) Run() (done bool) {
 					panic(err)
 				}
 
-				metafora.Errorf("task=%q Unable to persist state=%q. Continuing.", tid, newstate.Code)
+				if errors.Is(err, ReleasableError) {
+					// The previous state is still the persisted one, so another claim resumes from it.
+					metafora.Errorf("task=%q Unable to persist state=%q - releasing for retry: %v", tid, newstate.Code, err)
+					time.Sleep(time.Second) // defer releasing the task so other nodes don't thunder herd retrying it.
+					return false
+				}
+				metafora.Errorf("task=%q Unable to persist state=%q - unscheduling, requires operator intervention to reschedule: %v", tid, newstate.Code, err)
 				return true
 			}
 		}
